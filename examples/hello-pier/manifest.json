@@ -1,0 +1,10 @@
+{
+    "name": "hello-pier",
+    "entry": "hello_pier.dll",
+    "type": "pier",
+    "version": "0.1.0",
+    "description": "Pier 契约的最小可运行验证：装载、启用、停用、卸载各打一行。",
+    "dependencies": [
+        { "name": "pier" }
+    ]
+}

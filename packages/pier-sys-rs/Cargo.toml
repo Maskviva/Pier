@@ -1,0 +1,38 @@
+[package]
+name = "pier-sys-rs"
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Pier 的裸 FFI 声明，逐格对着 packages/pier-abi/include/sdk/abi.h（ABI v1）。"
+readme = "../../README.md"
+keywords = ["levilamina", "minecraft", "bedrock", "ffi"]
+categories = ["external-ffi-bindings", "game-development"]
+
+# 包名是 pier-sys-rs，crate 名保持 levilamina_sys（契约 §七）：
+# 包名回答「属于哪条 ABI」，crate 名贴着调用方的心智模型 —— 模组作者写的是
+# LeviLamina 的业务代码，Pier 只是把它送过去的栈桥。`use levilamina_sys::`
+# 因此继续成立。
+[lib]
+name = "levilamina_sys"
+path = "src/lib.rs"
+
+[dependencies]
+
+# ── 关于 feature：v1 起这里**只剩构建期的目标声明**，不再影响任何布局 ──
+#
+# v0 的 `server` / `client` / `more_dimensions` 三个 feature 会改 PierApi 的
+# 字段集合 —— 那正是「两侧错位 7 槽」事故的根因（宿主那边宏没人定义，镜像
+# 这边 cfg 恒真，两张表长度不同，尾部整体偏移）。
+#
+# ABI v1 的布局在所有目标下相同（契约 §2.1），能力缺席 = 槽位 NULL。所以：
+#
+#   * `more_dimensions` 整个删掉 —— 维度能力现在靠 `md_is_available()` 和空槽
+#     在**运行期**判断，不是编译期；
+#   * `client` 保留，但它**只**决定 `PierModVTable::mod_flags` 里那一位，
+#     一个字段都不增删。宿主用 flags bit 0 比对目标，不匹配就明确拒绝装载。
+#
+# `sys-mirrors-abi` 机检会拒绝这个 crate 里出现任何 `#[cfg]`（测试除外），
+# 就是为了让上面这段话保持为真而不是一句愿望。
+[features]
+default = []
+client = []

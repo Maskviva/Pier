@@ -1,0 +1,12 @@
+[package]
+name = "hello-pier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "契约 §十「加一门语言」四步的可运行参考。"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pier-rs = { path = "../../packages/pier-rs" }

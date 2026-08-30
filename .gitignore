@@ -1,0 +1,14 @@
+# 构建产物
+/build/
+/target/
+/.xmake/
+Cargo.lock
+
+# 工具运行时
+__pycache__/
+*.pyc
+
+# 编辑器
+.vscode/
+.idea/
+compile_commands.json
