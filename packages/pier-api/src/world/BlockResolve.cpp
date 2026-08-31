@@ -33,7 +33,7 @@ namespace pier::bridge
     {
         // tryGetBlockFromNBT 会顺带跑引擎的版本升级表：老存档里的
         // {name:"minecraft:wool",states:{color:…}} 能被正确升级成新方块。
-        // 这正是我们要的 —— 手工解析 states 做不到这一步。
+        // 这正是所要的；手工解析 states 做不到这一步。
         auto pair = BlockSerializationUtils::tryGetBlockFromNBT(tag, nullptr);
         return pair.second;
     }
@@ -46,7 +46,7 @@ namespace pier::bridge
     }
 
     /**
-     * 方块名 → 默认状态。**找不到时返回 nullptr**，不返回「未知方块」。
+     * 方块名 → 默认状态。找不到时返回 nullptr，不返回「未知方块」。
      *
      * `getDefaultBlockState` 对不认识的名字会给一个占位方块而不是报错，
      * 于是 `//set 拼错的名字` 会安静地把整片地区填成那个占位方块。

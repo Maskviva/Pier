@@ -1,13 +1,12 @@
 /** protect/ItemFrameEvent.cpp —— 玩家打了一下物品展示框。
  *
- * 展示框和盔甲架一样是保护的盲区：**左键**打一下就能把里面的物品打出来，
- * 而这条路既不是「破坏方块」（框还在）也不是「打实体」（框是方块）。
- * 在地皮服上表现为「我的展示品被人偷了，但日志里什么都没有」。
+ * 展示框和盔甲架一样是保护的盲区：左键打一下就能把里面的物品打出来，而这条路既
+ * 不是破坏方块（框还在）也不是打实体（框是方块），症状是展示品被偷而日志里什么
+ * 都没有。
  *
- * 钩的是 `ItemFrameBlock::$attack`（左键取物）。放物品进去走的是方块交互，
- * 已经被 LL 的 PlayerInteractBlockEvent / 本包的 PlayerUseItemOnEvent 覆盖。
- *
- * 取消 = 这一下不生效（返回 false 是引擎自己的「打了但没反应」路径）。
+ * 钩 ItemFrameBlock::$attack，也就是左键取物。放物品进去走方块交互，已被 LL 的
+ * PlayerInteractBlockEvent 与本包的 PlayerUseItemOnEvent 覆盖。取消即这一下不生
+ * 效，返回 false 是引擎自己的「打了但没反应」路径。
  */
 #ifndef PIER_BUILD_CLIENT
 

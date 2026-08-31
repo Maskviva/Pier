@@ -25,23 +25,16 @@ namespace pier::dimensions
         using pier::hostLogger;
 
         /**
-         * 「告诉客户端的高度」——**只**影响写进 DimensionDefinition 的那一份，
-         * 不影响服务端实际生成和校验用的 Dimension::mHeightRange。
+         * 「告诉客户端的高度」，只影响写进 DimensionDefinition 的那一份，不影响服务
+         * 端实际生成和校验用的 Dimension::mHeightRange。
          *
-         * 这是一个诊断用的旋钮，不是功能。实测结果是：同一份 -64..320 的定
-         * 义，主世界客户端请求子区块 -4..4（正确），自定义维度客户端请求
-         * -32..-24（错 28 个子区块）。客户端把这个维度的底部当成了子区块 -32
-         * （y=-512）。
+         * 这是诊断用的旋钮，不是功能。同一份 -64..320 的定义，主世界客户端请求子区
+         * 块 -4..4（正确），自定义维度客户端请求 -32..-24，也就是把底部当成了子区块
+         * -32（y=-512）。能拟合单个数据点的公式不止一条，所以这一份值可由
+         * PIER_DIM_DEF_MIN / PIER_DIM_DEF_MAX 覆盖，用第二个数据点定线。
          *
-         * 现在只有这**一个**数据点，能拟合它的公式不止一条，光靠推理分不出
-         * 来。所以把这一份值做成可以从环境变量覆盖的，跑第二次拿第二个数据
-         * 点，两点定一条线。
-         *
-         *   PIER_DIM_DEF_MIN / PIER_DIM_DEF_MAX
-         *
-         * 安全性：这个高度**不会被持久化** —— dimension_config.json 里存的是种
-         * 子和布局，维度定义每次开服都重建。改了再改回来即可，存档里的方块不受
-         * 影响。
+         * 它不会被持久化：dimension_config.json 里存的是种子和布局，维度定义每次开
+         * 服都重建，改了再改回来即可，存档里的方块不受影响。
          */
         std::pair<int, int> advertisedRange(int minY, int maxY)
         {
@@ -96,7 +89,7 @@ namespace pier::dimensions
         }
     } // namespace
 
-    // ───────────────────────── 台账 ─────────────────────────
+    //  台账
 
     void rememberDimension(std::string const& name, int id)
     {
@@ -143,7 +136,7 @@ namespace pier::dimensions
         return out.empty() ? std::string{"(无)"} : out;
     }
 
-    // ───────────────────────── 原生注册 ─────────────────────────
+    //  原生注册
 
     namespace native
     {
@@ -162,7 +155,7 @@ namespace pier::dimensions
 
                 // 但 >= 3 不等于「注册过」：未注册的名字拿回来的是
                 // Undefined()。早先的版本假设 Undefined() 会被运行时改写成一个
-                // 很大的数，所以只判 < 3 就够；改成走引擎原生注册之后我们不再
+                // 很大的数，所以只判 < 3 就够；改成走引擎原生注册之后不再
                 // 改写它，它就一直停在 3，于是每一个没注册过的名字都被当成了
                 // 「已存在的 id 3」。
                 if (v == ::VanillaDimensions::Undefined().value()) return std::nullopt;
@@ -201,7 +194,7 @@ namespace pier::dimensions
 
             // 存档里 NameIdStore 恢复出来的 id（如果有）。
             //
-            // 注意 **名字->id 表被恢复 != 维度本次会话可用**：NameIdStore 是持
+            // 注意 名字->id 表被恢复 != 维度本次会话可用：NameIdStore 是持
             // 久化的，把维度接进 DimensionRegistry / 工厂那一步不是。所以最早
             // 那版在这里直接 return，等于每次重启后工厂绑定永远不再建立。
             auto const preexisting = engineDimensionId(name);
@@ -224,21 +217,13 @@ namespace pier::dimensions
                     hostLogger().warn("维度 '{}'（id {}）补绑引擎工厂抛未知异常", name, *preexisting);
                 }
 
-                // 这一段以前是没有的，注释还写着「不碰 DimensionDefinitionGroup」。
-                //
-                // 那是个 bug。DimensionDefinitionGroup 不是持久化的 —— 它每次开
-                // 服都从空的重建，只有走完下面第 2 步的维度才会往里加一条。而
-                // 这条分支是「名字已经在 NameIdStore 里」时走的，也就是**第二次
-                // 及以后的每一次开服**。于是：
-                //
-                //   第一次开服：定义进了组 -> DimensionDataPacket 带上它 -> 客户
-                //               端认识这个维度 -> 区块能渲染
-                //   之后每次   ：直接从这里 return -> 组里没有这条定义 -> 包里没
-                //               有它 -> 客户端收到一个自己没有定义的维度 id 的区
-                //               块，只能丢掉 -> 服务端一路 Loaded，玩家看到一片
-                //               空白
-                //
-                // 所以这里必须无条件把定义补回去。已经有了就不动。
+                // 必须无条件把定义补回去，已经有了就不动。
+                // DimensionDefinitionGroup 不持久化，每次开服都从空的重建，只有走完
+                // 下面第 2 步的维度才会往里加一条；而这条分支是「名字已在
+                // NameIdStore 里」时走的，也就是第二次及以后的每一次开服。直接
+                // return 的后果是组里没有这条定义、DimensionDataPacket 里也没有，客
+                // 户端收到一个自己没有定义的维度 id 的区块只能丢掉，服务端一路
+                // Loaded 而玩家看到一片空白。
                 try
                 {
                     auto& group = mgr->getDimensionDefinitionGroup();
@@ -283,19 +268,13 @@ namespace pier::dimensions
                 return preexisting;
             }
 
-            // 2) serverRegisterCustomDimension 是按名字去 DimensionDefinitionGroup
-            //    取几何信息的，所以定义必须先在组里。行为包里的 JSON 维度走的
-            //    也是这条路，我们只是手动补一条等价的定义。
-            //
-            //    这个组会被 DimensionDataPacket 整个发给客户端 —— 这正是原生路
-            //    径能工作的原因：客户端由此真正知道有这么一个维度、它多高、用哪
-            //    种生成器，于是能接收带真实维度 id 的区块和子区块。
-            //
-            //    **千万不要再去拦截 DimensionDataPacket。** 老的 FakeDimensionId
-            //    方案（已删除）把它无条件丢掉，同时把所有包的维度 id 改写成 0；
-            //    那套逻辑和这里是互斥的，两个一起开的症状就是：切维度加载极慢、
-            //    加载完客户端闪退、重进后区块全空（服务端有方块，只有
-            //    UpdateBlock 这种不带维度字段的包才漏得过去）。
+            // 2) serverRegisterCustomDimension 按名字去 DimensionDefinitionGroup 取
+            //    几何信息，所以定义必须先在组里。行为包里的 JSON 维度走的也是这条
+            //    路，这里只是手动补一条等价的定义。这个组会被 DimensionDataPacket
+            //    整个发给客户端，客户端由此真正知道有这么一个维度、它多高、用哪种生
+            //    成器，于是能接收带真实维度 id 的区块。千万不要再去拦截
+            //    DimensionDataPacket：那套 FakeDimensionId 方案与这里互斥，一起开的
+            //    症状是切维度极慢、加载完闪退、重进后区块全空。
             try
             {
                 auto& group = mgr->getDimensionDefinitionGroup();
@@ -399,14 +378,11 @@ namespace pier::dimensions
                 return std::nullopt;
             }
 
-            // 5) 把真实 id 写回 DimensionDefinitionGroup 里那条定义。
-            //
-            //    第 2 步建定义时 mDimensionType 填的是 -1（占位，等引擎回写）。
-            //    引擎在 _registerCustomDimensionWithDimensionDefinitionGroup 里
-            //    通常会自己回写，但不能指望 —— 这个组会被 DimensionDataPacket
-            //    整个序列化给客户端，一个 -1 的维度类型足以让客户端解析失败。走
-            //    原生路径之后这个包是真的会发出去的，所以这一步现在是必需的，不
-            //    再只是「让 dump 好看」。
+            // 5) 把真实 id 写回 DimensionDefinitionGroup 里那条定义。第 2 步建定义
+            //    时 mDimensionType 填的是 -1 占位，引擎在
+            //    _registerCustomDimensionWithDimensionDefinitionGroup 里通常会自己
+            //    回写，但不能指望：这个组会被 DimensionDataPacket 整个序列化给客户
+            //    端，一个 -1 的维度类型足以让客户端解析失败。
             try
             {
                 auto& defs = *mgr->getDimensionDefinitionGroup().mDimensionDefinitions;

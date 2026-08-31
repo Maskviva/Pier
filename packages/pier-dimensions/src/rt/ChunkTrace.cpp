@@ -1,34 +1,18 @@
 /**
  * ChunkTrace.cpp —— 区块流水线的排查用追踪器。
  *
- * 整个文件默认**一个 detour 都不装**（见 chunk_trace.h 的开关）。它存在的
- * 理由是「服务端一路 Loaded、客户端一片空白」这个组合光看现象分不出根因，
- * 而每一对 hook 都对应一个具体的岔路口。下面每一段的注释写的就是那个岔路口
- * 该怎么读。
+ * 默认一个 detour 都不装（开关见 chunk_trace.h）。它存在的理由是「服务端一路
+ * Loaded、客户端一片空白」光看现象分不出根因，而每一对 hook 对应一个岔路口。
  *
- * # 追踪器本身会成为观测对象的一部分
+ * 追踪器本身会成为观测对象的一部分：tryChangeState 的失败分支默认不打，因为一次
+ * 17 秒的进服里它贡献了 24186 行 ERROR 并让所有日志源静默 13 秒，测出来的「区块加
+ * 载停在原点附近」是观测效应而不是被观测的现象。那些行本来也不是错误，区块源会挨
+ * 个探测整条状态机，返回 false 只意味着当前不在这个状态。设
+ * PIER_TRACE_CHUNK_FAIL=1 打开。
  *
- * `tryChangeState` 的失败分支默认不打，理由是实测出来的：一次 17 秒的进服，
- * 那个分支贡献了 24186 行 ERROR，全部集中在开头 2 秒；紧接着整个服务器
- * （不只是区块流水线，是所有日志源）静默了 13 秒。也就是说追踪器把它要观测
- * 的东西压垮了 —— 拿它测出来的「区块加载停在原点附近」是观测效应，不是被
- * 观测的现象。
- *
- * 而且那些行本来就不是错误：区块源会挨个探测整条状态机，`tryChangeState`
- * 返回 false 的意思只是「当前不在这个状态」。`PIER_TRACE_CHUNK_FAIL=1` 可以
- * 把它们打开，但要有心理准备。
- *
- * # 挑挂载点先看平台宏
- *
- * 这里原本有一个开关和一个挂在 `LevelChunk::doesClientNeedToRequestSubchunks()`
- * 上的 hook，用来让自定义维度退回「整列下发」的老路径。**已经删掉，因为那个
- * 挂载点是错的。** 那个函数在 LevelChunk.h 里被 `#ifdef LL_PLAT_C` 包着 ——
- * 它是**客户端侧**的查询。符号在 bedrock_server.exe 的导出表里所以能编能链，
- * 但服务端组包的路径根本不调用它，hook 装上去也永远不触发（实测：那行「已
- * 绕开」的提示一次都没打）。
- *
- * 教训：在这套头文件里挑挂载点，先看有没有 `LL_PLAT_C` / `LL_PLAT_S` 包着。
- * 服务端能用的是没有平台宏、或者只被 `LL_PLAT_S` 包着的那些。
+ * 在这套头文件里挑挂载点先看平台宏：被 LL_PLAT_C 包着的是客户端侧查询，符号在
+ * bedrock_server.exe 的导出表里所以能编能链，但服务端路径根本不调用，hook 装上去
+ * 永远不触发。服务端能用的是没有平台宏、或只被 LL_PLAT_S 包着的那些。
  */
 #include "pier/dimensions/dim/chunk_trace.h"
 
@@ -138,7 +122,7 @@ namespace pier::dimensions
         std::atomic<uint64_t> gSubChunkPkts{0};
     } // namespace
 
-    // ─────────────── 开关（PlotGenerator 也用这一份）───────────────
+    //  开关（PlotGenerator 也用这一份）
 
     bool chunkTraceEnabled()
     {
@@ -194,7 +178,7 @@ namespace pier::dimensions
      * 区块被创建 —— 也就是「有人请求了这个坐标」。
      *
      * 这是判断故障在请求侧还是生成侧的分水岭：
-     *   远处坐标**没有**这行  -> 根本没人要，问题在 ChunkViewSource / 玩家半径 /
+     *   远处坐标没有这行  -> 根本没人要，问题在 ChunkViewSource / 玩家半径 /
      *                            view-distance，跟生成器无关
      *   有这行但后面卡住      -> 请求到了，卡在状态机里，往下看状态跃迁
      */
@@ -303,20 +287,15 @@ namespace pier::dimensions
     }
 
     /*
-     * ─────────────── 发送侧：Loaded 之后到底有没有出门 ───────────────
+     * 发送侧：Loaded 之后到底有没有出门。
      *
-     * 前几轮的追踪全部停在 `Loaded`，而 `Loaded` 只代表**服务端**这块地准备好
-     * 了，不代表它被塞进过 LevelChunkPacket。这两件事之间还隔着
-     * NetworkChunkPublisher：它按玩家位置维护一个发送区域，每 tick 从队列里挑
-     * 几块序列化发出去。
+     * Loaded 只代表服务端这块地准备好了，不代表它被塞进过 LevelChunkPacket。两者
+     * 之间还隔着 NetworkChunkPublisher：它按玩家位置维护一个发送区域，每 tick 从队
+     * 列里挑几块序列化发出去。
      *
-     * 所以「服务端一路 Loaded、客户端一片空白」这个组合，光看上面那些 hook 是
-     * 永远分不出下面两种情况的：
-     *
-     *   有 [send ] 行  -> 包发出去了，问题在客户端（维度定义、高度范围、
-     *                     子区块请求），服务端这边可以收工
-     *   没有 [send ] 行 -> 根本没往外发，问题在 publisher（区域中心/半径、
-     *                     维度 id 对不上、玩家没被认成在这个维度里）
+     * 所以有 [send ] 行就说明包发出去了，问题在客户端（维度定义、高度范围、子区块
+     * 请求）；没有 [send ] 行说明根本没往外发，问题在 publisher（区域中心或半径、
+     * 维度 id 对不上、玩家没被认成在这个维度里）。
      */
     LL_TYPE_INSTANCE_HOOK(
         NetworkChunkPublisherSendTraceHook,
@@ -382,9 +361,9 @@ namespace pier::dimensions
     }
 
     /*
-     * ────────── 客户端到底被告知了什么 ──────────
+     *  客户端到底被告知了什么
      *
-     * DimensionDataPacket 是客户端认识自定义维度的**唯一**渠道：它把整个
+     * DimensionDataPacket 是客户端认识自定义维度的唯一渠道：它把整个
      * DimensionDefinitionGroup 序列化过去，客户端由此知道有哪些维度、各自多高、
      * 用哪种生成器、维度 id 是多少。缺了它，或者里面的数值不对，客户端收到这个
      * 维度的区块就只能丢掉 —— 服务端这边一切正常，玩家看到一片空白。
@@ -438,25 +417,17 @@ namespace pier::dimensions
     }
 
     /*
-     * ────────── 客户端到底要的是哪些子区块 ──────────
+     * 客户端到底要的是哪些子区块。
      *
-     * 观测到的两组数据（主世界是能正常显示的对照组）：
+     * 观测到两组数据：dim=0（正常显示的对照组）客户端请求索引 -4..19 全部成功，每
+     * 包只要 2~4 个；dim=1000 请求 -24..-32 全部越界，每包一律 27 个。那个维度真正
+     * 有地形的是 -4..4，与 -24..-32 差 28，是固定偏移，说明有一侧把维度底部当成了子
+     * 区块 -28（y = -448）而不是 -4（y = -64）。
      *
-     *   dim=0     客户端请求索引 -4..19，全部成功；每包只要 2~4 个
-     *   dim=1000  客户端请求索引 -24..-32，全部越界；每包一律 27 个
-     *
-     * 而那个维度真正有地形的是索引 -4..4。-4..4 和 -24..-32 正好差 28，是个固定
-     * 偏移，说明有一侧把维度底部当成了子区块 -28（y = -448），而不是 -4（y = -64）。
-     *
-     * 但**光看回包分不清是谁错的**：客户端可能本来就发了 -24..-32，也可能发的是
-     * -4..4 而服务端解析成了 -24..-32。这两种情况要修的地方完全不同。
-     *
-     * SubChunkRequestPacket 里有 `mArePositionsAbsolute` —— 位置可以是绝对的，
-     * 也可以是相对 mCenterPos 的偏移，而且绝对值和偏移是**两个不同的数组**
-     * （mSubChunkPos / mSubChunkPosOffsets）。两个维度在这个标志上不一样的话，
-     * 那就是答案。
-     *
-     * 每个维度只打前 6 个请求，够看了。
+     * 光看回包分不清是谁错的，而两种情况要修的地方完全不同。
+     * SubChunkRequestPacket 里有 mArePositionsAbsolute：位置可以是绝对的，也可以是
+     * 相对 mCenterPos 的偏移，而且绝对值和偏移是 mSubChunkPos / mSubChunkPosOffsets
+     * 两个不同数组。两个维度在这个标志上不一样的话，那就是答案。每维度只打前 6 个。
      */
     LL_TYPE_INSTANCE_HOOK(
         SubChunkRequestReadTraceHook,
@@ -508,20 +479,15 @@ namespace pier::dimensions
     }
 
     /*
-     * ────────── 越界到底是拿什么判的 ──────────
+     * 越界到底是拿什么判的。
      *
-     * 观测到：子区块回包 100% 是 IndexOutOfBounds；而维度自己的 mHeightRange
-     * 和发给客户端的定义**完全一致**。两条都成立的话，「越界」就不是两份高度
-     * 对不上造成的，而是**送进来做判断的那个索引本身**和维度的编号基准对不上。
+     * 子区块回包 100% 是 IndexOutOfBounds，而维度自己的 mHeightRange 和发给客户端
+     * 的定义完全一致，那么越界就不是两份高度对不上，而是送进来判断的那个索引本身和
+     * 维度的编号基准对不上。典型形态：客户端按 (y - minY) / 16 算得 0..23，服务端
+     * 期望绝对子区块索引 -4..19，两边都没错但差了 4。
      *
-     * 典型的对不上方式：客户端按 (y - minY) / 16 算，得到 0..23；服务端期望的是
-     * 绝对子区块索引 -4..19。两边都「没错」，但是差了 4。
-     *
-     * 所以这里直接把做判断的那一刻打出来：送进来的索引是多少、维度的范围是多少、
-     * 判成什么。看一眼就知道是不是差了个固定的偏移。
-     *
-     * 这个函数每个子区块请求都会调，一次进服上万次，所以**同样的 (维度, 索引,
-     * 结果) 只打一次**，总共也就十几行。
+     * 这里把做判断的那一刻打出来：送进来的索引、维度的范围、判成什么。这个函数每个
+     * 子区块请求都会调，一次进服上万次，所以同样的 (维度, 索引, 结果) 只打一次。
      */
     LL_TYPE_INSTANCE_HOOK(
         DimensionSubChunkRangeTraceHook,
@@ -564,7 +530,7 @@ namespace pier::dimensions
     }
 
     /*
-     * ────────── 第 1 步的包里到底装了什么 ──────────
+     *  第 1 步的包里到底装了什么
      *
      *   mSubChunksCount = 0 且 mClientNeedsToRequestSubchunks = 1
      *       -> 这是「空壳包」，方块数据要等客户端来请求，是第 2 步的活
@@ -609,29 +575,18 @@ namespace pier::dimensions
     }
 
     /*
-     * ────────── 子区块回包：客户端要地形，服务端回了什么 ──────────
+     * 子区块回包：客户端要地形，服务端回了什么。
      *
-     * 现代基岩版发区块分两步：
+     * 现代基岩版发区块分两步。LevelChunkPacket 只带「这里有一列区块」和一个
+     * mClientNeedsToRequestSubchunks 标志，不带方块数据，客户端据此建一列空区块；
+     * 客户端再用 SubChunkRequestPacket 逐个索要，服务端用 SubChunkPacket 回，方块
+     * 数据在这一步才过去。第 1 步全部成功而列里是空的，正是「有区块但看出去和虚空
+     * 一个颜色」的成因。
      *
-     *   1. LevelChunkPacket 只带「这里有一列区块」和一个
-     *      mClientNeedsToRequestSubchunks 标志，**不带方块数据**；
-     *      客户端据此建一列**空的**区块
-     *   2. 客户端再用 SubChunkRequestPacket 逐个索要子区块，服务端用
-     *      SubChunkPacket 回，方块数据在这一步才过去
-     *
-     * `[send  ]` 是第 1 步。第 1 步全部成功，正好解释了那个现象：客户端**有**
-     * 这一列区块（所以羊吃草那种 UpdateBlock 能画上去，因为列存在），但列里是
-     * 空的（所以看出去和虚空一个颜色）。第 2 步才是缺的那一环。
-     *
-     * SubChunkPacket 每一条数据自带一个结果码，引擎已经把失败原因分好类了：
-     *
-     *   Success(1) / SuccessAllAir(6)  正常
-     *   LevelChunkDoesntExist(2)       服务端找不到这一列
-     *   WrongDimension(3)              维度对不上 —— 自定义维度最可能踩的
-     *   PlayerDoesntExist(4)           玩家索引失效
-     *   IndexOutOfBounds(5)            子区块 y 索引超出维度高度范围
-     *
-     * 所以不用再猜了：跑一次，看回的是哪个码。
+     * SubChunkPacket 每条数据自带结果码：Success(1) 与 SuccessAllAir(6) 正常；
+     * LevelChunkDoesntExist(2) 服务端找不到这一列；WrongDimension(3) 维度对不上，
+     * 自定义维度最可能踩的一个；PlayerDoesntExist(4) 玩家索引失效；
+     * IndexOutOfBounds(5) 子区块 y 索引超出维度高度范围。
      */
     LL_TYPE_INSTANCE_HOOK(
         SubChunkPacketWriteTraceHook,
@@ -646,7 +601,7 @@ namespace pier::dimensions
         {
             gSubChunkPkts.fetch_add(1);
             int const dimId = mDimensionType->value();
-            // 这里**故意不走 wanted() 过滤**：主世界是唯一能正常显示的维度，
+            // 这里故意不走 wanted() 过滤：主世界是唯一能正常显示的维度，
             // 它的结果码就是对照组。同一份日志里看到「dim=0 成功=N」和
             // 「dim=xxx(1000) 维度不对=N」并排，结论就不需要再推理了。
             auto const& data = mSubChunkData.get();

@@ -1,6 +1,6 @@
 /** runtime/Commands.cpp —— 命令执行与注册（含参数化命令与枚举族）。
  *
- * Bedrock 的命令注册**不可撤销**，所以每个执行器闭包都归宿主所有、查一张
+ * Bedrock 的命令注册不可撤销，所以每个执行器闭包都归宿主所有、查一张
  * 可变的绑定表；模组卸载后它的绑定被置空，命令回答一句错误而不是悬垂。
  * 拆除（stage 50）只清绑定，不动 Bedrock 侧 —— 动不了。
   * 命令族双目标编入（与旧构建矩阵一致；客户端上 CommandRegistrar 同样可用）。
@@ -105,11 +105,11 @@ namespace pier::api_impl
             HostedMod* mod = nullptr;
             PierCommandCb cb = nullptr;
             void* user = nullptr;
-            /** V-07：最近一次注册声明的权限等级（0..4）。Bedrock 侧的命令建好
-             *  后改不了等级，所以执行闭包按**这个**值再复核一次 —— 重注册只能
+            /** 最近一次注册声明的权限等级（0..4）。Bedrock 侧的命令建好
+             *  后改不了等级，所以执行闭包按这个值再复核一次 —— 重注册只能
              *  收紧，不能放宽。 */
             int32_t permission = 0;
-            /** V-07：Bedrock 侧建命令时的等级与 overload 形状摘要；重注册若不
+            /** Bedrock 侧建命令时的等级与 overload 形状摘要；重注册若不
              *  一致就拒绝，绝不静默沿用旧声明。 */
             int32_t bedrockPermission = -1;
             std::string shape;
@@ -118,7 +118,7 @@ namespace pier::api_impl
         std::mutex gCmdMutex;
         std::unordered_map<std::string, std::shared_ptr<CommandBinding>> gCommands;
 
-        /** 给 `mod` 占下 `cmdName`；被别的**活**模组占着返回 nullptr。
+        /** 给 `mod` 占下 `cmdName`；被别的活模组占着返回 nullptr。
          *  `freshlyRegistered` = Bedrock 侧的命令还没建过（头一次见这个名字）。 */
         std::shared_ptr<CommandBinding> claimBinding(
             std::string const& cmdName, HostedMod* mod, PierCommandCb cb, void* user,
@@ -131,7 +131,7 @@ namespace pier::api_impl
             if (!inserted && !rebind) return nullptr; // 被别的活模组占着
             if (!inserted && binding->bedrockPermission >= 0)
             {
-                // V-07：Bedrock 侧的命令不能注销也不能改等级/形状。重注册声明
+                // Bedrock 侧的命令不能注销也不能改等级/形状。重注册声明
                 // 的等级或 overload 与首次不一致时，旧行为是静默沿用首次声明
                 // —— 热修一个 permission 写错的 bug 会毫无提示地失效。
                 if (binding->bedrockPermission != permission || binding->shape != shape)
@@ -162,7 +162,7 @@ namespace pier::api_impl
             return binding;
         }
 
-        /** V-07：执行前按**当前声明**的等级复核一次来源权限。Bedrock 侧的等级
+        /** 执行前按当前声明的等级复核一次来源权限。Bedrock 侧的等级
          *  是首次注册时定下的；这里只可能比它更严，不可能更松。 */
         bool originAllowed(CommandOrigin const& origin, CommandBinding const& b)
         {
@@ -248,7 +248,7 @@ namespace pier::api_impl
                                 args = p.get<ParamKind::RawText>().mText;
                             }
                             std::string originName = originIdentity(origin);
-                            CallbackScope scope{local.mod}; // V-06/V-28
+                            CallbackScope scope{local.mod}; // 回调期间否决卸载
                             local.cb(
                                 local.user,
                                 ps(args),
@@ -273,7 +273,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /* ───────────────────── 参数化命令 ───────────────────── */
+        /*  参数化命令  */
 
         /** 声明的参数，从 overloads SNBT 解码而来。 */
         struct ParamDecl
@@ -481,7 +481,7 @@ namespace pier::api_impl
                 std::string cmdName = toString(name);
 
                 // 先把 {overloads:[[{name,kind,enum?,optional?},…],…]} 解完 ——
-                // 畸形声明要在任何东西注册进 Bedrock **之前**失败。
+                // 畸形声明要在任何东西注册进 Bedrock 之前失败。
                 auto tag = CompoundTag::fromSnbt(sv(overloadsSnbt));
                 if (!tag || !tag->contains("overloads") || !tag->at("overloads").is_array())
                 {
@@ -597,7 +597,7 @@ namespace pier::api_impl
                                     output.error("命令 '" + cmdName + "' 需要更高的权限等级");
                                     return;
                                 }
-                                CallbackScope scope{local.mod}; // V-06/V-28
+                                CallbackScope scope{local.mod}; // 回调期间否决卸载
                                 std::string args = "{overload:" + snbtNum(idx) + ",args:{";
                                 for (auto const& d : decls)
                                 {
@@ -679,7 +679,7 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // W11：调用方只看得到 false；原因进日志。
+                    // 调用方只看得到 false；原因进日志。
                     ll::error_utils::printCurrentException(hostLogger());
                     return false;
                 }
@@ -698,7 +698,7 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // W11：调用方只看得到 false；原因进日志。
+                    // 调用方只看得到 false；原因进日志。
                     ll::error_utils::printCurrentException(hostLogger());
                     return false;
                 }
@@ -728,7 +728,7 @@ namespace pier::api_impl
                 catch (...)
                 {
                     // 旧版这里静默吞掉（连日志都没有）—— 三兄弟里唯一的哑巴，
-                    // 是遗漏不是设计。补上，与 W11 口径一致。
+                    // 是遗漏不是设计。补上，与其余入口口径一致。
                     ll::error_utils::printCurrentException(hostLogger());
                     return false;
                 }

@@ -1,12 +1,11 @@
-/** world/PistonPushEvent.cpp —— 活塞要推/拉一组方块了。
+/** world/PistonPushEvent.cpp —— 活塞要推或拉一组方块。
  *
  * 活塞是跨地皮破坏的经典手段：机器建在自己地里，臂伸进邻居家把方块推走。
- * pier-dimensions 的 PISTON_CROSS_PLOT 规则用**网格**判同区，这个事件把
- * 决定权交给模组 —— 地皮的实际归属（谁是主人、谁被授权）只有模组知道。
+ * pier-dimensions 的 PISTON_CROSS_PLOT 规则用网格判同区，这个事件把决定权交给模
+ * 组，因为地皮的实际归属（谁是主人、谁被授权）只有模组知道。
  *
- * 载荷带活塞自身坐标、朝向和它这次挂到的方块列表（最多 12 个，原版上限）。
- * 取消 = 这次推拉不发生（`_checkAttachedBlocks` 返回 false 是引擎自己的
- * 「推不动」路径，安全）。
+ * 载荷带活塞坐标、朝向和这次挂到的方块列表（最多 12 个，原版上限）。取消即这次
+ * 推拉不发生；_checkAttachedBlocks 返回 false 是引擎自己的「推不动」路径，安全。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -41,8 +40,8 @@ namespace pier::hooks
             auto& def = pistonDef();
             if (!def.live()) return origin(region);
 
-            // 先让引擎算出这次到底挂了哪些方块 —— 不调 origin 的话
-            // mAttachedBlocks 还是上一次的。引擎算完再问模组要不要放行。
+            // 先让引擎算出这次挂了哪些方块：不调 origin 时 mAttachedBlocks 还是
+            // 上一次的。算完再问模组要不要放行。
             if (!origin(region)) return false;
 
             int dim = -1;
@@ -70,8 +69,8 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // 读不出附着表就把这次当成「不知道推了什么」——安全判定应当拒绝，
-                // 但这里只是**上报**：拒绝与否由模组按坐标决定，它至少拿到了活塞位置。
+                // 读不出附着表即「不知道推了什么」。这里只上报，拒绝与否由模组按
+                // 坐标决定，它至少拿到了活塞位置。
             }
             blocks += "]";
 

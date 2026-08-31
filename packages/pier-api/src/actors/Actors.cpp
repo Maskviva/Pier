@@ -118,7 +118,7 @@ namespace pier::api_impl
                 case PIER_APROP_SPEED:
                     *out = static_cast<double>(actor->getSpeedInMetersPerSecond());
                     return true;
-                /* ── 追加：实体补漏 ── */
+                /*  追加：实体补漏  */
                 case PIER_APROP_VIEW_X:
                     *out = actor->getViewVector().x;
                     return true;
@@ -228,7 +228,7 @@ namespace pier::api_impl
                 case PIER_ASTR_NAME_TAG:
                     sink(ctx, ps(actor->getNameTag()));
                     return true;
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_ASTR_SCORE_TAG:
                     // getScoreTag() 在 #ifdef LL_PLAT_C 后面 —— 服务端拿不到。
                     // setScoreTag() 存在，但 getter 是客户端专属。
@@ -292,7 +292,7 @@ namespace pier::api_impl
                             return false;
                         }
                     }
-                    // V-15：与 player_teleport 同一道闸。维度桥必须能建出实例且
+                    // 与 player_teleport 同一道闸。维度桥必须能建出实例且
                     // 引擎自报 id 与请求一致，否则区块线程抛未捕获异常 → fastfail。
                     if (!bridge::blockSourceOf(dim)) return false;
                     // teleport(pos, dim, rotation) —— 保留实体当前朝向。
@@ -344,24 +344,17 @@ namespace pier::api_impl
                     return true;
                 case PIER_AACT_HURT:
                 {
-                    // 原生。LeviLamina 的 Actor::hurtByCause 就是要的东西：它接
-                    // 受一个 ActorDamageCause，引擎侧的伤害记账照常走。
-                    //
-                    // 这一并修掉了早先的两个限制：
-                    //   - 命令路径只能按**名字**打，所以非玩家实体直接不支持
-                    //     （早先就是 return false）。现在按 Actor* 打，任何实体
-                    //     都行。
-                    //   - 玩家名早先直接拼进带引号的命令，名字里有引号就撕开
-                    //     命令。
-                    //
-                    // Override 是「不归因于任何具体来源」的通用伤害，正是这个
-                    // 槽位的语义（调用方只给了一个伤害值）。
+                    // 走 Actor::hurtByCause：它接受一个 ActorDamageCause，引擎侧
+                    // 的伤害记账照常。按 Actor* 打而不按名字，任何实体都行，也不必
+                    // 把玩家名拼进带引号的命令（名字里有引号就撕开命令）。Override
+                    // 是「不归因于任何具体来源」的通用伤害，正是这个槽位的语义：调
+                    // 用方只给了一个伤害值。
                     return actor->hurtByCause(
                         static_cast<float>(a), ::SharedTypes::Legacy::ActorDamageCause::Override);
                 }
                 case PIER_AACT_ATTRIBUTE_GET:
                     return false; // 预留：按名取通用属性（v1.0.0 之后）
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_AACT_SET_VARIANT:
                     actor->setVariant(static_cast<int>(a));
                     return true;

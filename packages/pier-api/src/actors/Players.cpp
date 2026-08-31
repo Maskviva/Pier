@@ -152,7 +152,7 @@ namespace pier::api_impl
                 // 构一个带 MessageOnly 体的 TextPacket —— createRawMessage 用的
                 // 就是这个形状，只是类型换成调用方给的。这覆盖了所有单字符串的
                 // 种类（Tip、Popup、JukeboxPopup、SystemMessage、Announcement、
-                // …）。带作者/参数的种类（Chat/Whisper/Translate）在这里同样按
+                //…）。带作者/参数的种类（Chat/Whisper/Translate）在这里同样按
                 // 纯消息发 —— 和 LSE 的 tell(msg, type) 做的是同一个简化。
                 TextPacket pkt{};
                 TextPacketPayload::MessageOnly body;
@@ -217,22 +217,13 @@ namespace pier::api_impl
         /**
          * 传送玩家，需要时跨维度。
          *
-         * 早先的实现错在两处：
+         * 走 Actor::teleport（LeviLamina 的跨维度助手，api_actor_action 已在用），
+         * 不走 /execute in <name> run tp。execute in 吃的是由原版集合建出来的命令
+         * 枚举，自定义维度名在那里未必是合法 token，命令可能解析失败甚至解析进错的
+         * 维度。原版路径就是全部所需：客户端对自定义维度已由 DimensionDataPacket
+         * 描述过，没有任何包改写层要过。
          *
-         *  1. `if (dim < 0 || dim > 2) return false;` 把每个自定义维度都拒了
-         *     （自定义维度 id 从 3 起），经这个 API 进自定义维度根本不可能。
-         *     注意 Actors.cpp 里**实体**传送路径从来没有这条限制 —— 玩家这条
-         *     纯粹是疏忽。
-         *
-         *  2. 它 shell 出去跑 `/execute in <name> run tp`。`execute in` 子命令
-         *     吃的是由原版集合建出来的**命令枚举**，自定义维度名在那里未必是
-         *     合法 token —— 命令可能解析失败，甚至解析进错的维度，哪怕名字已
-         *     经注册。
-         *
-         * Actor::teleport 是 LeviLamina 自己的跨维度助手（api_actor_action 已
-         * 在用），走的是引擎自己的换维度机制。客户端对自定义维度有真实认知
-         * （DimensionDataPacket 已描述给它），原版路径就是全部所需 —— 没有任
-         * 何包改写层要过。命令路径则整个绕开了引擎机制。
+         * 维度 id 不设 0..2 上限：自定义维度 id 从 3 起。
          */
         bool api_player_teleport(PierPlayerSel sel, int32_t dim, double x, double y, double z)
         {
@@ -244,7 +235,7 @@ namespace pier::api_impl
                 if (name.empty()) return false;
 
                 // blockSourceOf 在这里兼作「强制建出 + 放行闸」。维度桥的实现
-                // 方（dimensions 包）**必须**校验建出的引擎实例 id == 请求的
+                // 方（dimensions 包）必须校验建出的引擎实例 id == 请求的
                 // dim（spi.h §6 写明）：两者不一致时把玩家送进 dim，引擎会在
                 // 区块工作线程上抛未捕获异常，整个进程 fastfail(0xC0000409)
                 // —— 不是一句「传送失败」能兜住的。校验所需的台账知识只在
@@ -257,7 +248,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        // ───────────────────────── 属性助手 ─────────────────────────
+        //  属性助手
 
         /** 读一个 attribute 的当前值；无 NaN：缺失时 ok=false。 */
         bool readAttribute(Player& p, Attribute const& attr, double* out)
@@ -284,7 +275,7 @@ namespace pier::api_impl
             return true;
         }
 
-        // ───────────────────────── 属性 ─────────────────────────
+        //  属性
 
         bool api_player_get_num(PierPlayerSel sel, int32_t prop, double* out)
         {
@@ -349,7 +340,7 @@ namespace pier::api_impl
                 case PIER_PPROP_CLIENT_SUB_ID:
                     *out = static_cast<double>(static_cast<int>(p->getClientSubId()));
                     return true;
-                /* ── 追加：玩家补漏 ── */
+                /*  追加：玩家补漏  */
                 case PIER_PPROP_DIRECTION:
                     *out = static_cast<double>(p->getDirection());
                     return true;
@@ -437,7 +428,7 @@ namespace pier::api_impl
                 case PIER_PSTR_NAME_TAG:
                     sink(ctx, ps(p->getNameTag()));
                     return true;
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_PSTR_LAST_DEATH_POS:
                 {
                     auto pos = p->getLastDeathPos();
@@ -510,46 +501,21 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        // ───────────────────────── 动作 ─────────────────────────
+        //  动作
 
         /**
          * 设一个能力位，正确分派 bool 与 float。
          *
-         * 四个独立的坑在这里汇合，所以它是助手函数而不是一行改动：
+         * AbilitiesIndex 只到 0..19，float 槽是 13 FlySpeed、14 WalkSpeed、
+         * 19 VerticalFlySpeed，不能按下标阈值分派。float 路径必须走
+         * LayeredAbilities::setAbility(idx, float)：Player::setAbility 只有 bool 重
+         * 载，float 会经隐式转换静默变成 true。写完要发 UpdateAbilitiesPacket。
          *
-         *  1. 旧分派用 `idx < 32` 区分 bool / float。这纯粹是错的 ——
-         *     AbilitiesIndex 只到 0..19，float 槽在 13（FlySpeed）、14
-         *     （WalkSpeed）、19（VerticalFlySpeed）。于是所有能力全走了
-         *     bool 路径。
-         *
-         *  2. `Player::setAbility` **只有** bool 重载（Player.h:286），连
-         *     "float" 分支也经隐式 float→bool 落到它上：任何非零速度都静默
-         *     变成 `true`。float 能力从来没工作过。float 路径必须走
-         *     LayeredAbilities::setAbility(idx, float)
-         *     （LayeredAbilities.h:25），那边两个重载都有。
-         *
-         *  3. 服务端写层不等于告诉客户端。移动/飞行速度是客户端应用的，不
-         *     发 UpdateAbilitiesPacket 玩家就按旧速度动。
-         *
-         * bool 路径刻意仍走 Player::setAbility：那是 LeviLamina 自己的助
-         * 手、已经同步、而且布尔能力现在是好的 —— 没理由去动它们。
-         *
-         *  4. **写任何能力位都会把玩家的 PlayerPermissionLevel 静默降成
-         *     Custom。** `LayeredAbilities::setAbility` 是引擎「切到自定义权
-         *     限」的路径 —— 和按玩家的权限勾选框走的同一条 —— 它把玩家挪到
-         *     AbilitiesLayer::CustomCache 上，从此报告
-         *     PlayerPermissionLevel::Custom。随之而来的
-         *     UpdateAbilitiesPacket 把 mPlayerPermissions 和能力层放在一起
-         *     （SerializedAbilitiesData），于是客户端被告知它不再是管理员，
-         *     开始按访客行事：普通方块没有选框（中继器、容器这类可交互的还
-         *     有）、不能攻击、没有本地放置预测。服务端什么都没变，命令和服
-         *     务端驱动的动作照常 —— 这正是它难被认出来的原因。
-         *
-         *     它还是持久的：PermissionsHandler::addSaveData 把这个等级写进玩
-         *     家存档，重新登录也不会复原。
-         *
-         *     快照等级、写、写完发现被顶了就放回去。真想要 Custom 的调用方经
-         *     PIER_PACT_SET_PERMISSION_LEVEL 显式要。
+         * 写任何能力位都会把 PlayerPermissionLevel 静默降成 Custom，并经
+         * UpdateAbilitiesPacket 的 SerializedAbilitiesData 发给客户端，于是客户端按
+         * 访客行事（方块没有选框、不能攻击、没有本地放置预测）而服务端一切照常；
+         * addSaveData 还会把等级写进存档。所以这里快照等级、写、被顶了就放回去。真
+         * 要 Custom 的调用方经 PIER_PACT_SET_PERMISSION_LEVEL 显式要。
          */
         bool setPlayerPermissionLevel(Player& p, PlayerPermissionLevel level)
         {
@@ -715,7 +681,7 @@ namespace pier::api_impl
                     SetTitlePacket{std::move(payload)}.sendTo(*p);
                     return true;
                 }
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_PACT_ADD_EXPERIENCE:
                     p->addExperience(static_cast<int>(a));
                     return true;
@@ -804,7 +770,7 @@ namespace pier::api_impl
                 case PIER_PACT_OPEN_INVENTORY:
                     p->openInventory();
                     return true;
-                /* ── 追加：侧边栏 ── */
+                /*  追加：侧边栏  */
                 case PIER_PACT_SIDEBAR_SET:
                 {
                     // sarg = "objective\ntitle\nline1\nline2…"。只作用于这个玩家
@@ -858,19 +824,11 @@ namespace pier::api_impl
 
                     if (lines.size() == 2) return true;
 
-                    // ScoreboardId 段按 objective 名分开。
-                    //
-                    // 这里早先是一个写死的常量 0x40000000，**所有插件共用**。两
-                    // 个插件同时开侧边栏时，各自的第 1 行都落在 0x40000001 ——
-                    // 那是同一个 scoreboard 条目，谁后发谁覆盖。屏幕上就是两套
-                    // 内容穿插在一起、右侧出现两组分数，而且谁都清不掉对方的。
-                    //
-                    // 按名字哈希出各自的段位。段间距 4096 行，远超 MAX_ROWS，
-                    // 所以不会有实际重叠；哈希冲突的概率是 1/(2^30/4096)，而且
-                    // 真撞上也只影响同时开两个侧边栏的场景 —— 比现在这个必然冲
-                    // 突好得多。
-                    //
-                    // 高位固定 0x4 是为了避开原版计分板真实用到的低位 id 段。
+                    // ScoreboardId 段按 objective 名哈希分开。共用一个固定基址时，
+                    // 两个插件的第 1 行都落在同一个条目上，谁后发谁覆盖，屏幕上是
+                    // 两套内容穿插、右侧两组分数、谁都清不掉对方的。段间距 4096 行
+                    // 远超 MAX_ROWS，哈希冲突概率 1/(2^30/4096) 且只影响同时开两个
+                    // 侧边栏的场景。高位固定 0x4 避开原版计分板用到的低位 id 段。
                     int64_t const kSidebarIdBase = INT64_C(0x40000000)
                         + (static_cast<int64_t>(objectiveSlotHash(objective)) * INT64_C(4096));
                     std::vector<ScorePacketInfo> infos;
@@ -899,11 +857,9 @@ namespace pier::api_impl
                     sp->mScoreInfo = std::move(infos);
                     p->sendNetworkPacket(*scores);
 
-                    // 到达证明：每个 objective 打一次。
-                    //
-                    // 早先是全局一次（static bool），于是第二个插件的侧边栏有没
-                    // 有真的发出去、用的是哪一段 id，日志里完全看不出来 —— 而那
-                    // 正是两个侧边栏互相覆盖时唯一需要知道的事。
+                    // 到达证明，每个 objective 打一次。按 objective 而不是全局一
+                    // 次：两个侧边栏互相覆盖时，唯一需要知道的就是各自有没有发出
+                    // 去、用的是哪一段 id。
                     static std::set<std::string> announcedObjectives;
                     if (announcedObjectives.insert(objective).second)
                     {
@@ -919,22 +875,13 @@ namespace pier::api_impl
                 {
                     if (sarg.len == 0) return false;
 
-                    // **先解绑显示槽，再删 objective。** 顺序反了等于没清。
-                    //
-                    // SIDEBAR_SET 是三步：RemoveObjective → 建 objective →
-                    // SetDisplayObjective 把它挂到 "sidebar" 槽。而这里早先只做
-                    // 了删 objective 这一步 —— 客户端会删掉计分项，但**槽位仍然
-                    // 绑在这个名字上**，屏幕上的旧内容不会消失。
-                    //
-                    // 更麻烦的是它把槽位占着不放：另一个插件随后调 SIDEBAR_SET，
-                    // 它发的 RemoveObjective 移除的是**自己的**名字，动不了这条
-                    // 陈旧绑定，于是它的侧边栏也显示不出来。两个插件轮流用一个
-                    // 槽位时（起床战争维度进出）表现就是「出来之后卡在旧内容，
-                    // 别的插件也抢不回来」。
-                    //
-                    // SetDisplayObjective 带空的 mObjectiveName 就是「这个槽不显
-                    // 示任何东西」—— 这是原版 `/scoreboard objectives setdisplay
-                    // sidebar`（不带目标名）走的同一条线。
+                    // 先解绑显示槽再删 objective，顺序反了等于没清。只删 objective
+                    // 时客户端会删掉计分项而槽位仍绑在这个名字上，旧内容不消失，还
+                    // 把槽位占着：另一个插件调 SIDEBAR_SET 时它发的 RemoveObjective
+                    // 只移除自己的名字，动不了这条陈旧绑定，它的侧边栏也显示不出
+                    // 来。SetDisplayObjective 带空 mObjectiveName 即「这个槽不显示
+                    // 任何东西」，与不带目标名的 /scoreboard objectives setdisplay
+                    // sidebar 同一条线。
                     if (auto blank =
                             MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective))
                     {

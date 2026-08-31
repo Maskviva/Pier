@@ -1,23 +1,18 @@
 /**
  * CustomDimensionManager.cpp —— 维度注册的全过程。
  *
- * 这个文件里几乎每一段都是一次线上事故的结论。按发生顺序读：
+ * 五条不能违反的次序与判据，每条的实现都在对应位置：
  *
- *   1. 只改 `VanillaDimensions::DimensionMap` 和工厂 map 就以为注册好了 ——
- *      26.20 的权威是引擎的 `NameIdStore`，注册返回 3、传送却失败；
- *   2. 先注册、后写工厂闭包 —— 引擎在闭包缺席时完成注册，注册表里多出一条
- *      指向空的条目，外面一圈 `catch(...)` 把异常吞了，日志上什么都没有；
- *   3. 按 `customDimensionMap.size()` 分配 id —— 任何一条配置加载失败，
- *      运行期 id 和配置就对不上，下游报「维度 N 未注册」；
- *   4. 配置里 SNBT 坏掉就 `continue` —— id 被丢掉，下次开服重新分配，
- *      玩家存档里的 DimensionId 当场失效；
- *   5. 走原生路径时还去改 `VanillaDimensions::Undefined()` —— 引擎自己在用
- *      这个哨兵做判断，改了它引擎内部的比较全乱；
- *   6. 原生注册失败后退回 MoreDimensions 式的「假维度」（自分配 id +
- *      改写 Undefined）—— 26.20 上根本建不出维度，只会留下一个引擎不认的
- *      id 和一份错误的配置。现在**只走原生路径**：注册失败就是失败。
+ *  1. 权威是引擎的 NameIdStore，不是 VanillaDimensions::DimensionMap 或工厂 map。
+ *     只改后两者时注册会返回 3 而传送失败。
+ *  2. 工厂闭包必须在原生注册之前就位，否则注册表里多出一条指向空的条目。
+ *  3. id 由引擎分配，不按 customDimensionMap.size() 自算：任何一条配置加载失败都
+ *     会让运行期 id 与配置对不上。
+ *  4. 配置里 SNBT 坏掉不许 continue：id 被丢掉后下次开服重新分配，玩家存档里的
+ *     DimensionId 当场失效。
+ *  5. 不许改写 VanillaDimensions::Undefined()，引擎自己在用这个哨兵做判断。
  *
- * 每一条的修法都写在对应位置。
+ * 只走原生路径，没有回退：注册失败就是失败。
  */
 #include "pier/dimensions/dim/custom_dimension_manager.h"
 
@@ -67,13 +62,13 @@ namespace pier::dimensions
          * `SimpleCustomDimension` 把生成器类型以 magic_enum 名字的形式写进
          * payload；`PlotDimension` 没有这一项（它自己接管 `createGenerator`）。
          *
-         * 这条注释以前写的是「这个值**不**决定地形长什么样」。对
-         * PlotDimension 成立，对 SimpleCustomDimension **不成立** —— 它的
+         * 这条注释以前写的是「这个值不决定地形长什么样」。对
+         * PlotDimension 成立，对 SimpleCustomDimension 不成立 —— 它的
          * `createGenerator` 就是拿这个值做 switch 的。所以读不到时的回退不是
          * 无害的：它决定玩家进去看到的是平坦、下界还是虚空，因此每一次回退
          * 都要出声（契约 §5.1：回退要说清回退成了什么）。
          *
-         * 另外要记住：这个名字是维度**第一次创建时**由 `generateNewData`
+         * 另外要记住：这个名字是维度第一次创建时由 `generateNewData`
          * 写下的，之后再也不会被参数覆盖。建错了就只能改配置或删维度重建。
          */
         GeneratorType readGeneratorType(CompoundTag const& nbt)
@@ -154,7 +149,7 @@ namespace pier::dimensions
          * `DimensionType fromSerializedInt(int)` 是 MCFOLD：链接器把它折叠进了
          * 别处一个字节相同的函数体，挂它等于 detour 一堆不相干的函数。
          *
-         * 而把**可挂的那一个**注册两次，第二个 detour 会蹦床进第一个，
+         * 而把可挂的那一个注册两次，第二个 detour 会蹦床进第一个，
          * `origin()` 从此不再是代码以为的那个意思。
          */
         LL_TYPE_STATIC_HOOK(
@@ -166,15 +161,11 @@ namespace pier::dimensions
             Bedrock::Result<int>&& dim
         )
         {
-            // 上一版有两个问题：
-            //
-            //  1. 无条件 `*dim`。Bedrock::Result 里装的可能是错误，这时候解
-            //     引用是未定义行为 —— 存档里一个坏字段就能让服务端崩在这里。
-            //  2. 连 0/1/2 都不走 origin，等于把原版三维度的反序列化也接管了。
-            //
-            // 判据也换了：走原生路径之后权威是引擎的 NameIdStore（我们的台账
-            // 是它的镜像），DimensionMap 降级成给 fromString / dimensionSelector
-            // 用的兜底镜像。
+            // 不要无条件 *dim：Bedrock::Result 里装的可能是错误，解引用是未定义行
+            // 为，存档里一个坏字段就能让服务端崩在这里。0/1/2 必须走 origin，否则
+            // 等于把原版三维度的反序列化也接管了。判据是引擎的 NameIdStore（本包
+            // 的台账是它的镜像），DimensionMap 只作 fromString 与 dimensionSelector
+            // 的兜底镜像。
             if (!dim) return origin(std::move(dim));
 
             int const value = *dim;
@@ -216,7 +207,7 @@ namespace pier::dimensions
             catch (...)
             {
                 // 读不出维度号就当这条存档没说过维度：原样返回，让引擎按它自己
-                // 的默认流程处理。这里**不能**假定是主世界 —— 那正是契约 §5.1
+                // 的默认流程处理。这里不能假定是主世界 —— 那正是契约 §5.1
                 // 反对的那种补默认值。
                 return result;
             }
@@ -235,7 +226,7 @@ namespace pier::dimensions
 
         /*
          * LL_AUTO_* 在静态初始化期就把自己装上了 —— 这正是要的，因为
-         * `initializeHttp` 跑在任何维度注册之前很久。所以它**不能**再出现在
+         * `initializeHttp` 跑在任何维度注册之前很久。所以它不能再出现在
          * 下面的 HookRegistrar 里：旧代码两处都列了，detour 被装了两次，
          * unhook 时引用计数回不到零。
          */
@@ -273,7 +264,7 @@ namespace pier::dimensions
         std::unordered_map<std::string, DimensionInfo> customDimensionMap;
 
         /**
-         * 配置里有这一条、但 SNBT 载荷解析不了的名字。**id 保留**，绝不会被
+         * 配置里有这一条、但 SNBT 载荷解析不了的名字。id 保留，绝不会被
          * 分给别的维度；载荷在下一次 addDimension 时重新生成。
          *
          * 这是「id 与配置失配」的修法：旧代码在这里直接 `continue`，于是这条
@@ -338,7 +329,7 @@ namespace pier::dimensions
         // 排查用，默认不装；见 chunk_trace.h。
         registerChunkTraceHooks();
 
-        // 按维度生效的行为规则。**无条件装**：没有设过规则的维度会直接
+        // 按维度生效的行为规则。无条件装：没有设过规则的维度会直接
         // origin()，所以装上去对原版维度没有任何影响。
         registerDimensionRuleHooks();
     }
@@ -371,7 +362,7 @@ namespace pier::dimensions
 
         Impl::DimensionInfo info;
 
-        // ── 1. 先把业务数据（seed / layout 等）准备好 ────────────────────
+        //  1. 先把业务数据（seed / layout 等）准备好
         //
         // payload 必须在分配 id 之前拿到：原生注册要从里头读生成器类型才能
         // 构造 DimensionDefinition。
@@ -395,25 +386,15 @@ namespace pier::dimensions
             info.nbt = data();
         }
 
-        // ── 2. 工厂闭包必须在原生注册**之前**就位 ──────────────────────
-        //
-        // 这是顺序问题，也是「客户端一连就崩」的根因。
-        //
-        // `serverRegisterCustomDimension` 内部会走到
-        // `_registerCustomDimensionWithFactory` -> `DimensionFactory::create(name)`，
-        // 而 `create()` 是拿**名字**去 `mFactoryMap` 里查闭包的。旧代码先注册、
-        // 后写 map，新进程里那一刻 map 中根本没有这个名字：引擎在闭包缺席的
-        // 情况下完成了注册，DimensionRegistry 里多出一条指向空的条目，而外面
-        // 那圈 catch(...) 把异常吞掉了，日志上什么都看不见。玩家一进来碰到
-        // 这个维度，服务端喂出去的数据就是坏的。
-        //
-        // `info.id` 此刻可能还没定（全新维度），所以闭包捕获一个共享的
-        // DimensionInfo，拿到引擎分配的 id 之后再回填；万一引擎在回填之前就
-        // 回调了闭包，闭包自己再向引擎要一次 id 兜底。
+        // 2. 工厂闭包必须在原生注册之前就位。serverRegisterCustomDimension 会走到
+        //    DimensionFactory::create(name)，而 create() 拿名字去 mFactoryMap 查闭
+        //    包。先注册后写 map 时那一刻 map 里没有这个名字，引擎在闭包缺席下完成注
+        //    册，DimensionRegistry 多出一条指向空的条目，外面那圈 catch(...) 把异常
+        //    吞掉，玩家一进来服务端喂出去的数据就是坏的。
         auto shared = std::make_shared<Impl::DimensionInfo>(info);
 
         // insert_or_assign 而不是 emplace：同一次开服里的第二次注册（或热重载
-        // 之后）必须**替换**掉旧闭包，否则引擎会拿上一轮的闭包去建维度。
+        // 之后）必须替换掉旧闭包，否则引擎会拿上一轮的闭包去建维度。
         ll::service::getLevel()->getDimensionFactory().mFactoryMap.insert_or_assign(
             dimName,
             [dimName, shared, factory = std::move(factory)](
@@ -422,7 +403,7 @@ namespace pier::dimensions
                 DimensionType id = shared->id;
                 if (id.value() < 3)
                 {
-                    // 还没回填 —— 说明我们正处在 serverRegisterCustomDimension
+                    // 还没回填 —— 说明当前正处在 serverRegisterCustomDimension
                     // 内部的重入调用里。直接问引擎。
                     if (auto engineId = native::engineDimensionId(dimName))
                     {
@@ -442,16 +423,12 @@ namespace pier::dimensions
             }
         );
 
-        // ── 3. id 从哪来：只走引擎原生注册 ──────────────────────────────
-        //
-        // BDS 26.20 起 DimensionManager 自带 NameIdStore，id 存进存档、由引擎
-        // 持久化，`getOrCreateDimension` 也只认它。以前原生注册失败会退回
-        // MoreDimensions 式的「假维度」路径：自己分配一个 id、只改
-        // VanillaDimensions::DimensionMap 和工厂 map、再把引擎的 Undefined()
-        // 哨兵改写成一个像真 id 的数字。那条路在 26.20 上建不出维度（函数末尾
-        // 的实例校验会判定失败），还会把引擎内部依赖 Undefined() 的比较全部
-        // 弄乱。现在**没有回退**：原生注册失败就是注册失败，直接抛出，
-        // Slots.cpp 的 GUARD 把它翻成 -1。
+        // 3. id 只由引擎原生注册分配。BDS 26.20 起 DimensionManager 自带
+        //    NameIdStore，id 存进存档、由引擎持久化，getOrCreateDimension 也只认
+        //    它。不要退回 MoreDimensions 式的「假维度」路径（自分配 id、只改
+        //    DimensionMap 和工厂 map、再把 Undefined() 哨兵改写成像真 id 的数字）：
+        //    那条路在 26.20 上建不出维度，还会弄乱引擎内部依赖 Undefined() 的比较。
+        //    注册失败就是失败，直接抛出，Slots.cpp 的 GUARD 把它翻成 -1。
 
         auto const nativeId =
             native::registerCustomDimension(dimName, kWorldMinY, kWorldMaxY, readGeneratorType(info.nbt));
@@ -498,7 +475,7 @@ namespace pier::dimensions
             dimMap.insert_or_assign(dimName, info.id);
         });
 
-        // Undefined() 是引擎自己在用的哨兵值，**永远不改写**（MoreDimensions 那个
+        // Undefined() 是引擎自己在用的哨兵值，永远不改写（MoreDimensions 那个
         // 改写是给没有原生支持的旧版本的补偿手段，这里只走原生路径，用不上）。
 
         impl->registeredDimension.emplace(dimName);
@@ -563,7 +540,7 @@ namespace pier::dimensions
         }
 
         // 唯一的权威判据：引擎真正建出来的那个 Dimension 自报的 id。
-        // 名字->id 表、DimensionMap、我们的台账、配置文件都可能各说各话，
+        // 名字->id 表、DimensionMap、本包台账、配置文件都可能各说各话，
         // 只有这个对象是玩家真正会被传送进去的东西。
         auto* probe = native::getOrCreateByName(dimName);
         if (!probe)

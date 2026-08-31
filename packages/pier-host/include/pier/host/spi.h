@@ -1,5 +1,5 @@
 #pragma once
-// 宿主的 SPI —— 能力包与宿主之间**唯一**的协作面（契约 §一 规则二）。
+// 宿主的 SPI —— 能力包与宿主之间唯一的协作面（契约 §一 规则二）。
 //
 // 方向永远是「能力包注册进宿主，宿主在正确的时机回调」。宿主不 include、
 // 不链接任何能力包的符号；能力包之间也互不认识。一个包不在，注册就不
@@ -30,7 +30,7 @@ class BlockSource;
 
 namespace pier::spi
 {
-    /* ── 1. 槽位包：装载期把函数指针填进 PierApi ─────────────────────
+    /*  1. 槽位包：装载期把函数指针填进 PierApi
      * 每个能力包注册一个（或几个）填充函数；宿主在 load() 里、任何模组
      * 装载之前统一执行。填充只许写自己域的槽位；表头四个标量由宿主填。 */
     struct SlotPack
@@ -46,7 +46,7 @@ namespace pier::spi
         explicit SlotPackReg(SlotPack p) { addSlotPack(p); }
     };
 
-    /* ── 2. 引导步骤：表填好之后、任何模组装载之前，按 stage 升序 ────
+    /*  2. 引导步骤：表填好之后、任何模组装载之前，按 stage 升序
      * 给需要「宿主起来就干活」的包用（dimensions 读配置并布 hook、
      * hooks 预热引擎）。放 SPI 而不放各包的静态构造里，是因为这些工作
      * 需要 LL 环境就绪（logger、配置目录），静态构造期太早。 */
@@ -63,7 +63,7 @@ namespace pier::spi
         explicit BootstrapReg(Bootstrap b) { addBootstrap(b); }
     };
 
-    /* ── 3. 卸载否决：unload 之前逐个问「现在能卸它吗」───────────────
+    /*  3. 卸载否决：unload 之前逐个问「现在能卸它吗」
      * 返回 nullptr = 放行；返回原因字符串（静态存续期）= 否决。
      * lane 用它挡「还有别的模组正拿着这个提供方的车道」；未来的包
      * 有同类不变量也走这里，宿主一行不用改。 */
@@ -79,7 +79,7 @@ namespace pier::spi
         explicit UnloadVetoReg(UnloadVeto v) { addUnloadVeto(v); }
     };
 
-    /* ── 4. 拆除步骤：模组死亡时按 stage 升序清资源 ──────────────────
+    /*  4. 拆除步骤：模组死亡时按 stage 升序清资源
      * 「死亡」= 主动卸载、装载中途失败回滚、服务器关停 —— 三条路都走
      * 这里，所以每个持有模组资源的包只需要写一次清理。
      *
@@ -102,7 +102,7 @@ namespace pier::spi
         explicit TeardownReg(Teardown t) { addTeardown(t); }
     };
 
-    /* ── 5. 事件提供方：合成事件接进 subscribe_event 的解析 ──────────
+    /*  5. 事件提供方：合成事件接进 subscribe_event 的解析
      * hooks（原生 detour 合成）和命令事件都不在 LL 的动态事件注册表里；
      * 它们以提供方身份挂进来，由 pier-api 的 Events 按契约 §六 的顺序
      * 解析。认领判定必须走 idMatches —— 匹配器只有一个。 */
@@ -110,13 +110,13 @@ namespace pier::spi
     {
         std::string_view name;
 
-        /** 本提供方的 id 是否**对应**注册表里的同名条目。
+        /** 本提供方的 id 是否对应注册表里的同名条目。
          *
          *  true  —— 命令事件这类：注册表里躺着同一个事件的发射器条目，但
          *           LL 只派发给类型化监听器，动态路径接不到 —— 提供方替换
-         *           注册表路径是**修复**，不是遮蔽，解析时不告警。
+         *           注册表路径是修复，不是遮蔽，解析时不告警。
          *  false —— hooks 这类纯合成事件：注册表出现同后缀 id 意味着上游
-         *           新增了真事件而我们的合成名撞了 —— 必须打 warn 让人看见
+         *           新增了真事件而合成名撞了 —— 必须打 warn 让人看见
          *          （契约 §六：遮蔽必须可见）。 */
         bool covers_registry;
 
@@ -124,7 +124,7 @@ namespace pier::spi
         bool (*claims)(std::string_view wanted);
 
         /** 认领后订阅。失败返回 NULL —— 调用方（Events）负责报错，
-         *  **不会**下落到别的解析路径（认领即负责，契约 §六）。 */
+         *  不会下落到别的解析路径（认领即负责，契约 §六）。 */
         PierListenerHandle (*subscribe)(
             HostedMod* mod, std::string_view wanted, int32_t priority, PierEventCb cb, void* user);
 
@@ -144,11 +144,11 @@ namespace pier::spi
         explicit EventProviderReg(EventProvider p) { addEventProvider(p); }
     };
 
-    /* ── 6. 维度桥：dimensions 能力包的单槽扩展点 ─────────────────────
+    /*  6. 维度桥：dimensions 能力包的单槽扩展点
      * api 的世界函数需要两件只有 dimensions 才知道的事：自定义 id 叫什么
      * 名字、怎么把还没建出来的自定义维度逼出来。这不是列表而是单槽 ——
      * 同时存在两套维度台账本身就是错误。包缺席时为空，api 按「只认原版」
-     * 降级并各自打一次 warn。诊断细节（注册台账、配置漂移）由**实现方**
+     * 降级并各自打一次 warn。诊断细节（注册台账、配置漂移）由实现方
      * 在自己的失败路径里打日志 —— 它才知道台账长什么样。 */
     struct DimensionBridge
     {
@@ -156,7 +156,7 @@ namespace pier::spi
         std::string (*selectorNameOf)(int32_t dim);
         /** 强制建出自定义维度并取 BlockSource；失败 nullptr（自打诊断）。
          *
-         *  实现方**必须**校验建出的引擎实例 id == 请求的 dim，不一致时报错
+         *  实现方必须校验建出的引擎实例 id == 请求的 dim，不一致时报错
          *  并返回 nullptr。台账 id 与引擎 id 漂移时：方块写入会静默落进错
          *  的维度；而把玩家传送进 dim 会让引擎在区块工作线程抛未捕获异常，
          *  整个进程 fastfail(0xC0000409) —— 不是调用方一句「失败」能兜住
@@ -168,7 +168,7 @@ namespace pier::spi
     void setDimensionBridge(DimensionBridge const* bridge);
     [[nodiscard]] DimensionBridge const* dimensionBridge() noexcept;
 
-    /* ── 宿主消费面（pier-host 和 pier-api 的 Events 用）─────────────── */
+    /*  宿主消费面（pier-host 和 pier-api 的 Events 用） */
 
     /** 填表头 + 按注册顺序执行全部槽位包；debug 日志列出包名。
      *  只在 load() 里调一次；之后表冻结。 */
@@ -191,14 +191,14 @@ namespace pier::spi
     /** 遍历事件提供方。visit 返回 true 表示「处理完了，停止遍历」。 */
     bool forEachEventProvider(bool (*visit)(EventProvider const&, void* ctx), void* ctx);
 
-    /* ── id 匹配（契约 §六：全仓库唯一的一份判定）──────────────────── */
+    /*  id 匹配（契约 §六：全仓库唯一的一份判定） */
 
     /** wanted 精确等于 canonical，或以「分隔符 + canonical」结尾
-     *（分隔符 ∈ {"::", ":", "."}）。**永远不做子串匹配** —— 子串意味着
+     *（分隔符 ∈ {"::", ":", "."}）。永远不做子串匹配 —— 子串意味着
      *  上游哪天新增一个含相同词干的事件，订阅就被静默劫持。 */
     [[nodiscard]] bool idMatches(std::string_view wanted, std::string_view canonical) noexcept;
 
-    /* ── 监听句柄的 id 空间（进程内单调，永不复用）────────────────────
+    /*  监听句柄的 id 空间（进程内单调，永不复用）
      * 住在 SPI 是因为三个消费方（Events、hooks 提供方、命令事件提供方）
      * 都要发句柄，而它们互不 include —— id 空间必须只有一个，否则两家
      * 发出同一个「唯一」id 只是时间问题。 */

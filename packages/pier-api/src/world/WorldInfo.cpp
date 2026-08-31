@@ -11,7 +11,7 @@
  * getBounds/getCenter/getPOICount/getUniqueID；逐区块的 HSA 住在
  * LevelChunk::mSpawningAreas，形状是 {aabb, type}。村民枚举刻意省略：村民
  * 挂在按角色分键的 POIInstance weak_ptr 数组上，走一遍既脆弱又对版本敏感
- * —— POI **数量**才是稳定信号。以后哪个版本需要村民，就在这里加，ABI 形状
+ * —— POI 数量才是稳定信号。以后哪个版本需要村民，就在这里加，ABI 形状
  * 不用动（载荷是数据，不是布局）。
  */
 #ifndef PIER_BUILD_CLIENT
@@ -80,7 +80,7 @@ namespace pier::api_impl
                 if (!mgr) return;
 
                 // mVillages：unordered_map<UUID, shared_ptr<Village>>（对象存
-                // 储，.get() 给出 map）。读的是我们按引用持有的活对象的私有成
+                // 储，.get() 给出 map）。读的是按引用持有的活对象的私有成
                 // 员 —— 服务器线程上没有生命期险。
                 for (auto const& [id, villagePtr] : mgr->mVillages.get())
                 {
@@ -110,7 +110,7 @@ namespace pier::api_impl
                 auto* level = bridge::levelReady();
                 if (!level || !snbtSink) return;
                 if (radius < 0) return;
-                // V-13：半径上限（1024 格 = 129×129 个区块）；`x ± radius` 用 64 位算，
+                // 半径上限（1024 格 = 129×129 个区块）；`x ± radius` 用 64 位算，
                 // 防止 int 溢出把方阵翻成负数区间。
                 if (radius > 1024) return;
                 auto dim = level->getDimension(DimensionType{dimension}).lock();

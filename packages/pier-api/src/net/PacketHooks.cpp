@@ -1,54 +1,18 @@
 /** net/PacketHooks.cpp —— 裸线格式的数据包拦截。
  *
- * # 钩的是什么、为什么是这两个函数
+ * 钩 NetworkSystem::_sendInternal 与 NetworkConnection::receivePacket：包以明文字
+ * 节、且恰好一个包的形态存在的最窄两点。往上钩 Packet::write 要重新序列化，往下钩
+ * 各 peer 要拆批并跟压缩缠斗。
  *
- * 一个 Bedrock 包出站要穿过好几层：
+ * 两个方向都带同一个前导 unsigned varint 包头：bits 0..9 是包 id，bits 10..11 是
+ * 发送方 sub client id，bits 12..13 是接收方。桥解码它、把包体交给订阅者、回程再
+ * 从 PierPacketEdit 重编码，调用方不碰 varint 装帧。出站解出的 id 与
+ * packet.getId() 交叉校验，不一致说明布局假设在某个 BDS 上失效，打日志后原样放行。
  *
- *     Packet 对象
- *       -> NetworkSystem::send            序列化包头 + 包体
- *       -> NetworkSystem::_sendInternal   (id, packet, std::string data)
- *       -> BatchedNetworkPeer::sendPacket 追加 [uvarint 长度][data]
- *       -> CompressedNetworkPeer          压缩整批
- *       -> EncryptedNetworkPeer           加密
- *       -> RakNet
- *
- * 入站是镜像，终点是 `NetworkConnection::receivePacket` —— 每次调用从对端链
- * 里取出**一个**已解密、已解压、已拆批的包（拆批是
- * `BatchedNetworkPeer::_receivePacket` 在走 `mIncomingData`）。
- *
- * 所以 `_sendInternal` 和 `receivePacket` 是包以明文字节、且恰好一个包的形
- * 态存在的最窄两点。往上钩（Packet::write）要重新序列化；往下钩（各 peer）
- * 要拆批、还得跟压缩缠斗。哪头都不划算。
- *
- * # 包头
- *
- * 两个方向都带同一个前导 unsigned varint：
- *
- *     bits 0..9   包 id（MinecraftPacketIds）
- *     bits 10..11 发送方 sub client id
- *     bits 12..13 接收方 sub client id
- *
- * 桥解码它、把**包体**交给订阅者、回程再从 `PierPacketEdit` 重编码。调用方
- * 永远不碰 varint 装帧，改包 id 是一次赋值而不是字节手术。
- *
- * # 出站侧的交叉校验
- *
- * 出站解出来的 id 会和 `packet.getId()` 对一次。两者只会在未来某个 BDS 上
- * 这套布局假设失效时不一致 —— 那时打一次日志、然后全部原样放行，绝不弄脏
- * 流。
- *
- * # 锁
- *
- * 这个桥其余部分的口径是「一切都跑在服务器线程上，注册表不用锁」。这里不
- * 能这么假设：`enableAsyncFlush` 存在，发送路径不止一处可达。所以注册表放
- * 在 shared_mutex 后面，派发先取一份 shared_ptr **快照**、放锁、再调用任何
- * 东西。一举两得 —— 回调可以在派发中途（反）注册自己，另一个线程释放的条
- * 目也不会从我们脚下被抽走。
- *
- * # 生命周期
- *
- * detour 在第一个订阅者出现时懒安装、**永不**卸补丁：退订可能来自被钩函数
- * 内部，在那里卸补丁不安全。空闲的钩子靠一次原子读快速路由回 origin。
+ * 不能沿用「一切跑在服务器线程」的口径：enableAsyncFlush 存在，发送路径不止一处可
+ * 达。注册表放在 shared_mutex 后面，派发先取 shared_ptr 快照再放锁，于是回调可在
+ * 派发中途注册或注销自己，另一线程释放的条目也不会在派发途中被抽走。detour 懒安
+ * 装、永不卸补丁，空闲时靠一次原子读快速路由回 origin。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -84,12 +48,12 @@ namespace pier::api_impl
 {
     namespace
     {
-        /* ───────────────────────── 注册表 ───────────────────────── */
+        /*  注册表  */
 
         struct PacketSub
         {
             HostedMod* mod;
-            /** 注册时取得的弱引用（V-06）：快照只能让**条目**活着，回调
+            /** 注册时取得的弱引用：快照只能让条目活着，回调
              *  目标代码段随 FreeLibrary 消失，派发前必须经它复核。 */
             std::weak_ptr<HostedMod> owner;
             int32_t dirMask;
@@ -166,15 +130,12 @@ namespace pier::api_impl
         }
 
         /**
-         * 地址缓存。`getIPAndPort()` 每调一次建一个 std::string，而包路径是服
-         * 务器最热的环 —— 所以每连接解析一次，之后发的是指向缓存副本的视图。
+         * 地址缓存。getIPAndPort() 每调一次建一个 std::string，而包路径是服务器最
+         * 热的环，所以每连接解析一次，之后发的是指向缓存副本的视图。
          *
-         * 用 shared_ptr 持有、不按值：派发需要一个在整条回调链里都有效的视
-         * 图，而另一个线程可能在链跑着时把条目逐出（连接关闭）。引用计数加一
-         * 让字符串活着，又不用每个包拷一遍。
-         *
-         * 连接打开时填入、关闭时丢弃。兜底路径（钩子会话中途才装、错过了
-         * open）第一次见到就补上，而不是永远重解析。
+         * 用 shared_ptr 持有而不按值：派发需要一个在整条回调链里都有效的视图，而
+         * 另一线程可能在链跑着时因连接关闭把条目逐出。连接打开时填入、关闭时丢
+         * 弃；钩子会话中途才装因而错过 open 时，第一次见到就补上。
          */
         using AddressPtr = std::shared_ptr<std::string const>;
 
@@ -221,7 +182,7 @@ namespace pier::api_impl
             addressCache().erase(hash);
         }
 
-        /* ───────────────────────── 包头编解码 ───────────────────────── */
+        /*  包头编解码  */
 
         constexpr uint32_t kPacketIdMask = 0x3FF; // bits 0..9
         constexpr uint32_t kSubIdMask = 0x3;
@@ -287,7 +248,7 @@ namespace pier::api_impl
             writeUVarInt(out, raw);
         }
 
-        /* ───────────────────────── 派发 ───────────────────────── */
+        /*  派发  */
 
         /** PIER_PKT_REPLACE 的收纳目标。 */
         struct ReplaceBuf
@@ -338,17 +299,13 @@ namespace pier::api_impl
         }
 
         /**
-         * 把 `in`（包头 + 包体）按注册顺序过一遍所有感兴趣的订阅者，每个看到
-         * 上一个的输出。
+         * 把 in（包头 + 包体）按注册顺序过一遍所有感兴趣的订阅者，每个看到上一个
+         * 的输出。Verdict::Replaced 时重建的包落在 out 而 in 不动，Pass 与 Drop 时
+         * out 无意义。分开输入输出是未改写路径零分配的原因：只有订阅者真的重写包
+         * 体时才拷贝一次，而一个区块包几十 KB，压倒性多数的包原样转发。
          *
-         * Verdict::Replaced 时重建的包落在 `out`、`in` 不动；Pass 和 Drop 时
-         * `out` 无意义。把输入和输出分开正是未改写路径零分配的原因：只有当
-         * 某个订阅者真的重写包体时才会拷贝一次 —— 这很要紧，一个区块包几十
-         * KB，而压倒性多数的包是原样转发的。
-         *
-         * 任何畸形输入都让包保持原样 —— 解析不了的翻译者不许有能力弄脏它。
-         *
-         * 前置条件：`out` 不得与 `in` 别名。重建读的视图可能仍指向 `in`。
+         * 畸形输入一律让包保持原样。前置条件：out 不得与 in 别名，重建读的视图可
+         * 能仍指向 in。
          */
         Verdict dispatch(
             int32_t direction,
@@ -430,7 +387,7 @@ namespace pier::api_impl
                     catch (...)
                     {
                         // 回调抛异常是模组侧的 bug，但它不许把连接一起带走。
-                        // W11：……也不许悄无声息。异常每次都打印；「判定被强制
+                        //……也不许悄无声息。异常每次都打印；「判定被强制
                         // 改成 PASS」的警告每进程一次。
                         verdict = PIER_PKT_PASS;
                         ll::error_utils::printCurrentException(hostLogger());
@@ -492,13 +449,13 @@ namespace pier::api_impl
                 catch (...)
                 {
                     // 与包路径同一条规矩：绝不让模组的异常逃进网络栈。
-                    // W11：但要打日志 —— 静默的 catch(...) 会让 bug 永久隐形。
+                    // 但要打日志 —— 静默的 catch(...) 会让 bug 永久隐形。
                     ll::error_utils::printCurrentException(hostLogger());
                 }
             }
         }
 
-        /* ───────────────────────── detour ───────────────────────── */
+        /*  detour  */
 
         /**
          * 出站。`data` 是完整序列化好的包（头 + 体），还没组批、没压缩。改写
@@ -568,7 +525,7 @@ namespace pier::api_impl
                     PIER_PKT_INBOUND, this->mId.get(), receiveBuffer, rewritten, /*expectedId=*/-1))
                 {
                 case Verdict::Drop:
-                    // 这里**不许**返回 NoData：那会把这一 tick 还排着队的包全
+                    // 这里不许返回 NoData：那会把这一 tick 还排着队的包全
                     // 困死。向对端要下一个。
                     continue;
                 case Verdict::Replaced:
@@ -640,7 +597,7 @@ namespace pier::api_impl
             (void)installed;
         }
 
-        /* ───────────────────────── ABI 入口 ───────────────────────── */
+        /*  ABI 入口  */
 
         PierPacketHookHandle
         api_packet_hook_register(PierModHandle mod, int32_t dirMask, PierPacketCb cb, void* user)

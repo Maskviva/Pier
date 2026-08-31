@@ -23,7 +23,7 @@ namespace pier::dimensions
      * 地皮世界的区块生成器。
      *
      * 继承 `FlatWorldGenerator` 而不是从零写一个 `WorldGenerator`：平坦生成器
-     * 已经把 BlockVolume 原型、生物群系源、结构查询等全套接好了，我们只需要
+     * 已经把 BlockVolume 原型、生物群系源、结构查询等全套接好了，这里只需要
      * 接管 `loadChunk` 往缓冲区里填自己的图案。
      *
      * 性能：每个区块只做 2 次层填充（256×2 次指针写）+ 256 次分类，然后一次
@@ -56,8 +56,8 @@ namespace pier::dimensions
          * 每个线程一份的方块缓冲区 + BlockVolume 视图。
          *
          * 注意：上游那份实现用的是 `static thread_local ThreadData`，只在
-         * **第一次**调用时按当时那个 generator 初始化。它只有一个地皮维度，
-         * 所以没事；本宿主允许存在**多个**地皮维度，那样写会让第二个维度用上
+         * 第一次调用时按当时那个 generator 初始化。它只有一个地皮维度，
+         * 所以没事；本宿主允许存在多个地皮维度，那样写会让第二个维度用上
          * 第一个维度的方块。这里用 `owner` 指针做校验，换了 generator 就整体
          * 重填。
          */

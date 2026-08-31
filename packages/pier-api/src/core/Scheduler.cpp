@@ -27,17 +27,17 @@
 
 namespace pier::api_impl
 {
-    /* ───────────────────── 按模组记账的任务表 ─────────────────────
+    /*  按模组记账的任务表
      * 为什么存在：一个计划任务就是一根指进模组 dylib 的裸函数指针。模组在
      * 任务触发前卸载，触发就跳进已释放的内存。历史的 `schedule` /
      * `schedule_after` 槽治不了这个 —— 它们根本不知道任务是谁排的 ——
      * 所以下面带模组的槽先把每个任务登记进宿主自己的表。
      *
      * 纪律与表单回调完全一致：执行器闭包只捕获 weak_ptr<HostedMod> 和一个
-     * 整数票据，**永远不捕获回调本身**。触发时从表里取票；票没了（卸载时
+     * 整数票据，永远不捕获回调本身。触发时从表里取票；票没了（卸载时
      * 清掉、或已取消）、模组没了、模组被禁用 —— 任何一种情况都不碰 dylib。
      *
-     * 刻意**不**持有 executeAfter 返回的 CancellableCallback：在它自己的
+     * 刻意不持有 executeAfter 返回的 CancellableCallback：在它自己的
      * 调用里丢掉最后一个引用会析构正在运行的 std::function。让定时器对着
      * 一张死票过期，代价是一次空唤醒，没有任何这类险。 */
     namespace
@@ -47,7 +47,7 @@ namespace pier::api_impl
             HostedMod* mod = nullptr; // 只作身份比对；永不盲目解引用
             PierTaskCb cb = nullptr;
             void* user = nullptr;
-            /** 仅旧槽任务：回调所在模块基址（V-03）。 */
+            /** 仅旧槽任务：回调所在模块基址。 */
             void const* legacyBase = nullptr;
         };
 
@@ -78,11 +78,11 @@ namespace pier::api_impl
             auto mod = weakMod.lock();
             if (!mod || mod.get() != task.mod) return; // 模组没了；dylib 可能已 unmap
             if (!mod->isEnabled()) return;             // 禁用期间静音
-            CallbackScope scope{mod.get()};            // V-06/V-28
+            CallbackScope scope{mod.get()};            // 回调期间否决卸载
             if (task.cb) task.cb(task.user);
         }
 
-        /* ── 无主旧槽（schedule / schedule_after）的归属恢复（V-03） ───────
+        /*  无主旧槽（schedule / schedule_after）的归属恢复
          * 这两个槽没有模组句柄，旧实现「发后不管」：模组卸载后定时器照样触发，
          * 跳进已 unmap 的代码段。现在它们也走 gPendingTasks（mod=nullptr），
          * 并记下回调所在模块的基址；拆除时按基址清掉，触发时再查一次基址仍

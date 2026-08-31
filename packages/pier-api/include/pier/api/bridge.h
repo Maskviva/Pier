@@ -1,5 +1,5 @@
 #pragma once
-// pier-api 包内共享的解析助手。**私有** include（契约 §一：能力包之间
+// pier-api 包内共享的解析助手。私有 include（契约 §一：能力包之间
 // 互不 include）—— 这里的一切只服务本包各域的 TU。
 //
 // 收进来的判据：至少两个域要用，且属于「把 ABI 侧的引用解析成引擎对象」
@@ -31,7 +31,7 @@ namespace pier::bridge
 
     /** 维度 id → BlockSource。已建维度直取；自定义维度（id ≥ 3）经
      *  spi::dimensionBridge 强制建出（能力包缺席时降级为只认原版并
-     *  warn 一次）。失败 nullptr，调用方**必须**按失败处理（§5.1）。 */
+     *  warn 一次）。失败 nullptr，调用方必须按失败处理（§5.1）。 */
     [[nodiscard]] BlockSource* blockSourceOf(int32_t dimId);
 
     /** 玩家选择器（kind: 0=账号名 1=xuid 2=uuid；账号名落空再按显示名
@@ -46,7 +46,7 @@ namespace pier::bridge
      *  ActorEquipment 拿 SimpleContainer），不是快照 NBT。 */
     [[nodiscard]] Container* resolveContainer(PierContainerRef ref);
 
-    /** 任何已注册维度 id → `/execute in` 认的名字。未知返回**空串**，
+    /** 任何已注册维度 id → `/execute in` 认的名字。未知返回空串，
      *  调用方必须失败 —— 绝不回退主世界（回退曾把别的维度的写操作全部
      *  砸进生存主世界）。 */
     [[nodiscard]] std::string dimensionSelector(int32_t dim);
@@ -61,7 +61,7 @@ namespace pier::bridge
     /** 玩家身份 + 位置一行：{name,xuid,uuid,dim,x,y,z}。 */
     [[nodiscard]] std::string playerSummarySnbt(Player& p);
 
-    /** ItemStack ↔ SNBT。fromSnbt 对畸形输入不抛（W12：输入最终来自
+    /** ItemStack ↔ SNBT。fromSnbt 对畸形输入不抛（输入最终来自
      *  客户端），失败 nullopt 并留日志。 */
     [[nodiscard]] std::string itemToSnbt(ItemStack const& item);
     [[nodiscard]] std::optional<ItemStack> itemFromSnbt(std::string_view snbt);
@@ -79,7 +79,7 @@ namespace pier::bridge
     [[nodiscard]] Block const* blockFromTag(CompoundTag const& tag);
     /** SNBT 文本 → Block（内部走 blockFromTag）。失败 nullptr。 */
     [[nodiscard]] Block const* blockFromSnbt(std::string_view snbt);
-    /** 方块名 → 默认状态。**找不到时 nullptr**，绝不给占位方块。 */
+    /** 方块名 → 默认状态。找不到时 nullptr，绝不给占位方块。 */
     [[nodiscard]] Block const* defaultBlockNamed(std::string_view name);
     /** 写方块用的变更来源（= commandsChange，理由见 BlockResolve.cpp）。 */
     [[nodiscard]] BlockChangeContext blockEditContext();

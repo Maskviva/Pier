@@ -1,11 +1,11 @@
 /** player/SlotChangeEvent.cpp —— 玩家换了手上拿的格子。
  *
- * 只观察，不可取消：`setSelectedSlot` 返回的是**新槽位里那件物品的引用**，
- * 取消就得凭空造一个 ItemStack 引用出来 —— 没有正确答案。要「锁定手持」
- * 的话在换完之后把槽位设回去（`PIER_PACT_SET_SELECTED_SLOT`）。
+ * 只观察，不可取消：setSelectedSlot 返回新槽位里那件物品的引用，取消就得凭空造
+ * 一个 ItemStack 引用，没有正确答案。要锁定手持就在换完之后把槽位设回去
+ * （PIER_PACT_SET_SELECTED_SLOT）。
  *
- * 用途：手持物触发的技能/菜单（拿着某个物品才显示 HUD）、反作弊里的
- * 「一 tick 内连续切槽」检测、以及记录玩家实际用哪件工具挖了什么。
+ * 用途：手持物触发的技能与菜单、反作弊的「一 tick 内连续切槽」检测、记录玩家实
+ * 际用哪件工具挖了什么。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -50,8 +50,8 @@ namespace pier::hooks
                 from = -1;
             }
 
-            // 先让引擎换完，再上报 —— 这样载荷里的 `item` 就是玩家**现在**手上
-            // 的东西，消费方不用自己再查一次。
+            // 先让引擎换完再上报，载荷里的 item 就是玩家现在手上的东西，消费方
+            // 不用自己再查一次。
             ::ItemStack const& held = origin(slot);
 
             if (from == slot) return held; // 没真的换（客户端会重发同一个槽位）

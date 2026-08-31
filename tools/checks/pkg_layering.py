@@ -55,18 +55,18 @@ CAPABILITY = {"pier-api", "pier-hooks", "pier-lane", "pier-dimensions", "pier-cl
 # 可选包：从根 xmake 删掉那一行后必须照常编译。
 OPTIONAL = {"pier-lane", "pier-dimensions"}
 
-# `packages/` 下有**两种**包，判据完全不同：
-#
-#   xmake 包（有 xmake.lua）  宿主本体的 C++ 分包，受契约 §一 那张图约束
-#   cargo crate（有 Cargo.toml）一门语言的绑定，受 §十 与 sys-mirrors-abi 约束
-#
-# 两者之间没有构建依赖，只有契约依赖 —— 绑定读的是 abi.h 那一份头文件。
-# 把 crate 塞进 xmake 那套判据里只会得到「pier-sys-rs 没有 set_kind」这种
-# 毫无意义的红，而一条会误报的检查最终会被人加进忽略列表。
+# 目录本身现在就分开了：`packages/` 只放宿主本体的 C++ 分包，`bindings/<语言>/`
+# 放绑定。这一条曾经靠脚本里的语言判别器（有 xmake.lua 还是有 Cargo.toml）
+# 来区分 —— 那是目录没能表达一个已经存在的事实，而契约 §一 早就写着
+# 「这是两条独立的构建线」。判别器留着做兜底：`packages/` 下再冒出 Cargo.toml
+# 是分层出了问题，应当报出来，而不是被默默接受。
+# 绑定住在 `bindings/<语言>/` 下。
 CARGO_DEPS = {
     "pier-sys-rs": set(),                 # 只读 abi.h，零 crate 依赖
     "pier-rs": {"pier-sys-rs"},           # 安全封装，只依赖裸 FFI 那一层
 }
+
+BINDINGS = os.path.join(ROOT, "bindings")
 
 # 每个包对外暴露的 include 前缀 —— 用来把 #include 归属到包。
 INCLUDE_OWNER = {

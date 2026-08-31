@@ -39,7 +39,7 @@ namespace pier::api_impl
                 return cached == 1;
             }
             // resolve() 带 disableErrorOutput=true 时未命中返回 nullptr 且
-            // **不**刷日志 —— 措辞归我们这边管。
+            // 不刷日志；措辞归宿主这边管。
             void* addr = ll::memory::SymbolView{kProbeSymbol}.resolve(true);
             int result = addr != nullptr ? 1 : 0;
             // 良性竞争：两个线程可能都解析一遍；答案相同，后写者赢。

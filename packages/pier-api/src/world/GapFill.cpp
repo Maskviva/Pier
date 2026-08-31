@@ -49,7 +49,7 @@ namespace pier::api_impl
 {
     namespace
     {
-        /* ── 玩家：装备、冷却、网络 ── */
+        /*  玩家：装备、冷却、网络  */
 
         bool api_player_get_carried_item(PierPlayerSel sel, void* ctx, PierStrSink sink)
         {
@@ -159,7 +159,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /* ── 实体：关系、装备、效果、几何 ── */
+        /*  实体：关系、装备、效果、几何  */
 
         bool api_actor_get_vehicle(PierActorId id, PierActorId* out)
         {
@@ -270,7 +270,7 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a) return false;
-                // V-23：越界下标会让引擎的位集读写落到别的数据项上。
+                // 越界下标会让引擎的位集读写落到别的数据项上。
                 if (flag_index < 0 || flag_index >= static_cast<int32_t>(ActorFlags::Count)) return false;
                 return a->getStatusFlag(static_cast<ActorFlags>(flag_index));
             PIER_API_GUARD_END
@@ -342,7 +342,7 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !out) return false;
-                // V-15：与 player_teleport 同一道闸 —— 目标维度必须能经维度桥建出
+                // 与 player_teleport 同一道闸 —— 目标维度必须能经维度桥建出
                 // 且 id 一致，否则引擎会在区块线程抛未捕获异常直接 fastfail。
                 if (!bridge::blockSourceOf(dim)) return false;
                 // Actor::clone(Vec3 const& pos, optional<DimensionType>) 返回
@@ -355,7 +355,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /* ── 方块：状态读写、碰撞形状 ── */
+        /*  方块：状态读写、碰撞形状  */
 
         bool api_block_get_state(
             int32_t dim, int32_t x, int32_t y, int32_t z, PierStr state_name,
@@ -402,15 +402,11 @@ namespace pier::api_impl
                 }
                 auto opt = block.setState(*state, v);
                 if (!opt) return false;
-                // ── 这里以前是个假成功 ──
-                // 老实现算完新的 permutation 之后直接 `return true`，注释说
-                //「BlockSource 没有公开的 setBlock(Block) 重载」。**有的**：
-                // `setBlock(pos, block, updateFlags, syncMsg, changeContext)`
-                // 就是公开的虚函数（BlockSource.h）。
-                //
-                // 后果不是「少一个功能」，是**报告成功但世界没变**：调用方看到
-                // Ok(())，方块纹丝不动，而且没有任何日志。任何靠它还原朝向的
-                // 代码都会在「代码看着没问题、方块就是不转」上耗掉一整天。
+                // 这里以前是个假成功：算完新的 permutation 直接 return true，理由
+                // 写的是「BlockSource 没有公开的 setBlock(Block) 重载」。它有 ——
+                // setBlock(pos, block, updateFlags, syncMsg, changeContext) 是公开虚
+                // 函数。后果不是少一个功能，是报告成功但世界没变：调用方看到 Ok，
+                // 方块纹丝不动，且没有任何日志。
                 return bs->setBlock(
                     BlockPos{x, y, z}, *opt, 3, nullptr, BlockChangeContext::commandsChange());
             PIER_API_GUARD_END
@@ -442,7 +438,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /* ── 物品：附魔、匹配、NBT ── */
+        /*  物品：附魔、匹配、NBT  */
 
         bool api_item_get_enchants(PierStr item_snbt, void* ctx, PierStrSink sink)
         {
@@ -511,7 +507,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /* ── Level：群系、出生点、存档、天气、寻路、睡眠 ── */
+        /*  Level：群系、出生点、存档、天气、寻路、睡眠  */
 
         bool api_level_get_biome(
             int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink)
@@ -571,7 +567,7 @@ namespace pier::api_impl
          * 拼一个区块的键前缀。
          *
          * `<chunkX:i32 LE><chunkZ:i32 LE>`，非主世界再跟 `<dimension:i32 LE>`。
-         * 主世界（dim 0）**没有**那第三段 —— 加上的话前缀匹配不到任何键，
+         * 主世界（dim 0）没有那第三段 —— 加上的话前缀匹配不到任何键，
          * 调用方会以为「这个区块本来就是空的」。
          */
         std::string chunkKeyPrefix(int32_t dim, int32_t chunk_x, int32_t chunk_z)
@@ -592,7 +588,7 @@ namespace pier::api_impl
         }
 
         /**
-         * ⚠ **退役。** 一律返回 -1。
+         * ⚠ 退役。 一律返回 -1。
          *
          * 这一格原来是「列出这个区块的键并全删」一步做完，而它**在真机上把服
          * 务器打崩了** —— 崩在 C++ 侧那个 `std::vector<std::string>` 销毁的时
@@ -609,27 +605,22 @@ namespace pier::api_impl
         /**
          * 列出一个区块的全部存档键，一个键一次回调。
          *
-         * # 这里**什么都不攒**
+         * 这里什么都不攒。在 C++ 侧把键收进 std::vector<std::string> 再逐个删会在函
+         * 数返回、销毁那个 vector 时崩，寄存器里看得到字符串的内联缓冲被当成了堆指
+         * 针。根因未定位（跨 DLL 的 std::string 生命周期，没有调试器查不出来），但
+         * 那一类问题的来源是「在 C++ 侧攒一个字符串容器、跨一次虚调用、再在自己的
+         * 栈上销毁它」，所以拿到一个就交出去，容器活在另一侧。
          *
-         * 上一版在 C++ 里把键收进 `std::vector<std::string>` 再逐个删，
-         * 而它在真机上崩了 —— 崩在函数返回、销毁那个 vector 的时候，
-         * 寄存器里看得到字符串的内联缓冲被当成了堆指针。
-         *
-         * 根因没定位到（跨 DLL 的 `std::string` 生命周期，没有调试器查不出
-         * 来）。但那一类问题的来源是「在 C++ 侧攒一个字符串容器、跨一次虚调
-         * 用、再在自己的栈上销毁它」，所以现在一个都不攒：拿到一个就交出去，
-         * 容器活在另一侧。
-         *
-         * 键是二进制的（含 0 字节）。`PierStr` 是 {ptr,len}，`ps(k)` 只包指针
-         * 和长度、不做任何拷贝也不看 0 结尾 —— 这条流水线上没有任何字符串在
-         * C++ 侧被拥有。它只在这次回调里有效，另一侧负责拷走。
+         * 键是二进制的，含 0 字节。PierStr 是 {ptr,len}，ps(k) 只包指针和长度，不拷
+         * 贝也不看 0 结尾；这条流水线上没有任何字符串在 C++ 侧被拥有。它只在这次回
+         * 调里有效，另一侧负责拷走。
          */
         /**
-         * V-12/V-22：区块键的布局是
+         * 区块键的布局是
          *   `<x:i32 LE><z:i32 LE>[<dim:i32 LE>]<tag:u8>[<subY:u8>]`
          * 主世界没有 dim 段（长 9 或 10），其余维度有（长 13 或 14）。
          *
-         * 这直接决定了前缀匹配的陷阱：主世界 (x,z) 的 8 字节前缀是**所有**维度
+         * 这直接决定了前缀匹配的陷阱：主世界 (x,z) 的 8 字节前缀是所有维度
          * 同坐标区块键的公共前缀 —— 只按前缀列出再逐键删，会把下界/末地/自定义
          * 维度同坐标的区块一起抹掉。所以列表结果必须按长度 + 维度段过滤，删除
          * 也只接受符合布局的键。
@@ -675,7 +666,7 @@ namespace pier::api_impl
         /**
          * 原样删掉一个区块类别的键。
          *
-         * **不解释键的内容** —— 传什么删什么，这正是抹整块之所以安全的原因：
+         * 不解释键的内容 —— 传什么删什么，这正是抹整块之所以安全的原因：
          * 不需要懂子区块的调色板和位打包格式。
          */
         bool api_level_delete_key(PierStr key)
@@ -683,7 +674,7 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level || !level->hasLevelStorage() || key.len == 0) return false;
-                // V-22：这个槽以前「传什么删什么」—— 存档里任何键（player_*、
+                // 这个槽以前「传什么删什么」—— 存档里任何键（player_*、
                 // scoreboard、portals、LevelChunkMetaDataDictionary…）都能被一次
                 // 误调用抹掉。只接受符合区块键布局的键。
                 if (!looksLikeChunkKey(sv(key)))
@@ -704,22 +695,16 @@ namespace pier::api_impl
         /**
          * 这一片的区块加载着吗。
          *
-         * # 签名不是「两个角」，是「中心 + 半径」
+         * 签名是「中心 + 半径」而不是两个角：BlockSource::hasChunksAt 这个版本只有
+         * (BlockPos const&, int, bool) 一个重载，传两个 BlockPos 编译不过，所以把调
+         * 用方给的方框换算成中心点加半径。
          *
-         * `BlockSource::hasChunksAt` 这个版本只有 `(BlockPos const&, int, bool)`
-         * 一个重载 —— 传两个 `BlockPos` 编译不过。所以这里把调用方给的方框
-         * 换算成中心点加半径。
+         * 半径要往里缩一格。区块整块加载，方框内部任何一点都能代表整块的答案；按原
+         * 样的半径查时，一个 16 宽的方框会正好碰到相邻区块的第一格，于是「邻居加载
+         * 着」被读成「我这块加载着」，抹除永远等不到时机。
          *
-         * # 半径要**往里缩一格**
-         *
-         * 区块的加载是整块的，所以方框内部**任何一点**都能代表整块的答案。
-         * 而按原样的半径查，一个 16 宽的方框会正好碰到相邻区块的第一格 ——
-         * 于是「邻居加载着」会被读成「我这块加载着」，抹除就永远等不到时机。
-         *
-         * 缩一格之后查的严格是方框内部，答案只关于我们要问的那些区块。
-         *
-         * 第三个参数是 `ignoreClientChunk`：传 true，我们问的是**服务端**有没
-         * 有这块地的数据 —— 客户端缓存和「卸载时会不会把键写回去」无关。
+         * 第三个参数 ignoreClientChunk 传 true：问的是服务端有没有这块地的数据，客
+         * 户端缓存与「卸载时会不会把键写回去」无关。
          */
         int32_t api_level_chunks_loaded(
             int32_t dim, int32_t min_x, int32_t min_z, int32_t max_x, int32_t max_z)
@@ -745,7 +730,7 @@ namespace pier::api_impl
         /**
          * 玩家的连接号。
          *
-         * **必须和 PacketHooks 里 `connId = id.getHash()` 算的是同一个数** ——
+         * 必须和 PacketHooks 里 `connId = id.getHash()` 算的是同一个数 ——
          * 那边是拦包回调看到的号，这边是按名字问出来的号，对不上的话
          * 「改写这个人的包」会安静地一个包都改不到。
          */

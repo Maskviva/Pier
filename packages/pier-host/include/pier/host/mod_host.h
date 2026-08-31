@@ -37,10 +37,10 @@ namespace pier
          */
         static ModHost* instance();
 
-        /* ── 运行期模组控制（/pier 的后端）────────────────────────────
+        /*  运行期模组控制（/pier 的后端）
          * ModManagerRegistry 的 loadMod/unloadMod/enableMod/disableMod
          * 全是 PRIVATE（只对 ModRegistrar 和 Mod 友元），启动之后没有
-         * 公开的 LeviLamina 路径能再装一个模组。能用的是我们继承来的
+         * 公开的 LeviLamina 路径能再装一个模组。能用的是继承来的
          * protected ModManager 方法 —— 这两个包装就是干这个的。
          *
          * 值得记住的后果：这样拉起来的模组活在本管理器自己的表里，不在
@@ -56,7 +56,7 @@ namespace pier
 
         /** 已装载模组 dylib 的基址；没装返回 nullptr。
          *  用来识别 Windows FreeLibrary 引用计数陷阱：reload 后拿到
-         *  **同一个**基址 = 映像根本没卸掉，磁盘上的新 dll 没被读进来。 */
+         *  同一个基址 = 映像根本没卸掉，磁盘上的新 dll 没被读进来。 */
         [[nodiscard]] void const* moduleBase(std::string_view name) const;
 
         /** 本管理器当前装着的全部模组名。 */

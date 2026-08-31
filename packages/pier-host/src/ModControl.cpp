@@ -1,21 +1,18 @@
 /**
  * ModControl.cpp —— pier 模组的运行期装 / 卸 / 重载，以及驱动它的 /pier 命令。
  *
- * 塑造这份文件的三个约束：
+ * 三个约束塑造了这份文件。一、LeviLamina 没有公开的运行期装载 API，
+ * ModManagerRegistry 的 loadMod/unloadMod/enableMod/disableMod 全是 private，够得
+ * 着的只有继承来的 protected ModManager 接口（包在 ModHost::controlLoad/
+ * controlUnload 里）；因此这里拉起来的模组活在本宿主管理器自己的表里、不在
+ * LeviLamina 的依赖图里，依赖检查只能自己翻 manifest 做。
  *
- *  1. LeviLamina 没有公开的运行期装载 API。ModManagerRegistry 的
- *     loadMod/unloadMod/enableMod/disableMod 全是 private（只对 ModRegistrar
- *     和 Mod 友元）。够得着的是我们继承的 protected ModManager 接口，包在
- *     ModHost::controlLoad/controlUnload 里。因此这里拉起来的模组活在我们
- *     管理器自己的表里、**不在** LeviLamina 的依赖图里 —— 所以下面要自己翻
- *     manifest 做依赖检查。
+ * 二、不拷 dll。reload 是状态重置（重跑 pier_main、重读配置），不是代码热替换；换
+ * 新编译的 dll 走 unload → 重编 → load，而这条路还受 Windows FreeLibrary 引用计数
+ * 的摆布，见 checkImageSwapped()。
  *
- *  2. 不拷 dll。`reload` 是状态重置（重跑 pier_main、重读配置），不是代码
- *     热替换。换上新编译的 dll 走 `unload` → 重编 → `load`，而连这条路都
- *     受 Windows FreeLibrary 引用计数的摆布 —— 见 checkImageSwapped()。
- *
- *  3. `reload` 只对声明了 `"reload_safe": true` 的模组开放；`unload` 在有
- *     依赖方时拒绝，除非给 --cascade。
+ * 三、reload 只对声明了 "reload_safe": true 的模组开放；unload 在有依赖方时拒绝，
+ * 除非给 --cascade。
  */
 #include "pier/host/mod_control.h"
 
@@ -181,7 +178,7 @@ namespace pier::mod_control
             {
                 absorb(mod);
             }
-            // 和我们自己的表求并集：/pier load 拉起来的模组可能不在注册表
+            // 和本宿主自己的表求并集：/pier load 拉起来的模组可能不在注册表
             // 的视野里，这里绝不能把它弄丢。
             if (auto* mgr = ModHost::instance())
             {
@@ -369,7 +366,7 @@ namespace pier::mod_control
         /**
          * Windows 的 FreeLibrary 是引用计数，不是硬 unmap。TLS 析构没跑完、
          * COM 对象还活着、CRT 留着指进映像的指针 —— 任何一个都会让 dll 保持
-         * 映射，下一次 LoadLibrary 递回**同一个**基址：磁盘上新编译的 dll
+         * 映射，下一次 LoadLibrary 递回同一个基址：磁盘上新编译的 dll
          * 根本没被读进来，服务器还在静默地跑旧代码。
          *
          * 跨一次 unload/load 比较基址是抓住这件事唯一便宜的办法，而它正是
@@ -446,7 +443,7 @@ namespace pier::mod_control
 
         void cmdList(CommandOutput& output)
         {
-            // 明确是**磁盘重扫**，不是缓存倾倒：新加的 / 刚编好的模组目录
+            // 明确是磁盘重扫，不是缓存倾倒：新加的 / 刚编好的模组目录
             // 就是靠这条命令变得可见的。
             auto found = rescan();
             auto* mgr = ModHost::instance();
@@ -537,7 +534,7 @@ namespace pier::mod_control
                 return;
             }
             output.success("已加载并启用 '" + name + "'");
-            // 这个名字要是在本次会话里卸载过，基址能告诉我们重编的 dll 是
+            // 这个名字要是在本次会话里卸载过，基址能判断重编的 dll 是
             // 真换上了，还是 Windows 把旧的又递了回来。
             if (auto it = gLastUnloadBase.find(name); it != gLastUnloadBase.end())
             {
@@ -584,8 +581,8 @@ namespace pier::mod_control
                     );
                     return false;
                 }
-                // 级联只能放倒我们自己管的模组。原生 C++ 模组是别的管理器
-                // 的事，我们没有任何途径卸载它。
+                // 级联只能放倒本宿主管的模组。原生 C++ 模组归别的管理器，
+                // 这里没有任何途径卸载它。
                 std::vector<std::string> foreign;
                 for (auto const& d : dependents)
                 {
@@ -692,7 +689,7 @@ namespace pier::mod_control
             std::vector<std::string> unloaded;
             if (!doUnload(output, name, cascade, &unloaded)) return;
 
-            // 按放倒顺序的**逆序**拉回来。
+            // 按放倒顺序的逆序拉回来。
             std::reverse(unloaded.begin(), unloaded.end());
             bool allOk = true;
             for (auto const& m : unloaded)
@@ -711,7 +708,7 @@ namespace pier::mod_control
                     allOk = false;
                     break;
                 }
-                // reload 本来就是状态重置，这条路上基址不变是**预期结果**、
+                // reload 本来就是状态重置，这条路上基址不变是预期结果、
                 // 不是症状 —— 在这里跑 checkImageSwapped 会每次都告警。
                 // 那个检查只属于 unload → 重编 → load 的路径：在那条路上，
                 // 基址不变才真的意味着新 dll 没被读进来。把存的地址丢掉，
@@ -727,7 +724,7 @@ namespace pier::mod_control
             }
         }
 
-        /** /pier events —— 一站列出**所有**可订阅的事件 id：LeviLamina 动态
+        /** /pier events —— 一站列出所有可订阅的事件 id：LeviLamina 动态
          *  注册表里的，加上每个事件提供方（hooks、命令事件）合成的。旧版把
          *  这两半拆在两条命令里，合成事件甚至列不出来 —— 排查「这个事件叫
          *  什么」的人要的是一张完整的单子。 */

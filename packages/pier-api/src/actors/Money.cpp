@@ -1,4 +1,4 @@
-/** actors/Money.cpp —— 经济入口，背靠**可选的** LLMoney（LegacyMoney）插件。
+/** actors/Money.cpp —— 经济入口，背靠可选的 LLMoney（LegacyMoney）插件。
  *
  * LegacyMoney.dll 延迟加载，所以本 TU 照常编译、宿主在 LegacyMoney 未安装
  * 时照常启动。每个入口都由 moneyBackendReady() 把门（模组表 + 符号双查，
@@ -41,7 +41,7 @@ namespace pier::api_impl
         void ensureTrampolines();
 
         /**
-         * 余额。**失败返回 -1，不是 0。**
+         * 余额。失败返回 -1，不是 0。
          *
          * 这是对着 LegacyMoney 的源码定的：`LLMoney_Get` 自己在 xuid 为空或
          * 数据库出错时就返回 -1，而正常余额不会是负数（`LLMoney_Trans` 拒绝
@@ -51,7 +51,7 @@ namespace pier::api_impl
          * 旧行为是缺席返回 0，那和「余额确实是 0」无法区分（契约 §5.2 点名
          * 反对的正是这种）。
          *
-         * 另一件值得知道的事：`LLMoney_Get` 对没见过的 xuid **会建账**（按
+         * 另一件值得知道的事：`LLMoney_Get` 对没见过的 xuid 会建账（按
          * 配置的 def_money 插一行），所以这个调用不是无副作用的只读查询。
          */
         long long api_get_money(PierStr xuid)
@@ -117,32 +117,19 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
-        /* ── money 事件监听器 ─────────────────────────────────────────────
+        /*  money 事件监听器。
          *
-         * LegacyMoney 的实现（它自己的 src/Event.cpp）是：
+         * LLMoney_ListenBeforeEvent 只 append，整个 LegacyMoney API 没有任何反注
+         * 册，所以宿主只装一个常驻蹦床再自己扇出。扇出时不 break，让每个订阅者都看
+         * 到这次变动，与 pier-hooks 的可取消事件同口径：判定不依赖注册顺序。
+         * before 任一返回 false 即否决，after 全部通知。
          *
-         *     void LLMoney_ListenBeforeEvent(cb) { beforeCallbacks.push_back(cb); }
+         * 这两个槽位早于 mod-scoped 约定，只收一个裸函数指针，没有模组句柄也没有
+         * user 上下文；归属靠 addressOwnedBy() 从函数地址反查模块恢复。
          *
-         * （已对着 LegacyMoney 的 src/Event.cpp 核实。）它自己的 CallBeforeEvent
-         * 也是多播，且**第一个返回 false 就 break**；Pier 只往它那里塞一个常驻
-         * 蹦床，再由蹦床扇出给各模组 —— 扇出时我们**不 break**，让每个订阅者都
-         * 看到这次变动（与 pier-hooks 的可取消事件同一口径：判定不依赖注册顺序）。
-         *
-         * 只 append，整个 LegacyMoney API 里没有任何反注册。两个推论：
-         *
-         *   1. 宿主只能装**一个常驻蹦床**、自己扇出。
-         *   2. 这两个槽位早于 mod-scoped 约定，只收一个裸函数指针，没有模组
-         *      句柄也没有 user 上下文。归属靠 addressOwnedBy() 从函数地址反
-         *      查模块来恢复（模块基址在注册时就记下）。
-         *
-         * V-08 修正的两件事：
-         *   - 旧实现每种事件只存**一个**回调，第二个模组注册会静默顶掉第一个
-         *     （经济护栏被一个日志模组无声解除）。现在是多播：before 任一返回
-         *     false 即否决；after 全部通知。
-         *   - 旧实现只在注册当时 moneyBackendReady() 为真才装蹦床，而 LL 装载
-         *     阶段 LegacyMoney 尚未 enable —— on_load 里注册的否决器永远不会
-         *     生效，且没有补装路径。现在每个经济入口、每次注册都会尝试补装，
-         *     ServerStartedEvent 之后再补一次。
+         * 蹦床要能补装：LL 装载阶段 LegacyMoney 尚未 enable，只在注册当时
+         * moneyBackendReady() 为真才装的话，on_load 里注册的否决器永远不会生效。每
+         * 个经济入口和每次注册都尝试补装，ServerStartedEvent 之后再补一次。
          */
         struct MoneyListener
         {

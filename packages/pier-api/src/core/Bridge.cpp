@@ -160,7 +160,7 @@ namespace pier::bridge
     {
         if (ref.which == 4)
         {
-            // 方块容器（箱子 / 漏斗 / …）在 (dim, pos)。
+            // 方块容器（箱子 / 漏斗 /…）在 (dim, pos)。
             auto* bs = blockSourceOf(ref.dim);
             if (!bs) return nullptr;
             auto* be = bs->getBlockEntity(BlockPos{ref.x, ref.y, ref.z});
@@ -179,15 +179,10 @@ namespace pier::bridge
             auto ec = p->getEnderChestContainer();
             return ec ? ec.as_ptr() : nullptr;
         }
-        // 盔甲和手是货真价实的 Container —— 只是不从 Player 走。
-        // `ActorEquipment::getArmorContainer(EntityContext&)` 和
-        // `getHandContainer(...)` 递回 SimpleContainer，它派生自 Container，
-        // 于是既有的物品读写路径原样可用。
-        //
-        // 这里曾有一条注释声称它们「是装备槽，不是 Container 对象」并指向
-        // actor 快照 NBT。两点都错：它们是 Container；快照 NBT 是**存档**
-        // 表示，落后现实的时长等于上次落盘到现在。LegacyScriptEngine 就是
-        // 这么做的（PlayerAPI.cpp: getArmor → ActorEquipment::getArmorContainer）。
+        // 盔甲和手是货真价实的 Container，只是不从 Player 走：
+        // ActorEquipment::getArmorContainer(EntityContext&) 与 getHandContainer(...)
+        // 递回 SimpleContainer，它派生自 Container，既有的物品读写路径原样可用。
+        // 不要改用 actor 快照 NBT，那是存档表示，落后现实的时长等于上次落盘到现在。
         case 2: // 盔甲：头、胸、腿、脚
             return &ActorEquipment::getArmorContainer(p->getEntityContext());
         case 3: // 手：槽 0 = 主手，槽 1 = 副手
@@ -285,7 +280,7 @@ namespace pier::bridge
 
     std::optional<ItemStack> itemFromSnbt(std::string_view snbt)
     {
-        // W12：fromSnbt / fromTag 对畸形输入会抛；这里的输入最终来自客户端。
+        // fromSnbt / fromTag 对畸形输入会抛；这里的输入最终来自客户端。
         try
         {
             auto tag = CompoundTag::fromSnbt(snbt);

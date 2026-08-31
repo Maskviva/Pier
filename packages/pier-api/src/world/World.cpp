@@ -91,7 +91,7 @@ namespace pier::api_impl
                 int minY = std::min(y1, y2), maxY = std::max(y1, y2);
                 int minZ = std::min(z1, z2), maxZ = std::max(z1, z2);
 
-                // V-13：体积上限 + 64 位循环变量（INT32_MAX 边界不再死循环）。
+                // 体积上限 + 64 位循环变量（INT32_MAX 边界不再死循环）。
                 constexpr int64_t kMaxVolume = int64_t{1} << 24; // 16M 格，约 256×256×256
                 int64_t const volume = (int64_t{maxX} - minX + 1) * (int64_t{maxY} - minY + 1)
                     * (int64_t{maxZ} - minZ + 1);
@@ -148,7 +148,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        // ───────────────────── 单方块读写 ─────────────────────
+        //  单方块读写
 
         bool api_get_block(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierBlockSink sink)
         {
@@ -163,28 +163,18 @@ namespace pier::api_impl
         }
 
         /**
-         * 原生写方块。**不走 `/execute in … run setblock`。**
+         * 原生写方块。不走 /execute in… run setblock。
          *
-         * 命令路径当初图的是「跨 BDS 版本稳定」，代价却一直在付：
+         * 命令路径的代价：失败只有一个 bool 而没有原因（方块名拼错、维度没加载、坐
+         * 标在未生成的区块里，症状全一样）；每次写方块都过一遍命令解析、权限检查和
+         * origin 构造，而一次批量编辑有几十万个方块；控制不了 update flags，「粘贴
+         * 时不要产生掉落物」在那条路上无法表达；副作用还会被命令事件和日志看见。
          *
-         *   - 失败只有一个 bool，没有任何原因。方块名拼错、维度没加载、坐标
-         *     在未生成的区块里 —— 全都长一样，出了问题无从查起。
-         *   - 走命令等于每次写方块都过一遍命令解析、权限检查和 origin 构造。
-         *     WorldEdit 一次操作几十万个方块，这层开销全是白付的。
-         *   - **控制不了 update flags**，所以「粘贴时不要产生掉落物」这类需
-         *     求在命令路径上根本无法表达。
-         *   - 命令的副作用还会被别的系统看见（命令事件、日志），一次批量编
-         *     辑能淹掉整个控制台。
-         *
-         * 直接走 `BlockSource::setBlock`，和 `api_edit_set_block_nbt` 同一条
-         * 路。`blockSpec` 两种写法都收：
-         *
-         *   - `minecraft:stone` / `stone` —— 取默认状态
-         *   - `{name:"minecraft:stone",states:{…}}` —— 完整序列化 NBT，会跑引
-         *     擎的版本升级表
-         *
-         * 认不出的方块名返回 false，**不会**像 getDefaultBlockState 那样安静
-         * 地填一个占位方块（那会让 `//set 拼错的名字` 把整片地区刷掉）。
+         * 直接走 BlockSource::setBlock，与 api_edit_set_block_nbt 同一条路。
+         * blockSpec 两种写法都收：minecraft:stone 或 stone 取默认状态；
+         * {name:"minecraft:stone",states:{…}} 是完整序列化 NBT，会跑引擎的版本升级
+         * 表。认不出的方块名返回 false，不像 getDefaultBlockState 那样安静地填一个
+         * 占位方块 —— 那会让拼错名字的 //set 把整片地区刷掉。
          */
         bool api_set_block(int32_t dim, int32_t x, int32_t y, int32_t z, PierStr blockSpec)
         {
@@ -203,14 +193,14 @@ namespace pier::api_impl
 
                 // DEFAULT = NEIGHBORS | NETWORK，和 /setblock 的观感一致：邻居
                 // 会更新，变更会同步给客户端。要别的行为用 edit_set_block_nbt，
-                // 那个收 flags。第 5 个参数是 BlockChangeContext 的**引用**，不
+                // 那个收 flags。第 5 个参数是 BlockChangeContext 的引用，不
                 // 能传 nullptr。用和 //set 同一个来源，别的插件挂在方块变更上
                 // 的钩子看到的东西才不变。
                 return bs->setBlock(BlockPos{x, y, z}, *block, 3, nullptr, bridge::blockEditContext());
             PIER_API_GUARD_END
         }
 
-        // ───────────────────── 方块属性 ─────────────────────
+        //  方块属性
 
         Block const* blockAt(int32_t dim, int32_t x, int32_t y, int32_t z, BlockSource** bsOut = nullptr)
         {
@@ -247,7 +237,7 @@ namespace pier::api_impl
                 case PIER_BPROP_HAS_BLOCK_ENTITY:
                     *out = (bs->getBlockEntity(BlockPos{x, y, z}) != nullptr) ? 1.0 : 0.0;
                     return true;
-                /* ── 追加：方块补漏 ── */
+                /*  追加：方块补漏  */
                 case PIER_BPROP_LIGHT:
                     *out = static_cast<double>(block->getLight().mValue);
                     return true;
@@ -363,10 +353,10 @@ namespace pier::api_impl
                     sink(ctx, ps(out));
                     return true;
                 }
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_BSTR_STATE:
                 {
-                    // 把全部方块状态按 SNBT {name:value, …} 序列化出去。
+                    // 把全部方块状态按 SNBT {name:value,…} 序列化出去。
                     sink(ctx, ps(block->mSerializationId.get().toSnbt(SnbtFormat::Minimize)));
                     return true;
                 }
@@ -430,7 +420,7 @@ namespace pier::api_impl
                     if (out) out(ctx, ps(std::string_view{has ? "1" : "0"}));
                     return true;
                 }
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_BACT_GET_STATE:
                 {
                     // 按名字取单个方块状态 —— 这个 LL 版本没有单点的
@@ -440,7 +430,7 @@ namespace pier::api_impl
                 }
                 case PIER_BACT_POP_RESOURCE:
                 {
-                    // 原生掉落，不再走 `/setblock … air destroy`。
+                    // 原生掉落，不再走 `/setblock… air destroy`。
                     //
                     // Level::destroyBlock 就是命令背后做的事，而且它返回是否真
                     // 的破坏成功 —— 命令路径只能给一个「命令跑过了」。
@@ -483,7 +473,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        // ───────────────────── 爆炸 ─────────────────────
+        //  爆炸
 
         bool api_explode(
             int32_t dim,
@@ -501,7 +491,7 @@ namespace pier::api_impl
                 auto* level = bridge::levelReady();
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!level || !bs) return false;
-                // V-13：半径无上限等于一次调用炸掉整片加载区块并冻住线程。原版
+                // 半径无上限等于一次调用炸掉整片加载区块并冻住线程。原版
                 // 最大的爆炸（凋灵/末影水晶）半径不超过 8；这里放宽到 64。
                 if (!(radius >= 0.0f) || radius > 64.0f) return false;
                 Actor* src = (source != 0) ? bridge::resolveActor(source) : nullptr;

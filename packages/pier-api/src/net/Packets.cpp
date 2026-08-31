@@ -1,21 +1,15 @@
-/** net/Packets.cpp —— 按连接投递数据包（追加，struct_size 把门）。
+/** net/Packets.cpp —— 按连接投递数据包（追加槽，struct_size 把门）。
  *
- * 两层：
- *   - api_send_packet：裸原语。任意 MinecraftPacketIds + 线格式包体，反序列
- *     化成真数据包对象、交给**一个**玩家的连接。它是逃生舱：让每个「就发个
- *     包」的需求不必再动桥。
- *   - api_spawn_particle_for / api_player_send_title：同一条投递路径的类型化
- *     派生。包在 C++ 侧构造（版本安全：没有线格式跨 FFI），复用同一个投递
- *     助手。
+ * 两层。api_send_packet 是裸原语：任意 MinecraftPacketIds 加线格式包体，反序列化
+ * 成真数据包对象交给一个玩家的连接，让「就发个包」的需求不必再动桥。
+ * api_spawn_particle_for 与 api_player_send_title 是同一条投递路径的类型化派生，
+ * 包在 C++ 侧构造（没有线格式跨 FFI，版本安全），复用同一个投递助手。
  *
- * api_player_send_title 存在的理由：老的标题路（player_action 的
- * PACT_SET_TITLE）曾 shell 出去跑 `/title "<name>" title <text>`，名字带引
- * 号就碎、文本里的选择器会被展开、也定不了时长。
+ * api_player_send_title 存在的理由：player_action 的 PACT_SET_TITLE 曾 shell 出去
+ * 跑 /title "<name>" title <text>，名字带引号就碎，文本里的选择器会被展开，时长也
+ * 定不了。刻意不暴露广播变体，模组要「所有人」时自己循环玩家。
  *
- * 刻意**不**暴露广播变体（Level 本来就会广播；模组真要「所有人」时自己循
- * 环玩家）。
- *
- * 读改既有的包是另一半故事，住在 PacketHooks —— 本文件只制造新包。
+ * 读改既有的包住在 PacketHooks，本文件只制造新包。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -64,12 +58,12 @@ namespace pier::api_impl
                 auto pkt = MinecraftPackets::createPacket(static_cast<MinecraftPacketIds>(packetId));
                 if (!pkt) return false;
 
-                // 把调用方给的包体反序列化进包对象。流**借用**字节
+                // 把调用方给的包体反序列化进包对象。流借用字节
                 //（copyBuffer=false）—— 本帧内有效。
                 std::string_view raw{reinterpret_cast<char const*>(body), bodyLen};
                 ReadOnlyBinaryStream stream{raw, /*copyBuffer=*/false};
                 if (!pkt->read(stream)) return false;
-                // 包体必须**恰好**是一个包：有尾随垃圾意味着调用方按错的形状
+                // 包体必须恰好是一个包：有尾随垃圾意味着调用方按错的形状
                 // 序列化了这个游戏版本 —— 早点拒绝，别把半解析的包发给客户端。
                 if (!stream.ensureReadCompleted()) return false;
 
@@ -102,7 +96,7 @@ namespace pier::api_impl
                 if (!p) return false;
 
                 // 时长（若要）先发、单独一个包 —— `/title <who> times a b c`
-                // 发的就是它，客户端把它应用到**之后**到达的标题上。只把时长
+                // 发的就是它，客户端把它应用到之后到达的标题上。只把时长
                 // 塞进内容包在有些版本上行、有些版本上不行；发 Times 包是原版
                 // 自己依赖的行为。
                 if (withTimes)

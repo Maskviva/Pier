@@ -1,13 +1,13 @@
-/** world/ExplosionEvent.cpp —— 爆炸事件（可取消，可只挡方块伤害）。
+/** world/ExplosionEvent.cpp —— 爆炸事件，可取消。
  *
- * pier-dimensions 也钩 `Level::$explode`，但那一层回答的是**按维度**的粗粒度
- * 问题（这个维度允不允许爆炸破坏方块）。地皮级的判断需要坐标和半径，只能
- * 由模组来做，所以这里再挂一个**更外层**（HookPriority::High）的钩子：
- * 模组先看到每一次爆炸，不取消的话维度规则照常生效。
+ * pier-dimensions 也钩 Level::$explode，但那一层回答的是按维度的粗粒度问题（这
+ * 个维度允不允许爆炸破坏方块）。地皮级判断需要坐标和半径，只能由模组做，所以这
+ * 里再挂一个更外层（HookPriority::High）的钩子：模组先看到每一次爆炸，不取消的
+ * 话维度规则照常生效。
  *
- * 取消语义是「这次爆炸不发生」（连伤害带方块）。只想保住方块、留下伤害的，
- * 用维度规则 PIER_DIMRULE_EXPLODE_BLOCKS，或者在自己那边用
- * `explode(..., breaks_blocks=false)` 重放一次。
+ * 取消语义是这次爆炸不发生，连伤害带方块。只想保住方块、留下伤害的，用维度规则
+ * PIER_DIMRULE_EXPLODE_BLOCKS，或在模组侧用 explode(..., breaks_blocks=false)
+ * 重放一次。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -32,9 +32,9 @@ namespace pier::hooks
     {
         HookEventDef& explosionDef(); // 前向
 
-        /** `Level::$explode` 有两个重载（八参版和 `Explosion&` 版）。宏内部按目标
-         *  类型解析标识符本可消歧，但显式转型无论如何都成立，也把「钩的是哪一个」
-         *  写在了脸上 —— 与 AttackEvent 同一手法。 */
+        /** Level::$explode 有两个重载（八参版和 Explosion& 版）。宏内部按目标类型
+         *  解析标识符本可消歧，但显式转型无论如何都成立，且把钩的是哪一个写在明
+         *  处。同 AttackEvent。 */
         using ExplodeFn = bool (Level::*)(
             ::BlockSource&, ::Actor*, ::Vec3 const&, float, bool, bool, float, bool);
 

@@ -57,15 +57,10 @@ namespace pier::dimensions
     {
         using ::pier::hostLogger;
 
-        // 这三个符号**只有** Overworld / Nether / TheEnd 生成器用得到。
-        //
-        // 以前它们是命名空间作用域的变量，DLL 一加载就解析，于是任何一次
-        // BDS 签名变更都会在启动时打三条 FATAL —— 哪怕这台服务器只用
-        // Flat / Void / Plot 维度，根本不会调用它们。改成函数内 static
-        // 懒解析后，只有真正用到时才解析，用不到就完全无感。
-        //
-        // 同时补上空指针检查：符号缺失时降级成「不生成结构」并打一条 warn，
-        // 而不是拿 nullptr 去 addressCall 直接崩服。
+        // 这三个符号只有 Overworld / Nether / TheEnd 生成器用得到，所以放在函数内
+        // 作 static 懒解析：放在命名空间作用域会让 DLL 一加载就解析，任何一次 BDS
+        // 签名变更都在启动时打三条 FATAL，哪怕这台服务器只用 Flat / Void / Plot。
+        // 符号缺失时降级成「不生成结构」并打 warn，不拿 nullptr 去 addressCall。
         using namespace ll::memory_literals;
 
         void* overworldAddress()
@@ -158,7 +153,7 @@ namespace pier::dimensions
           )
     {
         mDefaultBrightness->sky = Brightness::MAX();
-        // 这里读的是**已经存进配置的那个名字**，不是本次调用传进来的参数 ——
+        // 这里读的是已经存进配置的那个名字，不是本次调用传进来的参数 ——
         // generateNewData 只在维度第一次创建时跑一次。所以一个维度建错了生成器，
         // 之后重启多少次都还是错的，改代码不会追溯修正它。
         auto const storedName = static_cast<std::string_view>(info.data["generatorType"]);

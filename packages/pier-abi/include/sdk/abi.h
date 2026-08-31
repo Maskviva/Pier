@@ -1,50 +1,52 @@
 /**
- * Pier ABI — `sdk/abi.h`（ABI v1）
+ * Pier ABI — sdk/abi.h (ABI v1)
  *
- * 这份头文件是 Pier 的**产品**：C++ 宿主（pier-host + 各能力包）与任何语言的
- * SDK 之间唯一的契约。参考镜像是 `packages/pier-sys-rs/src/api.rs`（全手写、
- * 无 bindgen，同时充当本文件的可读注解）。
+ * This header is the product: the sole contract between the C++ host
+ * (pier-host plus the capability packages) and an SDK written in any language.
+ * The reference mirror is packages/pier-sys-rs/src/api.rs, hand-written with no
+ * bindgen, which doubles as readable annotation for this file.
  *
- * # 这份文件必须能被 C 编译器解析
+ * This file must parse as C. Consumers are "any language", so it uses C11 only:
+ * no std::string_view, no enum class, no nested types. The C++ convenience
+ * wrappers (PierStr to string_view and back) live in pier-support, not here; a
+ * language-specific type in the contract forces every other language to guess
+ * that type's layout. CI compiles this file once as C11 and once as C++20.
  *
- * 契约的消费方是「任何语言」，所以它只用 C11：没有 std::string_view、没有
- * enum class、没有嵌套类型。C++ 侧的便利封装（PierStr ↔ string_view 等）在
- * `pier-support`，**不在这里** —— 契约里一旦出现某门语言的类型，别的语言就
- * 得去猜那个类型的布局。CI 会分别用 C11 和 C++20 各编译本文件一遍。
+ * Rules for changing this file. These are the only versioning rules anywhere.
+ *   1. Append at the end of PierApi only. Never reorder, remove, or change the
+ *      signature of an existing slot. Appending does NOT bump PIER_ABI_VERSION.
+ *   2. After appending, update every SDK mirror slot for slot; the
+ *      sys-mirrors-abi check enforces the ordering.
+ *   3. Only a non-append change (reorder, removal, signature change) advances
+ *      PIER_ABI_VERSION and PIER_ABI_MIN_SUPPORTED, both to the same number.
  *
- * # 改这个文件的规矩（全文只有这一套版本规则）
+ * Appending does not bump the version because the version answers "which
+ * already-compiled mods still load". An appended slot invalidates no old mod:
+ * the old table is a byte-identical prefix of the new one, and an old mod can
+ * never reach the new slot. Bumping for it would announce an incompatibility
+ * that does not exist. Each direction has its own gate instead: a new host with
+ * an old mod is covered by the version range (see PIER_ABI_MIN_SUPPORTED); an
+ * old host with a new mod is covered by the mod comparing struct_size slot by
+ * slot, reporting "host lacks this capability" for the one call that overruns.
  *
- * 1. **只在 `PierApi` 结构体末尾追加**。永远不重排、不删除、不改已有槽位的
- *    签名。追加**不**升 `PIER_ABI_VERSION`。
- * 2. 追加后同步每个 SDK 的镜像（字段顺序逐格对齐；`sys-mirrors-abi` 机检）。
- * 3. 只有**非追加**变更（重排 / 删除 / 改签名）才把 `PIER_ABI_VERSION` 和
- *    `PIER_ABI_MIN_SUPPORTED` **同时**推进到同一个数。
+ * The layout is identical across all build targets. PierApi carries no
+ * conditional compilation: slots for client-only and dimension capabilities are
+ * always present in the layout and are simply NULL when that package was not
+ * built into the host. "Capability present" means "slot is non-NULL", and the
+ * SDK reports "host does not provide X" from that. This buys three things:
+ * mirrors need no conditional compilation, a cross-target mismatch cannot call
+ * the wrong slot, and the struct has exactly one append point, the end.
  *
- * 为什么追加不升版本：版本号回答的是「哪些已编译模组还能装」。追加一个槽位
- * 不会让任何旧模组失效 —— 旧表是新表逐字节相同的前缀，旧模组永远够不到新
- * 槽。为它升版本等于宣布一次不存在的不兼容。两个方向的安全各有专门的闸：
- *
- *   - 新宿主 + 旧模组：版本区间检查（见 `PIER_ABI_MIN_SUPPORTED`）
- *   - 旧宿主 + 新模组：模组侧**逐槽**比对 `struct_size`（SDK 的
- *     `require_slot!`），表不够长就把那一个调用报成「宿主没有此功能」
- *
- * # 布局在所有构建目标下都相同（v1 的核心决定）
- *
- * `PierApi` 没有任何条件编译：客户端专属、维度扩展等**能力组**的槽位永远存
- * 在于布局中，只是当那个能力包没有编进宿主时，对应槽位为 **NULL**。
- * 「有没有这个能力」= 「这个槽是不是 NULL」，SDK 据此报「宿主不提供 X」。
- * 这换来三件事：镜像不需要任何条件编译；跨目标错配不可能造成槽位错位调用；
- * 结构体只有一个追加点 —— 末尾。
- *
- * # 约定（全文件适用，逐槽注释只写例外）
- *
- *   - 字符串一律是 UTF-8 的 (ptr, len) 视图，**不保证 NUL 结尾**。
- *   - 传进回调的字符串归调用方所有，只在回调期间有效；要留就拷贝。
- *   - 模组向外传字符串一律走 sink 回调，在当前调用帧内完成 —— 跨边界永远
- *     不移交所有权，ABI 上不存在「返回一个需要对方释放的指针」。
- *   - 线程：除非该槽注释另有说明，一律只能在**服务器线程**调用。
- *     `log` / `gaming_status` / `schedule` / `schedule_after` 线程安全。
- *     所有回调（事件、命令、计划任务）都在服务器线程触发。
+ * Conventions for the whole file; per-slot comments record only the exceptions.
+ *   - Strings are UTF-8 (ptr, len) views and are NOT guaranteed NUL-terminated.
+ *   - A string passed into a callback is owned by the caller and valid only for
+ *     that call; copy it to keep it.
+ *   - A mod hands strings out through a sink callback within the current call
+ *     frame. Ownership never crosses the boundary: this ABI has no "returns a
+ *     pointer the other side must free".
+ *   - Threading: unless a slot says otherwise, call only on the server thread.
+ *     log, gaming_status, schedule and schedule_after are thread-safe. Every
+ *     callback (event, command, scheduled task) fires on the server thread.
  */
 #ifndef PIER_SDK_ABI_H
 #define PIER_SDK_ABI_H
@@ -57,26 +59,31 @@
 extern "C" {
 #endif
 
-/** 见文件头「改这个文件的规矩」。追加槽位**不**改这里。 */
+/** See "Rules for changing this file" in the file header. Appending a slot does
+ *  not touch this. */
 #define PIER_ABI_VERSION 1u
 
-/** 宿主可接受的最老模组 ABI。只随非追加变更移动，且与 PIER_ABI_VERSION
- *  一起移到同一个数 —— 它是「低于此的表不再是我的前缀」的开关。 */
+/** Oldest mod ABI the host accepts. Moves only on a non-append change, and then
+ *  to the same number as PIER_ABI_VERSION. It is the switch for "a table older
+ *  than this is no longer a prefix of mine". */
 #define PIER_ABI_MIN_SUPPORTED 1u
 
-/** 模组必须导出的唯一入口符号。宿主只找这一个名字，找不到就明确拒绝装载，
- *  不做任何回退 —— v1 是全新起点，不承载历史别名。 */
+/** The only entry symbol a mod must export. The host looks for this name alone
+ *  and refuses to load with an explicit error if it is missing; there is no
+ *  fallback and no historical alias. */
 #define PIER_MAIN_SYMBOL "pier_main"
 
-/** `PierApi.host_flags` / `PierModVTable.mod_flags` 的位。
- *  两侧的 bit 0 必须相等，否则宿主拒绝装载并说明原因（服务端宿主装不了按
- *  客户端编译的模组，反之亦然）。其余位保留，当前必须为 0。 */
+/** Bits for PierApi.host_flags and PierModVTable.mod_flags. Bit 0 must match on
+ *  both sides or the host refuses to load and says why: a server host cannot
+ *  load a client-built mod, and vice versa. All other bits are reserved and must
+ *  currently be 0. */
 #define PIER_FLAG_CLIENT 0x1u
 
 /**
- * UTF-8 字符串视图。**显式的 {指针, 长度} 结构体**，不是任何语言字符串类型
- * 的别名 —— 布局由这份声明本身定义，不依赖任何一侧标准库的实现细节。
- * C++ 侧与 std::string_view 的零拷贝互转在 pier-support。
+ * UTF-8 string view. An explicit {pointer, length} struct, not an alias for any
+ * language's string type: the layout is defined by this declaration alone and
+ * does not depend on either side's standard library. The zero-copy conversion
+ * to and from std::string_view lives in pier-support.
  */
 typedef struct PierStr
 {
@@ -132,7 +139,7 @@ typedef void (*PierCommandCb)(
 /** Output sink for execute_command: full command output + success flag. */
 typedef void (*PierCmdOutputSink)(void* ctx, bool success, PierStr output);
 
-/* ─────────────────── 世界读取（scan） ─────────────────── */
+/*  World reads (scan)  */
 
 /** A player's feet position + dimension. `found` is false if no such player. */
 typedef struct PierPlayerPos
@@ -161,7 +168,7 @@ typedef void (*PierBlockSink)(void* ctx, int32_t x, int32_t y, int32_t z, PierSt
 typedef void (*PierEntitySink)(void* ctx, int32_t x, int32_t y, int32_t z, PierStr type, PierStr snbt);
 
 
-/* ═════════════ 各域的载荷类型 ═════════════ */
+/*  Per-domain payload types  */
 
 /**
  * Player selector — the identifier half of the "handles are identifiers,
@@ -204,7 +211,7 @@ typedef void (*PierActorSink)(void* ctx, PierActorId id, PierStr type_name);
  * responds (or the form is cancelled). result_snbt:
  *   cancelled       : {cancelled:1b, reason:N}
  *   SimpleForm      : {button:N}
- *   CustomForm      : {values:{<name>: string|double|int64 …}}
+ *   CustomForm      : {values:{<name>: string|double|int64…}}
  *   ModalForm       : {button:"upper"|"lower"}
  * Muted (never called) if the mod is disabled before the player responds.
  */
@@ -213,7 +220,7 @@ typedef void (*PierFormResultCb)(void* user, PierStr result_snbt);
 /** Opaque handle to an open key-value database owned by the loader. */
 typedef void* PierKvDbHandle;
 
-/* ═════════════════ Cross-mod event bus FFI types ═════════════════
+/*  Cross-mod event bus FFI types
  * A mod cannot hand another mod a function pointer: `ModHost::unload`
  * calls FreeLibrary, so the publisher would be left holding a pointer into an
  * unmapped dylib. The loader therefore owns the subscription table, with the
@@ -231,7 +238,7 @@ typedef void* PierKvDbHandle;
  * Subscriber callback. `topic` and `payload` are borrowed for the duration of
  * the call — copy anything you keep.
  *
- * The return value is a **veto**, and only for `bus_publish_vetoable`:
+ * The return value is a veto, and only for `bus_publish_vetoable`:
  *   true  = "refuse this",
  *   false = "no opinion".
  * It is ignored entirely by `bus_publish`. There is deliberately no way to
@@ -246,7 +253,7 @@ typedef void* PierKvDbHandle;
 typedef bool (*PierBusCb)(void* user, PierStr topic, PierStr payload);
 
 /**
- * Provider callback for the cross-mod **service registry** (query-style calls,
+ * Provider callback for the cross-mod service registry (query-style calls,
  * as opposed to the bus's one-way broadcast).
  *
  * Write the answer through `reply(ctx, ...)` — exactly once — and return true.
@@ -273,137 +280,153 @@ typedef bool (*PierServiceCb)(
 #define PIER_SERVICE_ERROR 2     /* provider returned false; reply holds its message */
 #define PIER_SERVICE_REFUSED 3   /* bad name, self-call, or call-depth limit */
 
-/* ═════════════════ 同工具链快车道 (same-toolchain fast lane) ═════════════════
+/*  Same-toolchain fast lane
  *
- * bus / service 都是「(名字, UTF-8 载荷) -> UTF-8 载荷」。那个形状是**跨语言**
- * 的最大公约数：任何语言的 mod 都能说这门话。代价是每次调用都要
- * 序列化一次，而且类型信息在字符串里全丢了。
+ * bus and service are both "(name, UTF-8 payload) -> UTF-8 payload". That shape
+ * is the cross-language common denominator: a mod in any language can speak it.
+ * The price is a serialization round trip per call, with all type information
+ * lost inside the string.
  *
- * 这条车道是给「两边由同一次工具链编出、内存布局逐字节相同」这个特例准备的。
- * 那时候两个动态库里的 C 布局函数表逐字节相同，可以直接递指针。
+ * This lane serves one special case: both sides built by the same toolchain, so
+ * the C-layout function tables in the two dynamic libraries are byte-identical
+ * and pointers can be handed over directly.
  *
- * ── loader 在这里做什么、不做什么 ──
+ * The loader owns the name -> lane table (exclusive, like service), validates
+ * the fingerprint, issues and collects leases, and holds a liveness flag that it
+ * clears the moment the provider goes away. It does not interpret a single byte
+ * of data or vtable; both pointers are opaque to it, exactly like a bus payload.
  *
- * 做：拥有名字 -> 车道的表（独占，和 service 一样）、校验指纹、发/收租约、
- *     持有一个**永不释放**的存活标志，并在提供方消失的那一刻把它清零。
- * 不做：解释 `data` / `vtable` 里的任何一个字节。那两个指针对 loader 而言是
- *       不透明的，就像 bus 的 payload 一样。
+ * The loader has to be involved because ModHost::unload calls FreeLibrary. The
+ * provider's memory can stay alive by reference counting, but its code section
+ * is unmapped, so the consumer's function pointer becomes a use-after-free. The
+ * crash then lands in the consumer, with nothing in the log pointing at the mod
+ * that just left. Hence:
+ *   1. alive points at one cell on the loader's own heap and is never freed
+ *      (lanes number in the dozens, so this leaks a few dozen uint32). The
+ *      loader writes 0 when the provider goes away, and the consumer reads the
+ *      cell before each call: one plain atomic read, no FFI, no lock. That is
+ *      what "fast" means here, the loader runs no code on the hot path.
+ *   2. When the provider goes away, the loader calls release for every
+ *      outstanding lease before FreeLibrary, so the provider frees its own
+ *      objects inside its own dylib with its own allocator.
  *
- * ── 为什么非要 loader 掺一脚 ──
+ * Most native languages have no stable ABI. The same contract type compiled
+ * twice into two cdylibs can end up with different field order when compiler
+ * metadata differs, and that is silent memory corruption rather than a crash.
+ * So the check is a fingerprint, not a version number: compiler version, target
+ * triple, contract name and version, and the type identity, size and alignment
+ * of the function table, all folded into one u64. Any difference yields a
+ * different fingerprint, lane_acquire returns PIER_LANE_FINGERPRINT, and not a
+ * single pointer is handed over.
  *
- * 因为 `ModHost::unload` 调 `FreeLibrary`。提供方的**内存**可以靠 Arc
- * 活下去，但它的**代码段会被 unmap** —— 消费方手里那个函数指针在卸载之后是
- * use-after-free，而崩溃发生在消费方，日志里没有任何线索指向刚离开的那个 mod。
+ * The failure mode is "slow" (the consumer falls back to the service channel),
+ * never undefined behaviour. That property is the entire reason this lane is
+ * allowed to exist.
  *
- * 所以：
- *   1. `alive` 指向 loader 自己堆上的一格，**永远不释放**（车道数量是几十，
- *      泄漏的是几十个 uint32）。提供方走掉时 loader 把它写 0。消费方每次调用
- *      前读一下这一格 —— 一次普通的原子读，不过 FFI、不拿锁。这就是「高速」
- *      的实际含义：热路径上 loader 一行代码都不跑。
- *   2. 提供方消失时，loader 在 `FreeLibrary` **之前**替所有未归还的租约调用
- *      `release`，让提供方在自己的 dylib 里、用自己的分配器释放自己的东西。
- *
- * ── 指纹 ──
- *
- * 多数原生语言没有稳定 ABI。同一份契约类型被两个 cdylib 各编一遍，编译器
- * 元数据不同时，字段顺序**可能**不同 —— 而那是静默的内存错乱，不是崩溃。
- *
- * 所以不比版本号，比**指纹**：编译器版本、target、契约名与版本、函数表类型的
- * `TypeId` 与 `size_of`/`align_of`，全部揉进一个 u64。任何一处不同 -> 指纹不同
- * -> `lane_acquire` 返回 PIER_LANE_FINGERPRINT，一个指针都不递出去。
- *
- * 失败模式是「慢」（消费方降级回 service 的 JSON 通道），不是 UB。这个性质是
- * 这条车道敢存在的全部理由。
- *
- * 宿主只做**相等比较**，不解释指纹的含义 —— 那是 SDK 侧的事，而且必须是，
- * 否则「指纹里加一项」就成了一次 ABI 变更。
+ * The host compares fingerprints for equality and never interprets them; it has
+ * to be that way, or "add one more item to the fingerprint" would become an ABI
+ * change.
  */
 
-/** 车道协议版本。和 PIER_ABI_VERSION 分开：车道的形状可以独立演进，
- *  而且不匹配时的处理方式不一样（拒绝这一条车道，而不是拒绝整个 mod）。 */
+/** Lane protocol version. Kept separate from PIER_ABI_VERSION: the lane shape
+ *  evolves independently, and a mismatch is handled differently (reject this one
+ *  lane, not the whole mod). */
 #define PIER_LANE_PROTOCOL 1u
 
-/** lane_acquire 返回值。 */
-#define PIER_LANE_OK 0          /* 拿到了，out 已填好 */
-#define PIER_LANE_NOT_FOUND 1   /* 没人发布这个名字（没装那个 mod）*/
-#define PIER_LANE_FINGERPRINT 2 /* 发布了，但指纹不同 —— 降级，别递指针 */
-#define PIER_LANE_REFUSED 3     /* 名字非法 / 自取 / 提供方被禁用 / 协议不符 */
+/** lane_acquire return values. */
+#define PIER_LANE_OK 0          /* acquired; out is filled in */
+#define PIER_LANE_NOT_FOUND 1   /* nobody published this name (that mod is not installed) */
+#define PIER_LANE_FINGERPRINT 2 /* published, but the fingerprint differs; degrade, hand over nothing */
+#define PIER_LANE_REFUSED 3     /* bad name, self-acquire, provider disabled, or protocol mismatch */
 
 /**
- * 引用计数钩子，在**提供方自己的 dylib 里**执行。
+ * Reference-count hooks, executed inside the provider's own dylib.
  *
- * 由 loader 在 `lane_acquire` / `lane_release` 里调用，以及在提供方卸载或
- * `lane_unpublish` 时替所有未归还的租约补调 `release`。**发布本身不占引用
- * 计数**：loader 从不为 `lane_publish` 交出的那份 `data` 调用 `release`，
- * 提供方在撤销之后自行回收它。
+ * The loader calls them from lane_acquire and lane_release, and calls release
+ * for every outstanding lease when the provider unloads or calls
+ * lane_unpublish. Publishing itself does not hold a count: the loader never
+ * calls release for the data handed to lane_publish, and the provider reclaims
+ * that itself after unpublishing.
  *
- * 不许回调进 loader（`lane_*` 的任何一个），会自死锁。典型实现是对提供方
- * 自己的引用计数做一次原子加/减 —— 两行都不碰锁。
+ * These must not call back into the loader (any lane_* slot); that self-
+ * deadlocks. A typical implementation is one atomic increment or decrement on
+ * the provider's own refcount, touching no lock.
  */
 typedef void (*PierLaneRefFn)(void* data);
 
-/** 提供方发布一条车道时描述它自己。所有字段由提供方填，loader 只搬运。 */
+/** How a provider describes a lane when publishing it. Every field is filled in
+ *  by the provider; the loader only carries it. */
 typedef struct PierLaneDesc
 {
-    /** sizeof(PierLaneDesc)，和 PierApi::struct_size 一个纪律。 */
+    /** sizeof(PierLaneDesc); same discipline as PierApi::struct_size. */
     uint32_t struct_size;
-    /** 必须等于 PIER_LANE_PROTOCOL，否则 publish 被拒。 */
+    /** Must equal PIER_LANE_PROTOCOL or publish is refused. */
     uint32_t protocol;
-    /** 编译指纹。0 是保留值（表示「随便谁都能连」），**不要用**。 */
+    /** Build fingerprint. 0 is reserved (it would mean "anyone may connect") and
+ *  must not be used. */
     uint64_t fingerprint;
-    /** 提供方的状态指针（通常是一个引用计数对象交出来的裸指针）。
-     *  loader 不解释。 */
+    /** The provider's state pointer, typically a raw pointer handed out by a
+     *  reference-counted object. The loader does not interpret it. */
     void* data;
-    /** C 布局的函数表。loader 不解释，也不复制内容 —— 提供方必须保证它
-     *  活到这条车道被撤销为止（静态存储期，或一块有意不回收的分配）。 */
+    /** C-layout function table. The loader neither interprets nor copies it; the
+     *  provider must keep it alive until the lane is withdrawn (static storage,
+     *  or an allocation deliberately never reclaimed). */
     void const* vtable;
-    /** 可为 NULL（那时租约不计数，靠 alive 标志兜底）。 */
+    /** May be NULL, in which case leases are not counted and the alive flag is the
+     *  only guard. */
     PierLaneRefFn retain;
     PierLaneRefFn release;
 } PierLaneDesc;
 
-/** `lane_acquire` 的产出。 */
+/** What lane_acquire produces. */
 typedef struct PierLaneRef
 {
-    /** sizeof(PierLaneRef) —— **由调用方填好再传进来**，loader 据此决定写到
-     *  哪一格为止。这个方向和别处相反，因为这里是 loader 在写调用方的结构体。 */
+    /** sizeof(PierLaneRef), filled in by the caller before the call; the loader
+     *  uses it to decide which trailing fields to write. The direction is the
+     *  reverse of elsewhere because here the loader writes the caller's
+     *  struct. */
     uint32_t struct_size;
-    /** 归还时用。0 表示没拿到。 */
+    /** Used when returning the lease. 0 means nothing was acquired. */
     uint64_t lease;
-    /** 提供方的指纹。指纹不匹配时也会填，专门给诊断用 —— 服主要看到的是
-     *  「你的两个 mod 是不同编译器编的」，不是「不匹配」四个字。 */
+    /** The provider's fingerprint. Filled in even on mismatch, for diagnostics: an
+     *  operator needs to read "these two mods were built by different
+     *  compilers", not the word "mismatch". */
     uint64_t fingerprint;
     void* data;
     void const* vtable;
     /**
-     * **loader 拥有的存活标志**，非 0 = 提供方还在。
+     * Liveness flag owned by the loader; non-zero means the provider is still
+     * there. The cell is never freed, so reading it after the provider unloads
+     * is still legal, which is the entire reason it exists. Read it with acquire
+     * before each call (the writer uses a release store; a relaxed load paired
+     * with a release store does not synchronize-with).
      *
-     * 这一格永不释放，所以提供方卸载之后读它仍然是合法的 —— 那正是它存在的
-     * 理由。消费方每次调用前读一次，用 **acquire**（写端是 release store；
-     * relaxed load 配 release store 不构成 synchronizes-with）。
-     *
-     * 指纹不匹配时为 NULL。
+     * NULL when the fingerprint did not match.
      */
     uint32_t const* alive;
     /**
-     * **调用中计数**，同样由 loader 拥有、永不释放。消费方在进入提供方的表项
-     * 之前 +1，返回之后 -1。
+     * In-call counter, also owned by the loader and never freed. The consumer
+     * increments it before entering a provider entry point and decrements after
+     * returning.
      *
-     * 为什么需要它：`alive` 只能挡住「调用之前提供方已经走了」，挡不住检查与
-     * 调用之间的那个窗口。全部服务器线程调用挡住了**并发**卸载，但挡不住
-     * **重入**卸载 —— 提供方的表项自己触发了一次命令派发，那条命令把提供方
-     * 卸了，于是 `FreeLibrary` 发生在一个仍然停在提供方代码里的栈帧下面。
+     * alive only rules out "the provider was already gone before the call"; it
+     * does not close the window between the check and the call. Server-thread-
+     * only calling rules out concurrent unload but not reentrant unload: a
+     * provider entry point dispatches a command, that command unloads the
+     * provider, and FreeLibrary happens underneath a stack frame still sitting
+     * in provider code.
      *
-     * loader 在 `unload` 的最前面读这个计数：非 0 就直接拒绝卸载并说明原因，
-     * 而不是先卸再崩。
+     * The loader reads this counter first thing in unload and refuses to unload
+     * with a reason when it is non-zero, rather than unloading and crashing.
      *
-     * 追加字段，受 `struct_size` 保护：老消费方填的 struct_size 到不了这里，
-     * loader 就不写，它们的行为和以前一模一样。
+     * Appended field, guarded by struct_size: an older consumer's struct_size
+     * does not reach here, the loader does not write it, and its behaviour is
+     * unchanged.
      */
     uint32_t* busy;
 } PierLaneRef;
 
-/* ═════════════════ Packet interception FFI types ═════════════════
+/*  Packet interception FFI types
  * Used by packet_hook_register / packet_conn_hook_register. See the block
  * comment on those fields in PierApi for the full contract. */
 
@@ -477,8 +500,9 @@ typedef int32_t (*PierPacketCb)(
 /** Connection lifecycle: `opened` is true on accept, false on close. */
 typedef void (*PierConnCb)(void* user, uint64_t conn_id, PierStr address, bool opened);
 
-/* ── 客户端能力组的 FFI 类型。类型声明无条件存在（不占布局），对应功能
- * 是否可用由 PierApi 里 client_* 槽位是否为 NULL 决定。 ── */
+/*  FFI types for the client capability group. The type declarations are always
+ * present (they take no layout); whether the capability is available is decided
+ * by whether the client_* slots in PierApi are NULL.  */
 /** Opaque handle to a registered key binding owned by the loader's
  * ll::input::KeyRegistry. Drop via client_unregister_key. */
 typedef void* PierKeyHandle;
@@ -497,9 +521,9 @@ typedef int32_t PierFocusImpact;
  *  impact — current focus impact (see PierFocusImpact) */
 typedef void (*PierKeyCb)(void* user, PierKeyAction action, PierFocusImpact impact);
 
-/* ── 属性 / 动作键。  APPEND-ONLY: never renumber or remove. ──
- * Unknown values make the call return false; a safe SDK layer maps that
- * to Err("unsupported"), which is the forward-compat negotiation.        */
+/*  Property and action keys. APPEND-ONLY: never renumber or remove. Unknown
+ * values make the call return false; a safe SDK layer maps that to an
+ * "unsupported" error, which is the forward-compatibility negotiation.  */
 
 /** player_get_num / player_set_num keys. (G)=get-only, (S)=settable. */
 enum PierPlayerNumProp
@@ -525,8 +549,9 @@ enum PierPlayerNumProp
     PIER_PPROP_HAS_RESPAWN_POSITION = 18, /* (G) Player::hasRespawnPosition */
     PIER_PPROP_CLIENT_SUB_ID = 19, /* (G) Player::getClientSubId */
     PIER_PPROP_CAN_USE_ABILITY = 20,
-    /* (G) Player::canUseAbility; ability index passed via player_action GET path — see PIER_PACT_CAN_USE_ABILITY */
-    /* ── 追加：player gap fill ── */
+    /* (G) Player::canUseAbility; the ability index is passed through the
+       player_action GET path, see PIER_PACT_CAN_USE_ABILITY */
+    /*  Appended: player gap fill  */
     PIER_PPROP_DIRECTION = 21, /* (G) Player::getDirection (0=S,1=W,2=N,3=E) */
     PIER_PPROP_CHUNK_RADIUS = 22, /* (G) Player::getChunkRadius */
     PIER_PPROP_NETWORK_RTT = 23, /* (G) getNetworkStatus().mPing (ms) */
@@ -553,7 +578,7 @@ enum PierPlayerStrProp
     PIER_PSTR_IP_AND_PORT = 3, /* Player::getIPAndPort */
     PIER_PSTR_LOCALE_CODE = 4, /* Player::getLocaleCode */
     PIER_PSTR_NAME_TAG = 5, /* Actor::getNameTag (display name) */
-    /* ── 追加 ── */
+    /*  Appended  */
     PIER_PSTR_LAST_DEATH_POS = 6, /* SNBT {x,y,z} or "" if none */
     PIER_PSTR_LAST_DEATH_DIMENSION = 7, /* dimension id as string */
     PIER_PSTR_NETWORK_STATUS = 8, /* SNBT {ping,avg_ping,packet_loss,max_ping} */
@@ -567,18 +592,19 @@ enum PierPlayerStrProp
 enum PierPlayerAction
 {
     PIER_PACT_SET_ABILITY = 0,
-    /* a=AbilitiesIndex, b=0/1 (bool slots) or float (FlySpeed etc.) Player::setAbility.
-       写完会把 PlayerPermissionLevel 还原成写之前那个值 —— 引擎的
-       LayeredAbilities::setAbility 是「切成自定义权限」那条路，会把玩家推到
-       Custom 上，而那个等级和能力层一起装在 UpdateAbilitiesPacket 里发给客户端。
-       要改等级请显式用 PIER_PACT_SET_PERMISSION_LEVEL。 */
+    /* a=AbilitiesIndex, b=0/1 (bool slots) or float (FlySpeed etc.).
+       Restores PlayerPermissionLevel to its pre-write value afterwards: the
+       engine's LayeredAbilities::setAbility is the "switch to custom
+       permissions" path and pushes the player to Custom, and that level ships
+       to the client inside UpdateAbilitiesPacket together with the ability
+       layer. To change the level, use PIER_PACT_SET_PERMISSION_LEVEL. */
     PIER_PACT_CAN_USE_ABILITY = 1, /* a=AbilitiesIndex → out "0"/"1" Player::canUseAbility */
     PIER_PACT_SET_SELECTED_SLOT = 2, /* a=slot                          Player::setSelectedSlot */
     PIER_PACT_GIVE_ITEM = 3, /* sarg=item SNBT                  ItemStack::fromTag + Player::addAndRefresh */
     PIER_PACT_SET_SPAWN_POINT = 4, /* a,b,c=pos, sarg=dim id (any registered dim); native Player::setRespawnPosition */
     PIER_PACT_CLEAR_TITLE = 5, /* native SetTitlePacket(Clear) */
     PIER_PACT_SET_TITLE = 6, /* sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket, text sent verbatim */
-    /* ── 追加 ── */
+    /*  Appended  */
     PIER_PACT_ADD_EXPERIENCE = 7, /* a=xp                  Player::addExperience */
     PIER_PACT_ADD_LEVELS = 8, /* a=levels              Player::addLevels */
     PIER_PACT_START_COOLDOWN = 9, /* sarg=item name, a=ticks Player::startItemCooldown */
@@ -599,9 +625,9 @@ enum PierPlayerAction
     PIER_PACT_SIDEBAR_SET = 24, /* sarg="obj\ntitle\nline…"  per-player sidebar */
     PIER_PACT_SIDEBAR_CLEAR = 25, /* sarg=objective        RemoveObjectivePacket */
     PIER_PACT_SET_PERMISSION_LEVEL = 26,
-    /* a=PlayerPermissionLevel（0 Visitor / 1 Member / 2 Operator / 3 Custom）
-       LayeredAbilities::setPlayerPermissions + UpdateAbilitiesPacket。
-       读的那一侧是 PIER_PPROP_PERMISSION_LEVEL。 */
+    /* a=PlayerPermissionLevel (0 Visitor, 1 Member, 2 Operator, 3 Custom).
+       LayeredAbilities::setPlayerPermissions plus UpdateAbilitiesPacket.
+       The read side is PIER_PPROP_PERMISSION_LEVEL. */
 };
 
 /** actor_get_num / actor_set_num keys. (S)=settable via actor_set_num. */
@@ -626,7 +652,7 @@ enum PierActorNumProp
     PIER_APROP_IS_RIDING = 16, /* (G) Actor::isRiding */
     PIER_APROP_IS_TAME = 17, /* (G) Actor::isTame */
     PIER_APROP_SPEED = 18, /* (G) Actor::getSpeedInMetersPerSecond */
-    /* ── 追加：actor gap fill ── */
+    /*  Appended: actor gap fill  */
     PIER_APROP_VIEW_X = 19, /* (G) Actor::getViewVector().x */
     PIER_APROP_VIEW_Y = 20, /* (G) Actor::getViewVector().y */
     PIER_APROP_VIEW_Z = 21, /* (G) Actor::getViewVector().z */
@@ -663,7 +689,7 @@ enum PierActorStrProp
 {
     PIER_ASTR_TYPE_NAME = 0, /* Actor::getTypeName */
     PIER_ASTR_NAME_TAG = 1, /* Actor::getNameTag */
-    /* ── 追加 ── */
+    /*  Appended  */
     PIER_ASTR_SCORE_TAG = 2, /* Actor::getScoreTag */
     PIER_ASTR_FILTERED_NAME = 3, /* Actor::getFilteredNameTag */
 };
@@ -685,8 +711,8 @@ enum PierActorAction
     PIER_AACT_REMOVE_EFFECT = 10, /* sarg=effect name                    Actor::removeEffect(id) */
     PIER_AACT_CLEAR_EFFECTS = 11, /* Actor::removeAllEffects */
     PIER_AACT_HURT = 12, /* a=damage (generic damage source)    Actor::hurt */
-    PIER_AACT_ATTRIBUTE_GET = 13, /* sarg=attribute name ("minecraft:health" …) → out value */
-    /* ── 追加 ── */
+    PIER_AACT_ATTRIBUTE_GET = 13, /* sarg=attribute name ("minecraft:health"…) → out value */
+    /*  Appended  */
     PIER_AACT_SET_VARIANT = 14, /* a=variant             Actor::setVariant */
     PIER_AACT_SET_MARK_VARIANT = 15, /* a=variant             Actor::setMarkVariant */
     PIER_AACT_SET_PERSISTENT = 16, /*                       Actor::setPersistent */
@@ -717,7 +743,7 @@ enum PierBlockNumProp
     PIER_BPROP_IS_CRAFTING_BLOCK = 3, /* Block::isCraftingBlock */
     PIER_BPROP_IS_INTERACTIVE_BLOCK = 4, /* Block::isInteractiveBlock */
     PIER_BPROP_HAS_BLOCK_ENTITY = 5, /* BlockSource::getBlockEntity(pos) != null */
-    /* ── 追加：block gap fill ── */
+    /*  Appended: block gap fill  */
     PIER_BPROP_LIGHT = 6, /* Block::getLight */
     PIER_BPROP_LIGHT_EMISSION = 7, /* Block::getLightEmission */
     PIER_BPROP_DESTROY_SPEED = 8, /* Block::getDestroySpeed */
@@ -751,9 +777,9 @@ enum PierBlockStrProp
     PIER_BSTR_DESCRIPTION_ID = 2, /* Block::getDescriptionId */
     PIER_BSTR_DEBUG_STRING = 3, /* Block::toDebugString */
     PIER_BSTR_TAGS = 4, /* Block::mTags → SNBT string list ["a","b"] */
-    /* ── 追加 ── */
-    PIER_BSTR_STATE = 5, /* SNBT {state_name:value, …} all block states */
-    PIER_BSTR_COLLISION_SHAPE = 6, /* SNBT [{min:[x,y,z],max:[x,y,z]}, …] */
+    /*  Appended  */
+    PIER_BSTR_STATE = 5, /* SNBT {state_name:value,…} all block states */
+    PIER_BSTR_COLLISION_SHAPE = 6, /* SNBT [{min:[x,y,z],max:[x,y,z]},…] */
     PIER_BSTR_OUTLINE_SHAPE = 7, /* SNBT [{min,max}] render outline */
     PIER_BSTR_DISPLAY_NAME = 8, /* Block::getDisplayName */
 };
@@ -762,7 +788,7 @@ enum PierBlockStrProp
 enum PierBlockAction
 {
     PIER_BACT_HAS_TAG = 0, /* sarg=tag → out "0"/"1"  Block::hasTag */
-    /* ── 追加 ── */
+    /*  Appended  */
     PIER_BACT_GET_STATE = 1, /* sarg=state name → out value string  Block::getState */
     PIER_BACT_POP_RESOURCE = 2, /* sarg=item SNBT → pop resource at pos  Block::popResource */
     PIER_BACT_AS_ITEM = 3, /* → out item SNBT   Block::asItemInstance */
@@ -782,7 +808,7 @@ enum PierItemNumProp
     PIER_IPROP_IS_ARMOR = 8, /* ItemStackBase::isArmorItem */
     PIER_IPROP_IS_DAMAGEABLE = 9, /* ItemStackBase::isDamageableItem */
     PIER_IPROP_IS_DAMAGED = 10, /* ItemStackBase::isDamaged */
-    /* ── 追加：item gap fill ── */
+    /*  Appended: item gap fill  */
     PIER_IPROP_MAX_DAMAGE = 11, /* ItemStackBase::getMaxDamage */
     PIER_IPROP_IS_UNBREAKABLE = 12, /* ItemStackBase::isUnbreakable */
     PIER_IPROP_HAS_DURABILITY = 13, /* ItemStackBase::hasDurability */
@@ -809,9 +835,9 @@ enum PierItemStrProp
     PIER_ISTR_NAME = 1, /* ItemStackBase::getName (display) */
     PIER_ISTR_CUSTOM_NAME = 2, /* ItemStackBase::getCustomName */
     PIER_ISTR_RAW_NAME_ID = 3, /* ItemStackBase::getRawNameId */
-    /* ── 追加 ── */
+    /*  Appended  */
     PIER_ISTR_LORE = 4, /* SNBT list ["l1","l2"]  ItemStackBase::getCustomLore */
-    PIER_ISTR_CAN_DESTROY = 5, /* SNBT list ["minecraft:stone", …] */
+    PIER_ISTR_CAN_DESTROY = 5, /* SNBT list ["minecraft:stone",…] */
     PIER_ISTR_CAN_PLACE_ON = 6, /* SNBT list */
     PIER_ISTR_USER_DATA = 7, /* full NBT user data as SNBT */
     PIER_ISTR_HOVER_NAME = 8, /* ItemStackBase::getHoverName */
@@ -826,7 +852,7 @@ enum PierItemOp
     PIER_IOP_SET_DAMAGE = 1, /* narg=damage           ItemStackBase::setDamageValue */
     PIER_IOP_SET_COUNT = 2, /* narg=count            ItemStackBase::mCount */
     PIER_IOP_SET_LORE = 3, /* sarg=SNBT list ["l1","l2"]  ItemStackBase::setCustomLore */
-    /* ── 追加 ── */
+    /*  Appended  */
     PIER_IOP_SET_UNBREAKABLE = 4, /* narg=0/1               ItemStackBase::setUnbreakable */
     PIER_IOP_HURT_AND_BREAK = 5, /* narg=damage            ItemStackBase::hurtAndBreak */
     PIER_IOP_SET_REPAIR_COST = 6, /* narg=cost              ItemStackBase::setRepairCost */
@@ -843,11 +869,11 @@ enum PierScoreboardOp
 {
     PIER_SB_ADD_OBJECTIVE = 0, /* a=name, b=display name → out "1"      Scoreboard::addObjective("dummy") */
     PIER_SB_REMOVE_OBJECTIVE = 1, /* a=name                                Scoreboard::removeObjective */
-    PIER_SB_LIST_OBJECTIVES = 2, /* → out SNBT [{name,display}, …]        Scoreboard::getObjectives */
+    PIER_SB_LIST_OBJECTIVES = 2, /* → out SNBT [{name,display},…]        Scoreboard::getObjectives */
     PIER_SB_GET_SCORE = 3, /* a=objective, b=fake-player name → out value  Objective::getPlayerScore */
     PIER_SB_SET_SCORE = 4, /* a=objective, b=name, n=value          Scoreboard::modifyPlayerScore(Set) */
-    PIER_SB_ADD_SCORE = 5, /* a=objective, b=name, n=value          … (Add) */
-    PIER_SB_REDUCE_SCORE = 6, /* a=objective, b=name, n=value          … (Subtract) */
+    PIER_SB_ADD_SCORE = 5, /* a=objective, b=name, n=value         … (Add) */
+    PIER_SB_REDUCE_SCORE = 6, /* a=objective, b=name, n=value         … (Subtract) */
     PIER_SB_RESET_SCORE = 7, /* a=objective, b=name                   Scoreboard::resetPlayerScore */
     PIER_SB_SET_DISPLAY = 8, /* a=slot("sidebar"/"list"/"belowname"), b=objective  setDisplayObjective */
     PIER_SB_CLEAR_DISPLAY = 9, /* a=slot                                clearDisplayObjective */
@@ -868,12 +894,12 @@ enum PierDimRule
     PIER_DIMRULE_FIRE_SPREAD = 4, /* fire spreading to neighbours */
     PIER_DIMRULE_MOB_GRIEFING = 5, /* mobs changing blocks */
     PIER_DIMRULE_PROJECTILE = 6, /* projectile spawns */
-    /* ── 第二批（挂载点参考 LegacyScriptEngine 的同名事件） ── */
+    /*  Second batch; hook points follow LegacyScriptEngine's same-named events  */
     PIER_DIMRULE_PISTON_PUSH = 7, /* pistons moving blocks */
     PIER_DIMRULE_LIQUID_FLOW = 8, /* water/lava spreading */
     PIER_DIMRULE_FARMLAND_DECAY = 9, /* farmland trampled back to dirt */
     PIER_DIMRULE_RIDE = 10, /* mounting boats/minecarts/animals */
-    /* ── Plot-boundary confinement (needs md_set_plot_grid) ── */
+    /*  Plot-boundary confinement (needs md_set_plot_grid)  */
     /* Pistons moving blocks ACROSS a plot boundary. Distinct from
      * PIER_DIMRULE_PISTON_PUSH, which disables pistons for the whole
      * dimension: this one leaves them working inside a plot and only refuses
@@ -905,29 +931,26 @@ enum PierServerInfoProp
  * Pointer remains valid for the whole lifetime of the mod.
  */
 /*
- * ⚠ 加新槽之前：**先把现有的槽名读一遍。**
+ * Before adding a slot, read the existing slot names.
  *
- * 这不是客套话。最近两轮各犯了一次同样的错：
+ * Duplicates have shipped twice: level_actors_in_box duplicated list_actors,
+ * and actor_despawn / actor_set_health duplicated actor_action's AACT_DESPAWN
+ * and AACT_HEAL, which the SDK already wrapped. Both were caught only at
+ * compile time by a redefinition; had the names merely differed, the two
+ * implementations would have coexisted until they drifted, leaving "why can I
+ * remove it here but not there" with no answer.
  *
- *   加 `level_actors_in_box` —— 而 `list_actors` 早就能按维度列出实体
- *   加 `actor_despawn` / `actor_set_health` —— 而 `actor_action` 的
- *       `AACT_DESPAWN` / `AACT_HEAL` 早就做了同样的事，SDK 侧连
- *       `Entity::despawn()` / `Entity::heal()` 都封装好了
+ * Check these three catch-all slots first, they cover a lot of ground:
  *
- * 两次都是编译期才发现（重复定义），而如果名字恰好不冲突，
- * 它们会一直并存 —— 直到某天两份实现分岔，而
- * 「为什么这里删得掉那里删不掉」是个没人答得上的问题。
+ *   actor_action     remove, heal, ignite, teleport, add effect (PIER_AACT_*)
+ *   actor_get_num    position, health, rotation, misc numbers (PIER_APROP_*)
+ *   list_actors      every actor in a dimension, with type names
  *
- * 尤其要先查这三个"什么都能干"的槽，它们覆盖面很宽：
- *
- *   actor_action     删除、治疗、点燃、传送、加效果…（见 PIER_AACT_*）
- *   actor_get_num    坐标、血量、朝向、各种数值（见 PIER_APROP_*）
- *   list_actors      按维度列出全部实体，带类型名
- *
- * 试过一次自动检查（按词根找重复），噪音大到没法用 —— `actor_get_*` 会
- * 两两配对报一屏。所以这里靠这段话，而不是靠脚本。
+ * A stem-matching duplicate detector was tried and produced too much noise to
+ * be usable (actor_get_* alone pairs up into a screenful), so this is prose
+ * rather than a script.
  */
-/** legacymoney 事件类型（服务端经济能力组用）。 */
+/** legacymoney event types, used by the server-side economy capability. */
 typedef enum PierMoneyEvent
 {
     PIER_MONEY_SET = 0,
@@ -937,34 +960,38 @@ typedef enum PierMoneyEvent
 } PierMoneyEvent;
 
 /**
- * legacymoney 事件回调。返回 false 否决这次金额变动（仅 before 回调有效；
- * after 的返回值被忽略）。
+ * legacymoney event callback. Return false to veto the change; only the before
+ * callback's return value is honoured, an after callback's is ignored.
  *
- * **`from` / `to` 的含义不像名字那样直白**，这是 LegacyMoney 自己的形状，
- * 照实转发而不做「修正」：
+ * from and to are less obvious than their names suggest. This is LegacyMoney's
+ * own shape, forwarded as-is rather than "corrected":
  *
- *   - `PIER_MONEY_TRANS`：`from` 付款方、`to` 收款方，两者都非空。
- *   - `PIER_MONEY_ADD` / `PIER_MONEY_REDUCE` / `PIER_MONEY_SET`：`from`
- *     **恒为空串**，`to` 是被操作的那个 xuid —— 即使是 REDUCE（钱是从 `to`
- *     身上扣走的）。想知道「谁的余额变了」一律读 `to`。
+ *   - PIER_MONEY_TRANS: from is the payer, to the payee, both non-empty.
+ *   - PIER_MONEY_ADD / REDUCE / SET: from is always the empty string and to is
+ *     the xuid being operated on, including for REDUCE, where the money is
+ *     taken from to. To learn whose balance changed, always read to.
  *
- * `value` 对 ADD/REDUCE/TRANS 是变动额，对 SET 是**目标余额**（不是差额）。
+ * value is the delta for ADD, REDUCE and TRANS, and the target balance (not a
+ * delta) for SET.
  *
- * 每个模组的回调都会被调到，不因为前一个否决了就跳过后面的（判定不依赖
- * 注册顺序）。只要有任意一个返回 false，这次变动就被否决。
+ * Every mod's callback is invoked; an earlier veto does not skip the rest, so
+ * the outcome does not depend on registration order. The change is vetoed if
+ * any callback returns false.
  */
 typedef bool (*PierMoneyCb)(PierMoneyEvent type, PierStr from, PierStr to, int64_t value);
 
 typedef struct PierApi
 {
-    /** sizeof(PierApi)，由宿主按自己编译出的表填写。前向兼容的全部依据：
-     *  SDK 在每个非核心槽的调用点比对它（require_slot!）。 */
+    /** sizeof(PierApi), filled in by the host from the table it compiled. This is
+     *  the whole basis of forward compatibility: the SDK compares against it at
+     *  every non-core slot's call site. */
     uint32_t struct_size;
-    /** == 宿主的 PIER_ABI_VERSION。 */
+    /** Equals the host's PIER_ABI_VERSION. */
     uint32_t abi_version;
-    /** PIER_FLAG_* 的按位或。bit 0 = 客户端构建。 */
+    /** Bitwise OR of PIER_FLAG_*. Bit 0 means a client build. */
     uint32_t host_flags;
-    /** 保留，恒为 0。凑齐 16 字节头，也给未来的头部标量留位。 */
+    /** Reserved, always 0. Rounds the header out to 16 bytes and leaves room for
+     *  future header scalars. */
     uint32_t _reserved0;
 
     /**
@@ -1057,14 +1084,15 @@ typedef struct PierApi
      */
     bool (*get_sim_paused)();
 
-    /* ── 追加 ── */
+    /*  Appended  */
 
     /**
      * Spawn a particle effect at a world coordinate. Used to outline a
      * selection box edge-by-edge. Server thread only. Returns false if the
      * level/dimension is not ready.
      *   dimension   : 0 = overworld, 1 = nether, 2 = the end.
-     *   effect_name : e.g. "minecraft:basic_flame_particle" / "minecraft:redstone_wire_dust_particle".
+     *   effect_name : e.g. "minecraft:basic_flame_particle" or
+     *                 "minecraft:redstone_wire_dust_particle".
      */
     bool (*spawn_particle)(int32_t dimension, PierStr effect_name, double x, double y, double z);
 
@@ -1097,12 +1125,12 @@ typedef struct PierApi
     );
 
 
-    /* ═════════════════ 追加区 —— 只追加，不重排 ═════════════════
+    /*  Append-only region; never reorder.
      * Everything below: SERVER THREAD ONLY unless noted. All calls return
      * false / do nothing while the level is not ready. Unknown enum keys
      * return false (forward-compat negotiation).                        */
 
-    /* ── §A world read/write & clock ── */
+    /*  §A world read/write & clock  */
 
     /** Read one block: sink called once with (x,y,z, type name, full SNBT). */
     bool (*get_block)(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierBlockSink sink);
@@ -1117,7 +1145,7 @@ typedef struct PierApi
     /** 0=clear 1=rain 2=thunder, native (Level::updateWeather). */
     bool (*set_weather)(int32_t weather);
 
-    /* ── §B player management ── */
+    /*  §B player management  */
 
     /** One SNBT per online player: {name,xuid,uuid,dim,x,y,z}. */
     void (*list_players)(void* ctx, PierStrSink snbt_sink);
@@ -1147,7 +1175,7 @@ typedef struct PierApi
         PierStrSink out
     );
 
-    /* ── §C actors (players resolve here too, via player_resolve) ── */
+    /*  §C actors (players resolve here too, via player_resolve)  */
 
     /** Enumerate live actors; dim = -1 for all dimensions. */
     void (*list_actors)(int32_t dim, void* ctx, PierActorSink sink);
@@ -1181,7 +1209,7 @@ typedef struct PierApi
         bool allow_underwater
     );
 
-    /* ── §D blocks & block entities ── */
+    /*  §D blocks & block entities  */
 
     bool (*block_get_num)(int32_t dim, int32_t x, int32_t y, int32_t z, int32_t prop, double* out);
     bool (*block_get_str)(int32_t dim, int32_t x, int32_t y, int32_t z, int32_t prop, void* ctx, PierStrSink sink);
@@ -1198,7 +1226,7 @@ typedef struct PierApi
     /** BlockActor::save (with default SaveContext) as SNBT; false if none there. */
     bool (*block_entity_snbt)(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink);
 
-    /* ── §E items (SNBT value objects) & containers ── */
+    /*  §E items (SNBT value objects) & containers  */
 
     bool (*item_get_num)(PierStr item_snbt, int32_t prop, double* out);
     bool (*item_get_str)(PierStr item_snbt, int32_t prop, void* ctx, PierStrSink sink);
@@ -1212,11 +1240,11 @@ typedef struct PierApi
     bool (*container_remove_item)(PierContainerRef ref, int32_t slot, int32_t count);
     bool (*container_clear)(PierContainerRef ref);
 
-    /* ── §F scoreboard ── */
+    /*  §F scoreboard  */
 
     bool (*scoreboard_op)(int32_t op, PierStr a, PierStr b, int64_t n, void* ctx, PierStrSink out);
 
-    /* ── §G forms (async result callback) ── */
+    /*  §G forms (async result callback)  */
 
     /**
      * kind: 0=SimpleForm 1=CustomForm 2=ModalForm. form_snbt describes the
@@ -1232,16 +1260,16 @@ typedef struct PierApi
         void* user
     );
 
-    /* ── §H parameterized commands & enums ── */
+    /*  §H parameterized commands & enums  */
 
     /**
      * Like register_command, but with typed overloads. overloads_snbt:
-     *   {overloads:[[{name:"target",kind:"player",optional:0b}, …], …]}
+     *   {overloads:[[{name:"target",kind:"player",optional:0b},…],…]}
      * kinds: int|bool|float|string|enum|soft_enum|actor|player|block_pos|vec3|
      *        raw_text|message|json|item|block_name|effect|actor_type|command|
      *        relative_float|file_path (enum/soft_enum also need "enum":"Name").
      * The callback's `args` receives the parse result as SNBT
-     *   {overload:N, args:{<name>: …}}   and `origin_name` becomes origin SNBT
+     *   {overload:N, args:{<name>:…}}   and `origin_name` becomes origin SNBT
      *   {name,type,dim,x,y,z}.
      */
     bool (*register_command_ex)(
@@ -1253,14 +1281,14 @@ typedef struct PierApi
         PierCommandCb cb,
         void* user
     );
-    /** values_snbt = {values:[["name",1L], …]}  → tryRegisterRuntimeEnum. */
+    /** values_snbt = {values:[["name",1L],…]}  → tryRegisterRuntimeEnum. */
     bool (*register_command_enum)(PierStr name, PierStr values_snbt);
     /** values_snbt = {values:["a","b"]}         → tryRegisterSoftEnum. */
     bool (*register_command_soft_enum)(PierStr name, PierStr values_snbt);
     /** op: 0=set 1=add 2=remove. */
     bool (*update_command_soft_enum)(PierStr name, int32_t op, PierStr values_snbt);
 
-    /* ── §I NBT binary, KvDb (thread-safe), system & server info ── */
+    /*  §I NBT binary, KvDb (thread-safe), system & server info  */
 
     /** fmt: 0=disk little-endian, 1=network. */
     bool (*nbt_snbt_to_binary)(PierStr snbt, int32_t fmt, void* ctx, PierBytesSink sink);
@@ -1356,7 +1384,7 @@ typedef struct PierApi
     /*
      * Simulated ("fake") players (additive, gated by struct_size).
      * sim_spawn creates a real ServerPlayer with that name — every existing
-     * per-player entry (teleport, health, inventory, kick, …) works on it via
+     * per-player entry (teleport, health, inventory, kick,…) works on it via
      * the usual name selector. sim_do multiplexes the simulate* verb family:
      * the action vocabulary grows bridge-side without new table slots
      * (verbs: despawn stop jump attack interact use_item drop respawn
@@ -1404,59 +1432,68 @@ typedef struct PierApi
      */
     bool (*player_send_message_typed)(PierPlayerSel sel, PierStr msg, int32_t type);
 
-    /* —— Money (追加) ——
+    /*  Money (appended)
      *
-     * 背靠 LegacyMoney（延迟加载）。整族在后端缺席/被禁用时不崩，返回各自的
-     * 失败值；下面这些语义是对着 LegacyMoney 的源码定的，不是猜的：
+     * Backed by LegacyMoney, which is delay-loaded. The whole family degrades
+     * rather than crashing when the backend is absent or disabled, returning
+     * each slot's failure value. The semantics below come from LegacyMoney's
+     * source, not from guesswork:
      *
-     *   - 金额一律非负。`val < 0` 由后端直接拒绝（`LLMoney_Trans` 的第一道
-     *     检查），负数的 `set_money` 也会因「余额不足以扣到目标值」而失败。
-     *   - `trans_money` 拒绝 `from == to`，并按后端配置的 pay_tax 抽成：
-     *     收款方拿到的是 `val - val * pay_tax`，**不是** `val`。要「不打折
-     *     地给出去」用 add/reduce 各做一次。
-     *   - `set_money` 的 `money` 是目标余额；后端内部换算成一次转账。
+     *   - Amounts are always non-negative. val < 0 is rejected by the backend
+     *     itself (the first check in LLMoney_Trans), and a negative set_money
+     *     fails because the balance cannot be reduced to that target.
+     *   - trans_money rejects from == to and applies the backend's configured
+     *     pay_tax: the payee receives val - val * pay_tax, not val. To hand
+     *     over the full amount, use add and reduce separately.
+     *   - set_money's money is a target balance; the backend turns it into a
+     *     single transfer internally.
      */
 
-    /** 余额。**失败返回 -1**（xuid 为空、数据库出错、或后端缺席）；正常余额
-     *  永不为负，所以 `< 0` 就是「问不出来」。注意它对没见过的 xuid 会按配置
-     *  的默认值**建账**，不是无副作用的只读查询。 */
+    /** Balance. Returns -1 on failure (empty xuid, database error, or absent
+     *  backend); a real balance is never negative, so < 0 means "cannot say".
+     *  Note that it opens an account at the configured default for an unseen
+     *  xuid, so this is not a side-effect-free read. */
     int64_t (*get_money)(PierStr xuid);
-    /** 设成 `money`（目标余额，非差额）。 */
+    /** Set to money, which is a target balance rather than a delta. */
     bool (*set_money)(PierStr xuid, int64_t money);
     bool (*add_money)(PierStr xuid, int64_t money);
     bool (*reduce_money)(PierStr xuid, int64_t money);
-    /** `from`/`to` 任一为空表示「凭空产生 / 凭空销毁」。收款方到账会被 pay_tax
-     *  抽成（见上）。`from == to` 直接失败。 */
+    /** An empty from or to means created from or destroyed into nothing. What the
+     *  payee receives is reduced by pay_tax (see above). from == to fails. */
     bool (*trans_money)(PierStr from, PierStr to, int64_t val, PierStr note);
     void (*money_get_hist)(PierStr xuid, int32_t timediff, void* ctx, PierStrSink sink);
     void (*money_clear_hist)(int32_t difftime);
-    /** 注册一个 before 回调（可否决）。多个模组可以各注册一个，互不覆盖；
-     *  同一个函数指针重复注册是幂等的。loader 按回调所在模块记账，模组卸载
-     *  时自动摘除 —— LegacyMoney 本身没有任何反注册接口，这层记账是 loader
-     *  补的。注册不要求后端此刻已就绪：loader 会在后端可用后补装转发。 */
+    /** Register a before callback, which may veto. Several mods may each register
+     *  one without overwriting the others, and registering the same function
+     *  pointer twice is idempotent. The loader attributes each callback to its
+     *  module and removes it when that mod unloads; LegacyMoney itself has no
+     *  unregister interface, so this bookkeeping is the loader's. Registration
+     *  does not require the backend to be ready yet: the loader installs the
+     *  forwarding trampoline once it becomes available. */
     void (*money_listen_before_event)(PierMoneyCb callback);
-    /** 同上，但在变动**已经发生**之后调用，返回值被忽略。 */
+    /** As above, but invoked after the change has happened; the return value is
+     *  ignored. */
     void (*money_listen_after_event)(PierMoneyCb callback);
     void (*money_ranking)(uint16_t num, void* ctx, PierStrSink sink);
 
-    /* ═════════════════ 追加 —— API 补齐（struct_size 把关） ═════════════════
+    /*  Appended: API gap fill, struct_size-gated.
      * All entries below are additive: older loaders (smaller struct_size)
      * simply won't have these fields. The SDK's init-time check rejects
      * mods built against a larger table than the loader provides. Unknown enum
      * keys return false. SERVER THREAD ONLY unless noted.                    */
 
-    /* ── Player: equipment, cooldown, network (dedicated fns) ── */
+    /*  Player: equipment, cooldown, network (dedicated fns)  */
     bool (*player_get_carried_item)(PierPlayerSel sel, void* ctx, PierStrSink sink);
     bool (*player_get_item)(PierPlayerSel sel, int32_t slot, void* ctx, PierStrSink sink);
     bool (*player_set_item)(PierPlayerSel sel, int32_t slot, PierStr item_snbt);
-    /** All equipment as SNBT: [{slot, item_snbt}, …] slot: 0=mainhand 1=offhand 2-5=armor */
+    /** All equipment as SNBT: [{slot, item_snbt},…] slot: 0=mainhand 1=offhand 2-5=armor */
     bool (*player_get_equipment)(PierPlayerSel sel, void* ctx, PierStrSink sink);
     /** Ticks remaining for an item cooldown (-1 if not on cooldown / player offline). */
     int32_t (*player_get_cooldown)(PierPlayerSel sel, PierStr item_name);
     bool (*player_start_cooldown)(PierPlayerSel sel, PierStr item_name, int32_t ticks);
     bool (*player_get_network_status)(PierPlayerSel sel, void* ctx, PierStrSink sink);
 
-    /* ── Actor: relationships, equipment, effects, geometry (dedicated fns) ── */
+    /*  Actor: relationships, equipment, effects, geometry (dedicated fns)  */
     bool (*actor_get_vehicle)(PierActorId id, PierActorId* out);
     bool (*actor_get_first_passenger)(PierActorId id, PierActorId* out);
     bool (*actor_get_owner)(PierActorId id, PierActorId* out);
@@ -1464,7 +1501,7 @@ typedef struct PierApi
     /** slot: 0=mainhand 1=offhand 2=helmet 3=chestplate 4=leggings 5=boots */
     bool (*actor_get_equipped_item)(PierActorId id, int32_t slot, void* ctx, PierStrSink sink);
     bool (*actor_set_equipped_item)(PierActorId id, int32_t slot, PierStr item_snbt);
-    /** SNBT [{id, ticks, amplifier, visible}, …] */
+    /** SNBT [{id, ticks, amplifier, visible},…] */
     bool (*actor_get_effects)(PierActorId id, void* ctx, PierStrSink sink);
     /** flag_index: ActorFlags enum value (0-based). */
     bool (*actor_get_status_flag)(PierActorId id, int32_t flag_index);
@@ -1477,21 +1514,21 @@ typedef struct PierApi
     bool (*actor_get_aabb)(PierActorId id, void* ctx, PierStrSink sink);
     bool (*actor_clone)(PierActorId id, int32_t dim, double x, double y, double z, PierActorId* out);
 
-    /* ── Block: state get/set, collision shape (dedicated fns) ── */
+    /*  Block: state get/set, collision shape (dedicated fns)  */
     bool (*block_get_state)(int32_t dim, int32_t x, int32_t y, int32_t z, PierStr state_name, void* ctx,
                             PierStrSink sink);
     bool (*block_set_state)(int32_t dim, int32_t x, int32_t y, int32_t z, PierStr state_name, PierStr value);
     bool (*block_get_collision_shape)(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink);
 
-    /* ── Item: enchants, matching, NBT (dedicated fns) ── */
-    /** SNBT [{id, level}, …] */
+    /*  Item: enchants, matching, NBT (dedicated fns)  */
+    /** SNBT [{id, level},…] */
     bool (*item_get_enchants)(PierStr item_snbt, void* ctx, PierStrSink sink);
-    /** enchants_snbt = [{id, level}, …]; out = new item SNBT. */
+    /** enchants_snbt = [{id, level},…]; out = new item SNBT. */
     bool (*item_set_enchants)(PierStr item_snbt, PierStr enchants_snbt, void* ctx, PierStrSink out);
     bool (*item_matches)(PierStr a, PierStr b);
     bool (*item_get_user_data)(PierStr item_snbt, void* ctx, PierStrSink sink);
 
-    /* ── Level: biome, spawn, save, weather, path, sleep (dedicated fns) ── */
+    /*  Level: biome, spawn, save, weather, path, sleep (dedicated fns)  */
     bool (*level_get_biome)(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink);
     bool (*level_get_default_spawn)(int32_t* x, int32_t* y, int32_t* z);
     bool (*level_set_default_spawn)(int32_t x, int32_t y, int32_t z);
@@ -1499,10 +1536,10 @@ typedef struct PierApi
     /** SNBT {sleeping, total_players, active_sleeping} */
     bool (*level_get_sleep_status)(void* ctx, PierStrSink sink);
     bool (*level_update_weather)(float rain_level, int32_t rain_time, float lightning_level, int32_t lightning_time);
-    /** SNBT {nodes:[{x,y,z}, …], reached:1b/0b} */
+    /** SNBT {nodes:[{x,y,z},…], reached:1b/0b} */
     bool (*level_find_path)(PierActorId id, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink);
 
-    /* ═════════════════ 数据包拦截（追加，struct_size 把关） ═════════════════
+    /*  Packet interception, appended and struct_size-gated.
      * Raw wire-format interception in both directions. This is the primitive
      * `send_packet` could not provide: it observes and rewrites bytes that
      * already exist, instead of manufacturing new ones.
@@ -1562,12 +1599,13 @@ typedef struct PierApi
     /** Unregister. Safe to call from inside the callback. */
     bool (*packet_conn_hook_unregister)(PierModHandle mod, PierPacketHookHandle handle);
 
-    /* 以下是两个**能力组**（客户端、维度）。它们无条件存在于布局中 ——
-     * 能力包没编进宿主时对应槽位为 NULL（见文件头）。追加新槽仍然只去
-     * 结构体真正的末尾，不插进能力组内部。 */
+    /* Two capability groups follow, client and dimensions. They are unconditionally
+     * present in the layout; when the capability package was not built into the
+     * host, their slots are NULL (see the file header). New slots still go at the
+     * real end of the struct, never inside a capability group. */
 
-    /* ── 能力组：客户端（client_*）。服务端宿主全为 NULL。
-     * 所有回调在**客户端线程**触发。 ── */
+    /*  Capability group: client (client_*). All NULL on a server host.
+     * Every callback fires on the client thread.  */
     /** Local player's name via ll::service::getClientInstance()->getLocalPlayer().
      *  sink receives the name, or the call returns false if not in a level. */
     bool (*client_get_local_player)(void* ctx, PierStrSink sink);
@@ -1599,15 +1637,16 @@ typedef struct PierApi
      *  sink receives a JSON-style array string "[1,2,3]". */
     bool (*client_get_key_codes)(PierKeyHandle handle, void* ctx, PierStrSink sink);
 
-    /* ── 能力组：自定义维度（md_*）。pier-dimensions 没编进宿主时全为
-     * NULL；探测可用性 = 看 `md_is_available` 槽是否为 NULL（这个槽存在
-     * 只为让「探测」这个动作有个名字，它被填上时恒返回 true）。 ── */
+    /*  Capability group: custom dimensions (md_*). All NULL when pier-dimensions
+     * was not built into the host. Probing availability means checking whether
+     * the md_is_available slot is NULL; that slot exists only to give the probe
+     * a name, and always returns true when it is filled in.  */
     /** Check whether MoreDimensions is available in this loader build. */
     bool (*md_is_available)(void);
 
     /** Add a SimpleCustomDimension.
      *
-     *  generatorType is ::GeneratorType **verbatim** — 1=Overworld, 2=Flat,
+     *  generatorType is ::GeneratorType verbatim — 1=Overworld, 2=Flat,
      *  3=Nether, 4=TheEnd, 5=Void. (This comment used to claim
      *  "0=Overworld 1=Nether 2=TheEnd 3=Flat 4=Void", which is the numbering
      *  bug that made "superflat" generate a nether. Values outside 1..5 are
@@ -1673,11 +1712,12 @@ typedef struct PierApi
      *  Idempotent, like md_add_simple_dimension. Returns dim id (>=3) or -1. */
     int32_t (*md_add_plot_dimension)(PierStr name, uint32_t seed, PierStr layout_snbt);
 
-    /* ═════════════ 追加尾（struct_size 把关）═════════════
-     * 结构体唯一的追加点。SDK 镜像无条件声明每一个字段 —— 没有任何
-     * cfg / ifdef 分支，因为布局在所有目标下相同。
+    /*  Append tail, struct_size-gated.
+     * The struct's only append point. SDK mirrors declare every field
+     * unconditionally, with no cfg or ifdef branches, because the layout is the
+     * same on every target.
      *
-     * ── Mod-scoped scheduling ──
+     * Mod-scoped scheduling.
      * `schedule` / `schedule_after` above take a bare callback with no owner.
      * That is a use-after-free waiting to happen: a mod that schedules a task
      * and is then unloaded leaves the executor holding a function pointer into
@@ -1686,10 +1726,10 @@ typedef struct PierApi
      * weak_ptr + ticket discipline the form callbacks already use.
      *
      * The old slots remain (ABI is additive) and still work. The loader now
-     * attributes them by the callback's module (address → DLL) and drops
-     * pending tasks at unload; mods should still prefer the owned slots below
-     * (which pier-rs uses since the V-03 fix) because attribution by address
-     * cannot see a callback that lives in a different module. */
+     * attributes them by the callback's module (address to DLL) and drops
+     * pending tasks at unload; mods should still prefer the owned slots below,
+     * because attribution by address cannot see a callback that lives in a
+     * different module. */
 
     /** Run `cb(user)` on the server (or client) thread ASAP, owned by `mod`.
      *  Thread-safe. Returns a task id (>0), or 0 if the task was rejected.
@@ -1715,7 +1755,7 @@ typedef struct PierApi
      *  a precondition for being marked "reload_safe" in its manifest. */
     uint32_t (*schedule_pending_count)(PierModHandle mod);
 
-    /* ── Client-side container resync ──
+    /*  Client-side container resync
      * `container_set_item` / `_clear` / `_add_item` all write through
      * `Container::setItem`, which mutates the server's copy and sends nothing.
      * The client keeps rendering whatever it last received, so a bulk rewrite
@@ -1732,7 +1772,7 @@ typedef struct PierApi
      *  transaction path. */
     bool (*container_refresh)(PierContainerRef ref);
 
-    /* ── Titles ──
+    /*  Titles
      * `PACT_SET_TITLE` (player_action opcode 6) reaches the client by running
      * the console command `title "<name>" title <text>`. Three things are
      * wrong with that and none of them are theoretical:
@@ -1761,16 +1801,16 @@ typedef struct PierApi
         PierPlayerSel sel, int32_t type, PierStr text, int32_t fade_in_ticks,
         int32_t stay_ticks, int32_t fade_out_ticks);
 
-    /* ── Cross-mod event bus ──
+    /*  Cross-mod event bus
      * See PierBusCb above for why the loader owns the table instead of mods
      * exchanging pointers. All four are thread-safe; callbacks run on the
      * publishing thread.
      *
-     * A mod does **not** receive its own publishes. Two reasons: a mod that
+     * A mod does not receive its own publishes. Two reasons: a mod that
      * wants to notify itself has a direct function call available, and
      * self-delivery is the one loop shape that no depth limit can distinguish
      * from legitimate work. Cross-mod loops (A publishes → B's handler
-     * publishes → A's handler publishes → …) are caught by a depth cap
+     * publishes → A's handler publishes →…) are caught by a depth cap
      * instead; hitting it drops the innermost publish and logs once. */
 
     /** Subscribe `mod` to `topic`. Returns a subscription id (>0), or 0 if the
@@ -1788,7 +1828,7 @@ typedef struct PierApi
      *  Return values from subscribers are ignored. */
     uint32_t (*bus_publish)(PierModHandle mod, PierStr topic, PierStr payload);
 
-    /** As above, but collects the veto bit: returns true when **any**
+    /** As above, but collects the veto bit: returns true when any
      *  subscriber returned true. Every subscriber still runs — no
      *  short-circuit — so observers see a consistent stream whether or not an
      *  earlier one refused. `out_delivered` may be NULL. */
@@ -1799,7 +1839,7 @@ typedef struct PierApi
      *  for skipping the cost of building a payload nobody will read. */
     uint32_t (*bus_subscriber_count)(PierStr topic);
 
-    /* ── Plot-boundary confinement ──
+    /*  Plot-boundary confinement
      * Backing store for PIER_DIMRULE_PISTON_CROSS_PLOT and
      * PIER_DIMRULE_ENTITY_CROSS_PLOT. Those two rules ask "are these two
      * columns in the same plot?", and the answer needs the grid geometry plus
@@ -1838,11 +1878,11 @@ typedef struct PierApi
      *  dimension is dropped with a warning. */
     void (*md_set_plot_merges)(int32_t dimension, int32_t const* entries, int32_t count);
 
-    /* ── Cross-mod service registry (query-style calls) ──
+    /*  Cross-mod service registry (query-style calls)
      * The bus is one-way broadcast; this is request/response. The shapes differ
      * on every axis, which is why they are separate tables rather than one:
      *
-     *   - providers per name: bus any / service **exactly one**
+     *   - providers per name: bus any / service exactly one
      *   - nobody registered:  bus normal / service an error the caller handles
      *   - return value:       bus none / service the entire point
      *   - ordering:           bus undefined and must not matter / service n/a
@@ -1884,9 +1924,9 @@ typedef struct PierApi
      *  nobody can answer. */
     void (*service_list)(void* ctx, PierStrSink sink);
 
-    /* ═════════════════ 批量世界编辑（追加，struct_size 把关） ═════════════════
+    /*  Bulk world editing, appended and struct_size-gated.
      * Native write paths that bypass the console-command route used by
-     * set_block (`execute in <dim> run setblock …`). With these, block
+     * set_block (`execute in <dim> run setblock…`). With these, block
      * states come from structured NBT instead of command-string splicing,
      * block entities can be written back, and entities can be respawned from
      * saved NBT — all via existing engine entry points.
@@ -1924,73 +1964,83 @@ typedef struct PierApi
         PierActorId id, float max_dist, bool include_actors, bool include_blocks, void* ctx,
         PierStrSink sink);
 
-    /* ═════════════════ 同工具链快车道 (additive, struct_size-gated) ═════════════════
-     * 追加五个槽位，**不动 PIER_ABI_VERSION** —— 按 docs/DESIGN.md §8 第 2 条：
-     * 纯追加不算版本变更，`struct_size` 才是精确闸门。
+    /*  Same-toolchain fast lane, appended and struct_size-gated.
+     * Five slots appended without touching PIER_ABI_VERSION: a pure append is
+     * not a version change, and struct_size is the precise gate.
      *
-     * 两个方向都成立：
-     *   - 新 loader 跑旧 mod：旧 mod 的表是新表的**逐字节前缀**，它够不到这五个
-     *     槽，照常工作。
-     *   - 新 mod 跑旧 loader：`the SDK runtime init` 比较 `struct_size`，发现 loader 的
-     *     表比自己编译时的小，直接拒绝加载。这正是应该发生的事 —— 一个会去读
-     *     `lane_publish` 那一格的 mod，在没有那一格的 loader 上只能读到越界内存。
+     * Both directions hold. A new loader running an old mod: the old table is a
+     * byte-identical prefix of the new one, the mod cannot reach these five
+     * slots, and it works unchanged. A new mod on an old loader: SDK runtime
+     * init compares struct_size, finds the loader's table shorter than the one
+     * it was compiled against, and refuses to load. That is the right outcome,
+     * since a mod that reads the lane_publish cell on a loader without it would
+     * read out of bounds.
      *
-     * 换句话说：版本号管的是「语义变了」，`struct_size` 管的是「表长了」。这次
-     * 只有后者。
-     * 见文件上方 PierLaneDesc 处的长注释。一句话版本：service 是跨语言的
-     * (名字, JSON) -> JSON；这条是「两边由同一次工具链编出」时才成立
-     * 的直接函数表调用，指纹对不上就拿不到指针，消费方降级回 service。
+     * In short: the version number tracks "semantics changed", struct_size
+     * tracks "the table grew". This change is only the latter.
      *
-     * 全部服务器线程调用。 */
+     * See the long comment at PierLaneDesc above. In one line: service is the
+     * cross-language (name, JSON) -> JSON channel, while this is a direct
+     * function-table call that holds only when both sides were built by the same
+     * toolchain; a fingerprint mismatch yields no pointer and the consumer falls
+     * back to service.
+     *
+     * Server thread only. */
 
-    /** 发布一条车道。**独占**，和 service_register 同一条纪律：名字被占就返回 0
-     *  并在日志里点名占用者。返回发布 id (>0)，卸载时自动撤销。 */
+    /** Publish a lane. Exclusive, same discipline as service_register: if the name
+     *  is taken, return 0 and name the incumbent in the log. Returns a publish
+     *  id (> 0), withdrawn automatically at unload. */
     uint64_t (*lane_publish)(PierModHandle mod, PierStr name, PierLaneDesc const* desc);
 
-    /** 撤销自己的一条车道。会替所有未归还的租约补调 `release`，并把存活标志
-     *  清零 —— 消费方下一次检查就会看到车道没了，而不是跳进空指针。 */
+    /** Withdraw one of your own lanes. Calls release for every outstanding lease
+     *  and clears the liveness flag, so a consumer's next check sees the lane
+     *  gone instead of jumping through a dead pointer. */
     bool (*lane_unpublish)(PierModHandle mod, uint64_t pub_id);
 
-    /** 取一条车道。`want_fingerprint` 必须是消费方自己算出来的那个值。
+    /** Acquire a lane. want_fingerprint must be the value the consumer computed
+     *  itself.
      *
-     *  **0 是非法值，一律返回 PIER_LANE_FINGERPRINT。** 它曾经表示「不
-     *  校验」并注明「只有诊断工具该这么用」，那是个洞：这个调用给出去的不是
-     *  诊断数据，是完整的 vtable + data 裸指针，消费方随后按自己的
-     *  `C::Table` 偏移去调它们。跳过校验 = 类型混淆。想看车道有哪些、指纹是
-     *  多少，用 `lane_list`，它一个指针都不用给。
+     *  0 is not a valid fingerprint and always yields PIER_LANE_FINGERPRINT.
+     *  It must not mean "skip the check": this call hands over raw vtable and
+     *  data pointers, which the consumer then calls through its own table
+     *  offsets, so skipping the check is type confusion. To inspect which lanes
+     *  exist and what their fingerprints are, use lane_list, which hands over
+     *  no pointers at all.
      *
-     *  返回 PIER_LANE_*。拿到之后必须 `lane_release`，否则提供方的状态一直
-     *  被 retain 着。 */
+     *  Returns a PIER_LANE_* value. After a successful acquire, lane_release is
+     *  mandatory, or the provider's state stays retained. */
     int32_t (*lane_acquire)(
         PierModHandle mod, PierStr name, uint64_t want_fingerprint, PierLaneRef* out);
 
-    /** 归还一条租约。只能归还自己的。提供方已经走掉时返回 false（那时 loader
-     *  已经替你调过 release 了，再调一次就是 double free）。 */
+    /** Return a lease. Only your own. Returns false when the provider is already
+     *  gone: the loader has called release on your behalf by then, and calling
+     *  it again would be a double free. */
     bool (*lane_release)(PierModHandle mod, uint64_t lease);
 
-    /** 全部车道，JSON 数组：
-     *  `[{"name":…,"mod":…,"fingerprint":"0x…","protocol":1,"leases":N,"alive":true}]`。 */
+    /** Every lane, as a JSON array:
+     *  [{"name":…,"mod":…,"fingerprint":"0x…","protocol":1,"leases":N,"alive":true}] */
     void (*lane_list)(void* ctx, PierStrSink sink);
 
     /**
-     * 列出**已经注册过的全部自定义维度**，JSON 数组：
-     * `[{"name":"plot_world","dim":1000,"snbt":"{…}"}]`。
+     * List every registered custom dimension as a JSON array:
+     * [{"name":"plot_world","dim":1000,"snbt":"{…}"}].
      *
-     * # 为什么必须有这一格
+     * Without this slot the md_* family can only be queried by name
+     * (md_get_dimension_id), so a caller must already know the name. A world
+     * manager taking over an existing save would then be blind to dimensions
+     * created by a previous plugin: they sit in dimension_config.json, they are
+     * alive in the engine, players can teleport into them, and the manager's
+     * table has no row for them. The consequence is not a short listing but
+     * dimensions governed by no rules at all, plus the risk that a newly created
+     * world is assigned a number that collides with one of them, leaving two
+     * worlds sharing a dimension id.
      *
-     * 在此之前 `md_*` 只能按名字问（`md_get_dimension_id`）——也就是说
-     * **你必须先知道名字才能问**。于是一个接管既有存档的世界管理器完全看不见
-     * 前一个插件建的维度：它们在 `dimension_config.json` 里，在引擎里活着，
-     * 玩家能传送进去，而管理器的表里一条都没有。
+     * name comes from the config file key, dim is the engine-assigned and
+     * persisted number, and snbt is the verbatim generation parameters (a plot
+     * world gives {layout:{…},seed:N}, a simple world {generatorType:Flat,
+     * seed:N}) for the caller to interpret.
      *
-     * 后果不是「少列几个世界」。是那些维度**不受任何规则管辖**，而且新建世界时
-     * 引擎分配的号可能和它们撞上——撞上之后两个世界共用一个维度号。
-     *
-     * 名字来自配置文件的键，`dim` 是引擎分配并持久化的号，`snbt` 是原样的
-     * 生成参数（地皮世界是 `{layout:{…},seed:N}`，简单世界是
-     * `{generatorType:Flat,seed:N}`），交给调用方自己解释。
-     *
-     * `md_is_available()` 为假时回调一次都不调。
+     * The callback is not invoked at all when md_is_available() is false.
      */
     void (*md_list_dimensions)(void* ctx, PierStrSink sink);
 
@@ -1998,49 +2048,52 @@ typedef struct PierApi
      * Delete every save-file key belonging to one chunk, so the engine
      * regenerates it from the generator on next load.
      *
-     * # 为什么这一格值得存在
+     * Restoring an area by writing every cell with set_block is the wrong
+     * approach: a 32x32 plot times the world height is hundreds of thousands of
+     * cells and as many FFI crossings, and it still misses things, because block
+     * entities, actors and pending ticks (redstone, crop growth) are not block
+     * data. After such a rewrite the chests are still there and the redstone is
+     * still running.
      *
-     * 「把一块地恢复原状」用 set_block 逐格写是错的路：一块 32×32 的地皮
-     * 乘上世界高度是几十万格，几十万次跨 FFI；而且它**会漏** —— 方块实体、
-     * 生物、待办刻（红石、作物生长）都不在方块数据里，逐格写完之后箱子还在、
-     * 红石还在跑。
+     * Erasing the save keys has neither problem: one forEachKeyWithPrefix yields
+     * every key of the chunk (all tags, all subchunks, actors, block entities,
+     * pending ticks), one pass deletes them, and the engine regenerates from the
+     * generator on next load.
      *
-     * 抹存档键没有这两个问题：一次 forEachKeyWithPrefix 拿到这个区块的全部
-     * 键（所有 tag、所有子区块、实体、方块实体、待办刻），一次删完，
-     * 引擎下次加载时按生成器重新生成。
+     * Key shape: a BDS chunk key is prefixed with
+     * <chunkX:i32 LE><chunkZ:i32 LE>, followed by <dimension:i32 LE> outside the
+     * overworld. After the prefix come a tag byte and a subchunk index, which
+     * this slot does not interpret; deleting everything with the prefix is
+     * exactly "everything in this chunk".
      *
-     * # 键的形状
+     * The chunk must be unloaded. A loaded chunk has a LevelChunk in memory that
+     * the engine writes back on unload, recreating the deleted keys verbatim, so
+     * the deletion is silently undone. The caller is responsible for getting the
+     * chunk unloaded first (move players away, wait for it to leave tick range).
+     * This slot does not do that: deciding who is nearby and when unloading is
+     * acceptable needs the caller's domain knowledge, which this layer must not
+     * have.
      *
-     * BDS 的区块键前缀是 `<chunkX:i32 LE><chunkZ:i32 LE>`，非主世界再跟一个
-     * `<dimension:i32 LE>`。前缀之后是 tag 字节和子区块序号，我们不解释 ——
-     * 按前缀全删就是「这个区块的一切」。
+     * @return number of keys deleted; -1 if the save layer is unavailable. 0 is
+     *         a normal result, meaning that chunk was never generated.
      *
-     * # ⚠ 区块必须是**未加载**的
-     *
-     * 加载中的区块在内存里有一份 `LevelChunk`，引擎会在卸载时把它写回去 ——
-     * 那会把我们删掉的键原样重建。调用方要负责先让区块卸载（把人传走、
-     * 等它离开刻范围），否则这次删除会被静默覆盖。
-     *
-     * 这一格**不替调用方做这件事**：判断「谁在附近、什么时候能卸载」需要
-     * 调用方的业务知识（哪块地是谁的、能不能把人赶走），而这一层不该有。
-     *
-     * @return 删掉的键数；-1 = 存档层不可用。0 是正常结果（那个区块从没生成过）。
-     *
-     * 纯追加槽位 —— `PIER_ABI_VERSION` 不变，靠 `struct_size` 把关。
+     * Pure append: PIER_ABI_VERSION is unchanged, struct_size is the gate.
      */
     int32_t (*level_delete_chunk_keys)(int32_t dim, int32_t chunk_x, int32_t chunk_z);
 
     /**
      * Are the chunks covering [min..max] currently loaded in memory?
      *
-     * 配 `level_delete_chunk_keys` 用：抹存档只对**未加载**的区块有效，
-     * 加载中的那份在内存里，卸载时会把删掉的键原样写回去 —— 而那次抹除
-     * 会「成功」并报出一个正的键数。没有这一格的话，调用方只能靠
-     * 「附近没人」去猜，而猜错的表现是静默失效。
+     * Companion to level_delete_chunk_keys: erasing save keys only works on
+     * unloaded chunks, since a loaded one lives in memory and writes the deleted
+     * keys back verbatim on unload, while the erase itself "succeeds" and
+     * reports a positive key count. Without this slot a caller can only guess
+     * from "nobody is nearby", and guessing wrong fails silently.
      *
-     * @return 1 = 全部加载着，0 = 至少有一块没加载，-1 = 维度不可用。
+     * @return 1 if all are loaded, 0 if at least one is not, -1 if the dimension
+     *         is unavailable.
      *
-     * 纯追加槽位 —— `PIER_ABI_VERSION` 不变，靠 `struct_size` 把关。
+     * Pure append: PIER_ABI_VERSION is unchanged, struct_size is the gate.
      */
     int32_t (*level_chunks_loaded)(int32_t dim, int32_t min_x, int32_t min_z, int32_t max_x, int32_t max_z);
 
@@ -2048,106 +2101,121 @@ typedef struct PierApi
      * This player's connection id — the same number packet interceptors see
      * in the packet context.
      *
-     * # 为什么需要它
+     * A packet callback has only conn_id, not a player, so per-player rewriting
+     * of outbound packets is impossible without this: locking the sky colour
+     * needs the dimension of the person on that connection, which needs to know
+     * who they are.
      *
-     * 拦包回调里只有 `conn_id`，**没有玩家**。于是任何「按玩家改写发出去的包」
-     * 都做不了：改天色要知道这条连接的人在哪个维度，而那要先知道他是谁。
+     * The alternative is to periodically send packets that override the
+     * server's, and that is wrong: the server sends real time while the mod
+     * sends locked time, the two kinds interleave, and the client's sky flickers
+     * between them. Rewriting is correct, and rewriting needs this slot.
      *
-     * 没有这一格的话只剩一条路 —— 自己周期性地发包去盖掉服务器发的那些。
-     * 那条路是错的：服务器发真实时间、我们发锁定时间，两种包交替到达，
-     * 客户端的天色**一亮一暗地跳**。改写才是对的，而改写需要这一格。
+     * @return the connection id; 0 if the player is offline or their network
+     *         identifier is unavailable.
      *
-     * @return 连接号；0 = 这个人不在线，或者拿不到他的网络标识。
-     *
-     * 纯追加槽位 —— `PIER_ABI_VERSION` 不变，靠 `struct_size` 把关。
+     * Pure append: PIER_ABI_VERSION is unchanged, struct_size is the gate.
      */
     uint64_t (*player_conn_id)(PierPlayerSel who);
 
     /**
      * List every save-file key belonging to one chunk. One callback per key.
      *
-     * # 为什么拆成「列」和「删」两格
+     * Listing and deleting are two slots rather than one because collecting the
+     * keys into a std::vector<std::string> on the C++ side and deleting them in
+     * a loop crashed on real hardware, in the vector's destructor at return,
+     * with a string's inline buffer being treated as a heap pointer.
      *
-     * 上一版是一格：C++ 里先把键收进 `std::vector<std::string>`，再逐个删。
-     * 那个函数**在真机上崩了** —— 崩在返回时销毁那个 vector，寄存器里能看到
-     * 字符串的内联缓冲被当成了堆指针。
+     * The root cause was never pinned down (std::string lifetime across a DLL
+     * boundary, not findable without a debugger), but the whole class of problem
+     * comes from accumulating a string container on the C++ side and crossing a
+     * virtual call with it. So the container lives on the caller's side and the
+     * C++ side does one thing at a time, owning nothing.
      *
-     * 根因没定位到（跨 DLL 的 `std::string` 生命周期，没有调试器查不出来）。
-     * 但那一整类问题的来源是**在 C++ 侧攒一个 `std::string` 容器并跨一次
-     * 虚调用**，所以这一版把容器搬到调用方：C++ 每次只做一件不持有任何东西的事。
+     * Keys are binary and contain 0 bytes, hence PierStr with an explicit length
+     * rather than a C string.
      *
-     * 键是二进制的（含 0 字节），所以走 `PierStr`（带长度）而不是 C 字符串。
-     *
-     * @return 报了几个键；-1 = 存档层不可用。
+     * @return how many keys were reported; -1 if the save layer is unavailable.
      */
     int32_t (*level_chunk_keys)(int32_t dim, int32_t chunk_x, int32_t chunk_z, void* ctx, PierStrSink sink);
 
     /**
      * Delete one chunk-category key, verbatim.
      *
-     * 配 [`level_chunk_keys`] 用。**不解释键的内容** —— 传什么删什么，
-     * 这正是它安全的原因：不需要懂子区块的格式。
+     * Companion to level_chunk_keys. The key's content is not interpreted:
+     * whatever is passed is what gets deleted, which is exactly why it is safe,
+     * since it need not understand the subchunk format.
      */
     bool (*level_delete_key)(PierStr key);
 
-    /* ── 以下为追加槽（190）。只在表尾加，靠 struct_size 守卫。 ──
+    /*  Appended slots (190). Added at the tail only, guarded by struct_size.
      *
-     * 删实体和补血**已经有了** —— `actor_action` 的 `AACT_DESPAWN` /
-     * `AACT_HEAL`。加独立的槽只是把同一件事做两遍，而两份实现迟早分岔。
+     * Removing an actor and healing one already exist as actor_action's
+     * AACT_DESPAWN and AACT_HEAL. A separate slot would do the same job twice,
+     * and two implementations eventually drift.
      */
 
-    /* 实体枚举**已经有了** —— `list_actors`（按维度列出全部，带类型名），
-     * 配 `actor_get_num` 取坐标就能筛出一个盒子里的。加一个
-     * `actors_in_box` 只是把同一件事做两遍，而两份实现迟早分岔。
+    /* Actor enumeration already exists as list_actors (everything in a dimension,
+     * with type names); combined with actor_get_num for positions it filters to a
+     * box. An actors_in_box slot would do the same job twice, and two
+     * implementations eventually drift.
      */
 
     /**
-     * 设一片区域的生物群系。
+     * Set the biome over an area.
      *
-     * 按整列设（`setBiome3d` 逐 y 生效，但生物群系在基岩版是按列存的），
-     * 所以不收 y。`biome` 是生物群系名，如 `"minecraft:plains"`。
+     * Applied per whole column, so no y is taken: setBiome3d works per y, but
+     * Bedrock stores biomes per column. biome is a biome name such as
+     * "minecraft:plains".
      *
-     * 返回成功设置了几列。0 表示一列都没设上 —— 区块没加载或者名字不认识。
+     * Returns how many columns were set. 0 means none were, either because the
+     * chunks are not loaded or because the name was not recognised.
      */
     int32_t (*level_set_biome)(int32_t dim,
                                int32_t minX, int32_t minZ,
                                int32_t maxX, int32_t maxZ,
                                PierStr biome);
 
-    /* ═══════════ 追加 —— 液体层（含水方块） ═══════════
+    /*  Appended: the liquid layer (waterlogged blocks).
      *
-     * Bedrock 的「含水」不是方块状态，而是**同一格上的第二个方块**：主层放
-     * 楼梯/栅栏/珊瑚，液体层放 water。`get_block` / `set_block` 只看主层，所以
-     * 复制一片含水的楼梯再粘出来，水会全部消失 —— 主层完全正确，缺的是另一层。
+     * In Bedrock, waterlogging is not a block state but a second block in the
+     * same cell: stairs, fences or coral in the main layer and water in the
+     * liquid layer. get_block and set_block see the main layer only, so copying
+     * and pasting waterlogged stairs loses all the water: the main layer is
+     * exactly right and the other layer is missing.
      *
-     * 这两个槽位把液体层暴露出来。空的液体层返回 "minecraft:air"。
+     * These two slots expose the liquid layer. An empty layer reads back as
+     * "minecraft:air".
      */
 
-    /** 读液体层。写进 sink 的是方块名（如 "minecraft:water"），空层为 air。 */
+    /** Read the liquid layer. The sink receives a block name such as
+     *  "minecraft:water"; an empty layer gives air. */
     bool (*get_extra_block)(int32_t dim, int32_t x, int32_t y, int32_t z,
                             void* ctx, PierStrSink sink);
 
-    /** 写液体层。`block_spec` 收裸方块名或完整 SNBT，写 "minecraft:air" 清空。
-     *  `update_flags` 同 edit_set_block_nbt：位 1 = 邻居更新，位 2 = 同步客户端。 */
+    /** Write the liquid layer. block_spec takes a bare block name or full SNBT;
+     *  write "minecraft:air" to clear it. update_flags is as in
+     *  edit_set_block_nbt: bit 1 notifies neighbours, bit 2 syncs the client. */
     bool (*set_extra_block)(int32_t dim, int32_t x, int32_t y, int32_t z,
                             PierStr block_spec, int32_t update_flags);
 } PierApi;
 
 /**
- * 由模组在 pier_main 里填写。
- * `instance` 是模组自有的不透明指针；三个回调可为 NULL（视为恒成功）。
- * 本结构体遵循与 PierApi 相同的追加规则 —— 有了 struct_size，未来可以在
- * 尾部加新的生命周期回调而不升版本，宿主按「够得到才调」处理。
+ * Filled in by the mod inside pier_main. instance is the mod's own opaque
+ * pointer; the three callbacks may be NULL, which counts as always succeeding.
+ * This struct follows the same append rules as PierApi: with struct_size, new
+ * lifecycle callbacks can be added at the tail without a version bump, and the
+ * host calls one only if it can reach it.
  */
 typedef struct PierModVTable
 {
-    /** sizeof(PierModVTable)，由模组按自己编译出的定义填写。 */
+    /** sizeof(PierModVTable), filled in by the mod from the definition it compiled. */
     uint32_t struct_size;
-    /** == 模组编译时的 PIER_ABI_VERSION。 */
+    /** Equals the PIER_ABI_VERSION the mod was compiled against. */
     uint32_t abi_version;
-    /** PIER_FLAG_* 的按位或。bit 0 = 按客户端目标编译。 */
+    /** Bitwise OR of PIER_FLAG_*. Bit 0 means built for a client target. */
     uint32_t mod_flags;
-    /** 保留，恒为 0。 */
+    /** Reserved, always 0. */
     uint32_t _reserved0;
     void* instance;
     bool (*on_enable)(void* instance);

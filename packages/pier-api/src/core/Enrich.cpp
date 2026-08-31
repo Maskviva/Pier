@@ -1,23 +1,17 @@
 /** core/Enrich.cpp —— 事件载荷富化：把反射指针桩解成消费方读得懂的字段。
  *
- * LL 的 serializeRefObj 对每个不可序列化的引用字段都发一个
- * `{_type_:"Player", _pointer_:<i64>}` 桩（见 ll/api/event/EventRefObjSerializer.h）。
- * 桩对 ABI 另一侧毫无用处 —— 指针进程内有效、类型名是 C++ 静态类型 ——
- * 这里把它们换成身份字段。
+ * LL 的 serializeRefObj 对每个不可序列化的引用字段发一个
+ * {_type_:"Player", _pointer_:<i64>} 桩。桩对 ABI 另一侧毫无用处：指针只在进程内
+ * 有效，类型名是 C++ 静态类型。这里把它们换成身份字段。
  *
- * # 为什么按「Actor 形」而不是只认 "Player"
+ * 判据按「Actor 形」而不是只认 "Player"。继承链决定 self 的静态类型：PlayerEvent
+ * 发 Player，MobEvent 发 Mob，ActorEvent 发 Actor。于是 ActorHurtEvent、MobDieEvent
+ * 这类挂在 ActorEvent 上的事件，即使当事人就是玩家，桩上写的也是 "Actor"；只认
+ * "Player" 时 _player 与 dim 一个都不会注入，而消费方把缺失的 dim 当 0 之后，自定
+ * 义维度里的每个事件都被当成发生在主世界，土地保护在别的维度全部放行且零日志。
  *
- * 继承链决定了 `self` 的**静态**类型：PlayerEvent 发 Player、MobEvent 发
- * Mob、ActorEvent 发 Actor（每层都覆写 nbt["self"]）。于是
- * ActorHurtEvent / MobDieEvent 这类挂在 ActorEvent 上的事件，即使当事人就
- * 是玩家，桩上写的也是 "Actor" —— 只认 "Player" 时 `_player` 和 `dim` 一个
- * 都不会注入。消费方把缺失的 dim 当 0，自定义维度里的每个事件都被当成发生
- * 在主世界（rsw 土地保护因此在别的维度全部放行，零日志）。
- *
- * # 为什么只解引用「活玩家表」里的地址
- *
- * 生物随时可能在这一 tick 内被销毁；玩家指针则由在线表背书。不在表里的
- * Actor 桩一律不碰 —— 宁可少一个字段，不解引用悬垂指针。
+ * 只解引用活玩家表里的地址：生物随时可能在这一 tick 内被销毁，玩家指针则由在线表
+ * 背书。不在表里的 Actor 桩一律不碰，宁可少一个字段也不解引用悬垂指针。
  */
 #include "pier/api/bridge.h"
 
@@ -131,7 +125,7 @@ namespace pier::bridge
             return live.find(addr) != live.end();
         };
 
-        // V-04：桩解析不出来时**必须留下痕迹**。契约 §5.1：「问不出来」和
+        // 桩解析不出来时必须留下痕迹。契约 §5.1：「问不出来」和
         // 「答案是否」必须是不同的值 —— 缺席的 dim 会被消费方 unwrap_or(0)
         // 当成主世界，这正是自定义维度土地保护被绕过的事故原型。
         std::vector<std::string> unresolved;
@@ -234,13 +228,10 @@ namespace pier::bridge
 
             if (stub.type == "ActorDamageSource")
             {
-                // 读公开成员而不是 getCause()：后者是 MCFOLD，不保证导出。
-                //
-                // `mCause` 是 `TypedStorage<..., ActorDamageCause>`，而
-                // ActorDamageCause 是**枚举** —— 按 TypedStorage 的坍缩规则
-                // （标量和引用都坍缩，只有类类型的值才保持包装，见
-                // hooks/world/UseItemOnEvent.cpp 的推导）它就是那个枚举本身。
-                // 写 `.get()` 是编译错误（C2228：左边必须有类/结构/联合）。
+                // 读公开成员而不是 getCause()，后者是 MCFOLD，不保证导出。mCause
+                // 是 TypedStorage<..., ActorDamageCause>，而 ActorDamageCause 是枚
+                // 举，按坍缩规则（见 tools/typed-storage.py）它就是那个枚举本身，
+                // 写 .get() 是编译错误 C2228。
                 if (auto* src = reinterpret_cast<ActorDamageSource*>(stub.addr))
                 {
                     copy["_" + stub.key] = CompoundTagVariant::object(
@@ -259,18 +250,11 @@ namespace pier::bridge
                 {
                     if (auto* bs = reinterpret_cast<BlockSource*>(stub.addr))
                     {
-                        // `mDimension` 装的是 `Dimension&` —— TypedStorage 对
-                        // 引用有特化，成员本身就是那个引用，写 `.get()` 是编译
-                        // 错误（真机报 C2039：get 不是 Dimension 的成员）。
-                        // 先落一个具名引用而不是链式点号：TypedStorage 装引用时
-                        // 不保证有 operator->（ChunkTrace.cpp 里同一条结论）。
-                        //
-                        // 取 id 走 `getDimensionId().value()` 而不是直接读
-                        // `mId`。原注释说「走公开成员，不调虚函数」，那个偏好
-                        // 是对的，但 `Dimension::mId` 的 TypedStorage 形状我
-                        // **没有验证过**，而这个写法在 ChunkTrace.cpp 里已经
-                        // 随整个 pier-dimensions 编译通过。用没验证过的写法去
-                        // 省一次虚调用，不划算。
+                        // mDimension 装的是 Dimension&，TypedStorage 对引用有坍缩
+                        // 特化，写 .get() 是编译错误 C2039。先落一个具名引用而不
+                        // 用链式点号：装引用时不保证有 operator->。取 id 走
+                        // getDimensionId().value() 而不直接读 mId，后者的
+                        // TypedStorage 形状未经验证，省一次虚调用不划算。
                         Dimension& dim = bs->mDimension;
                         copy["dim"] = CompoundTagVariant(dim.getDimensionId().value());
                         haveDim = true;

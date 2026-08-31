@@ -147,22 +147,17 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level) return false;
-                // 这一条**故意保留命令路径**。
-                //
-                // GameRules 只暴露了 getBool/getInt/getFloat 和
-                // nameToGameRuleIndex，写入侧公开的只有带下划线的 _setGameRule
-                // —— 那是内部接口，签名跨版本不稳，而且绕过它会漏掉
-                // GameRulesChangedPacket 的广播（客户端不会知道规则变了）。
-                // `/gamerule` 会把这些都做对。
-                //
-                // 先用 nameToGameRuleIndex 验一次名字，这样至少「规则名拼错」
-                // 能和「命令执行失败」区分开 —— 那正是命令路径最难查的地方。
+                // 这一条故意保留命令路径。GameRules 只暴露 getBool/getInt/getFloat
+                // 和 nameToGameRuleIndex，写入侧公开的只有内部接口 _setGameRule，签
+                // 名跨版本不稳，而且绕过 /gamerule 会漏掉 GameRulesChangedPacket 的
+                // 广播，客户端不会知道规则变了。先用 nameToGameRuleIndex 验一次名
+                // 字，好把「规则名拼错」和「命令执行失败」区分开。
                 std::string const rule = toString(name);
                 if (!level->getGameRules().hasRule(level->getGameRules().nameToGameRuleIndex(rule)))
                 {
                     return false;
                 }
-                // V-25：value 会拼进控制台命令 —— 只接受 true/false 或（可带负号的）
+                // value 会拼进控制台命令 —— 只接受 true/false 或（可带负号的）
                 // 整数，其余一律拒绝，别把调用方的任意文本送进命令解析器。
                 std::string const val = toString(value);
                 bool const isBool = (val == "true" || val == "false");

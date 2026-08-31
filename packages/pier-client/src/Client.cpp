@@ -1,8 +1,8 @@
 /** pier-client/Client.cpp —— 仅客户端的能力组（PIER_BUILD_CLIENT）。
  *
- * 所有回调都跑在**客户端线程**上（KeyRegistry 在那里派发）。
+ * 所有回调都跑在客户端线程上（KeyRegistry 在那里派发）。
  *
- * 键绑定生命周期：KeyRegistry 拥有 KeyHandle；我们在 ClientKeyEntry 里持
+ * 键绑定生命周期：KeyRegistry 拥有 KeyHandle；本包在 ClientKeyEntry 里持
  * 一个指向它的裸指针。「反注册」把条目标记为死（handler 变 no-op）并释放
  * 条目。
  */
@@ -132,9 +132,9 @@ namespace pier::api_impl
 
                 std::vector<int> keys(keyCodes, keyCodes + keyCount);
                 // KeyRegistry 想要一个 ll::mod::Mod 的 weak_ptr 做归属标注。托
-                // 管模组不是 LL 模组（它们是宿主自己的孩子），所以把**宿主**
+                // 管模组不是 LL 模组（它们是宿主自己的孩子），所以把宿主
                 // （pier 这个 NativeMod）报给它 —— 对 LL 来说键就是 pier 注册
-                // 的；按托管模组清理是我们自己的活（liveEntries + owner）。
+                // 的；按托管模组清理由本包负责（liveEntries + owner）。
                 auto modWeak =
                     std::weak_ptr<ll::mod::Mod>(ll::mod::NativeMod::current()->shared_from_this());
 

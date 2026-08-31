@@ -45,10 +45,9 @@ namespace pier::hooks
             return static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(h));
         }
 
-        /** 一次回调，异常就地接住。
-         *  W11：接住还得看得见 —— 异常每次都打印；「已被隔离」的提醒每进程
-         *  一次。绝不让模组的异常顺着栈回卷进引擎的被钩函数（那会把一次逻辑
-         *  bug 升级成半更新状态下的引擎崩溃）。 */
+        /** 一次回调，异常就地接住。接住还得看得见：异常每次都打印，「已被隔离」
+         *  的提醒每进程一次。绝不让模组的异常顺栈回卷进引擎的被钩函数，那会把一
+         *  次逻辑 bug 升级成半更新状态下的引擎崩溃。 */
         void callOne(PierEventCb cb, void* user, std::string const& id, std::string const& snbt,
                      void* wctx, PierStrSink sink)
         {
@@ -71,15 +70,12 @@ namespace pier::hooks
         }
 
         /**
-         * 应答里的取消位。**解析，不搜子串。**
+         * 取出应答里的取消位。解析，不搜子串。
          *
-         * 旧实现在应答字符串里找三种写法（`cancelled:1b`、`"cancelled":1`、
-         * `cancelled:1 `）—— 另一侧走 NbtValue 往返和走字符串替换两条路会产
-         * 出不同形状，漏配任何一种，取消就静默失效，而那正是最难被发现的坏
-         * 法（其余一切照常工作）。三种写法都是合法 SNBT，交给
-         * CompoundTag::fromSnbt 统一解析后按标签真值判断，形状差异从此与判
-         * 定无关。解析失败按「未取消」处理 —— 一个连自己应答都拼不对的订阅
-         * 者不该拿到否决权。
+         * cancelled:1b、"cancelled":1、cancelled:1 都是合法 SNBT，另一侧走 NbtValue
+         * 往返和走字符串替换会产出不同形状。按子串找就得逐种枚举，漏配任何一种取
+         * 消都会静默失效，而其余一切照常工作。交给 CompoundTag::fromSnbt 统一解析
+         * 后按标签真值判断，形状差异与判定无关。解析失败按未取消处理。
          */
         bool replyCancelled(std::string const& reply, std::string_view eventId)
         {
@@ -87,8 +83,8 @@ namespace pier::hooks
             auto tag = CompoundTag::fromSnbt(reply);
             if (!tag)
             {
-                // V-02：解析不了的应答不能静默当成「不取消」—— 那是最危险的
-                // 那个方向（保护判定报告已拦、实际放行）。
+                // 解析不了的应答不能静默当成「不取消」，那是最危险的方向：保护
+                // 判定报告已拦而实际放行。
                 hostLogger().error(
                     "合成事件 '{}' 的写回 SNBT 解析失败，按未取消处理：{}", eventId,
                     tag.error().message()
@@ -137,7 +133,7 @@ namespace pier::hooks
         } w; // 只观察：写回是 no-op
         for (auto& [cb, user, mod] : snap)
         {
-            CallbackScope scope{mod}; // V-06/V-28：回调期间否决卸载
+            CallbackScope scope{mod}; // 回调期间否决卸载
             callOne(cb, user, id, snbt, &w, [](void*, PierStr) {});
         }
     }
@@ -169,14 +165,14 @@ namespace pier::hooks
 
     namespace
     {
-        /* ─────────────── spi::EventProvider 接线 ─────────────── */
+        /* spi::EventProvider 接线。 */
 
         HookEventDef* findDef(std::string_view wanted)
         {
             for (auto* def : table())
             {
-                // 精确名或带分隔符的唯一后缀（spi::idMatches）。不做子串匹配
-                // —— 旧版的 find(name) != npos 会让 "xxFooEventxx" 也命中。
+                // 精确名或带分隔符的唯一后缀（spi::idMatches）。不做子串匹配：
+                // find(name) != npos 会让 "xxFooEventxx" 也命中。
                 if (spi::idMatches(wanted, def->name)) return def;
             }
             return nullptr;
@@ -191,8 +187,8 @@ namespace pier::hooks
             if (!def || !cb) return nullptr;
             if (!def->installed)
             {
-                // V-16：detour 装不上就拒绝订阅（fail-closed）。以前是打一行
-                // error 然后照样发句柄 —— 模组以为保护已就位，实际一次都不会触发。
+                // detour 装不上就拒绝订阅（fail-closed）。打一行 error 却照样发句
+                // 柄会让模组以为保护已就位，而它一次都不会触发。
                 if (!def->install())
                 {
                     hostLogger().error(
@@ -227,7 +223,7 @@ namespace pier::hooks
                     }
                 }
             }
-            return false; // 不是本提供方的句柄 —— 让下一家试
+            return false; // 不是本提供方的句柄，让下一家试
         }
 
         void providerDropMod(HostedMod* mod)
@@ -248,7 +244,7 @@ namespace pier::hooks
 
         spi::EventProviderReg reg{spi::EventProvider{
             /*name*/ "hooks",
-            /*covers_registry*/ false, // 纯合成事件：注册表同后缀 = 上游新增真事件，遮蔽必须打 warn
+            /*covers_registry*/ false, // 纯合成事件；注册表同后缀即遮蔽，必须打 warn
             &providerClaims,
             &providerSubscribe,
             &providerUnsubscribe,

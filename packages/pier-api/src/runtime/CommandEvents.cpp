@@ -1,13 +1,13 @@
 /** runtime/CommandEvents.cpp —— 命令事件提供方（服务端专属）。
  *
- * ExecutingCommandEvent / ExecutedCommandEvent 的发射器**在**动态注册表里，
+ * ExecutingCommandEvent / ExecutedCommandEvent 的发射器在动态注册表里，
  * 但 LeviLamina 只把这两个事件派发给类型化监听器 —— DynamicListener 挂上去
  * 一个回调都收不到。所以它们以事件提供方（spi §5）的身份接进解析：
  * `covers_registry = true` —— 替换注册表路径是修复，不是遮蔽，不告警。
  *
  * 类型化监听器要自己建、再用注册表里解析出来的真 id 注册：这两个事件类型
  * 住在 inline namespace（ll::event::inline command）里，getEventId<T> 算出
- * 的 id 带 "command::" 段，而 LL 的发射器注册在**去 inline** 的名字下
+ * 的 id 带 "command::" 段，而 LL 的发射器注册在去 inline 的名字下
  * （ll::event::ExecutingCommandEvent，/pier events 可见）。emplaceListener<T>
  * 按前者查、按前者挂，于是失败。手建 Listener<T> + 非模板 addListener
  * 保住类型化回调（直接从 CommandContext 的 origin 读玩家和命令文本），
@@ -84,7 +84,7 @@ namespace pier::api_impl
         /** 返回 true = 有订阅方要求拒绝这条命令。
          *
          *  写回曾在这里被一句 `write-back ignored` 丢掉。那让
-         *  ExecutingCommandEvent 静默变成**只读**，尽管 LL 侧它是
+         *  ExecutingCommandEvent 静默变成只读，尽管 LL 侧它是
          *  `Cancellable<ExecuteCommandEvent>`：订阅方调 `ev.cancel()`、
          *  哪儿都看不到报错、然后眼看着命令照跑。架在它上面的任何闸 ——
          *  比如命令白名单 —— 报告自己已就位，实际什么都不拦：这是安全检查
@@ -98,7 +98,7 @@ namespace pier::api_impl
             std::string const& uuid,
             std::string const& command)
         {
-            // 控制台、命令方块和一切非玩家来源**完全不上报**。这是刻意的，
+            // 控制台、命令方块和一切非玩家来源完全不上报。这是刻意的，
             // 而且是拿命令做闸的调用方赖以生存的：把控制台也拒了，服主会被
             // 锁在自己的服务器外面，没有任何退路。
             if (playerName.empty()) return false;
@@ -129,7 +129,7 @@ namespace pier::api_impl
                    }
                    catch (...)
                    {
-                       // W11：`cancelled` 不是字节 tag（或取值抛了）。事件按
+                       // `cancelled` 不是字节 tag（或取值抛了）。事件按
                        // 未取消继续 —— 但要说出来，不许藏。
                        ll::error_utils::printCurrentException(hostLogger());
                    }

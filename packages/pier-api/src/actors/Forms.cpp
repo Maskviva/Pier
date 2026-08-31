@@ -1,29 +1,18 @@
 /** actors/Forms.cpp —— 带异步结果回调的表单。
  *
- * 回调在调用帧之后才触发的唯一入口。生命周期纪律与命令一致：ll::form 的
- * 回调只捕获 weak_ptr<HostedMod> 加一张宿主侧待决表的票据；玩家应答时模
- * 组若已卸载（票据已清）或已禁用（静音），回调被静默丢弃，卸载清空全部
- * 待决票据。
+ * 回调在调用帧之后才触发的唯一入口。生命周期纪律与命令一致：ll::form 的回调只捕
+ * 获 weak_ptr<HostedMod> 加一张宿主侧待决表的票据；玩家应答时模组若已卸载或已禁
+ * 用，回调被静默丢弃，卸载清空全部待决票据。
  *
- * ── 结果编码 ─────────────────────────────────────────────────────────
- * `ll::form::CustomFormElementResult` 是 variant<monostate, uint64, double,
- * string>，而 **dropdown / step_slider 在不同 LL 版本上回传的东西不一样**：
- * 有的版本给选中项的下标（uint64），有的给选中项的文本（string）。上层
- * 只按下标解读，于是碰到字符串就静默回退成 0 —— 表现为「不管选哪一项，
- * 拿到的永远是第一项」。
+ * 结果编码在这一层收口。CustomFormElementResult 是 variant<monostate, uint64,
+ * double, string>，dropdown 与 step_slider 在不同 LL 版本上有的回传选中项下标、有
+ * 的回传文本；只按下标解读时碰到字符串会静默回退成 0，表现为「不管选哪一项拿到的
+ * 永远是第一项」。构表时记住每个选择型控件的 options，回传拿到整数就当下标，拿到
+ * 字符串就查回下标（先精确，再去掉 §x 颜色码），输出永远是下标与文本两份。
  *
- * 这里在桥这一层把它收口：构表时记住每个选择型控件的 options，回传时
- *   - 拿到整数 → 直接当下标；
- *   - 拿到字符串 → 在 options 里查回下标（先精确匹配，再去掉 §x 颜色码
- *     匹配一次）。
- * 序列化出去的结果永远是 **下标（values）+ 文本（texts）两份**，上层不用
- * 再猜 LL 这一版是哪种行为。
- *
- * 同时把「会让客户端整个表单渲染失败」的几种参数在这里钳住：空 options 的
- * 下拉框、越界的默认下标、不在 [min,max] 内或没落在步进点上的滑块默认值。
- *
- * 调试：`PIER_TRACE_FORM=1` 打印每个表单的元素清单，以及回传时每个键的
- * variant 类型和原始值 —— 表单类问题基本一眼就能定位。
+ * 会让客户端整个表单渲染失败的几种参数也在这里钳住：空 options 的下拉框、越界的
+ * 默认下标、不在 [min,max] 内或没落在步进点上的滑块默认值。设 PIER_TRACE_FORM=1
+ * 打印元素清单与回传时每个键的 variant 类型和原始值。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -77,7 +66,7 @@ namespace pier::api_impl
         /** 选择型控件（dropdown / step_slider）的 name → options 台账。 */
         using ChoiceTable = std::unordered_map<std::string, std::vector<std::string>>;
 
-        /** V-01：滑块的 name → {min,max,step} 台账。回传值来自客户端，LL 的
+        /** 滑块的 name → {min,max,step} 台账。回传值来自客户端，LL 的
          *  Slider::parseResult 是裸 get<double>()，不做任何范围检查；宿主既然
          *  在发送侧归一化了规格，就必须在回传侧按同一规格钳制。 */
         struct SliderSpec
@@ -138,7 +127,7 @@ namespace pier::api_impl
             auto mod = weakMod.lock();
             if (!mod || mod.get() != pending.mod) return; // 模组没了
             if (!mod->isEnabled()) return;                // 禁用期间静音
-            CallbackScope scope{mod.get()};               // V-06/V-28
+            CallbackScope scope{mod.get()};               // 回调期间否决卸载
             if (pending.cb) pending.cb(pending.user, ps(resultSnbt));
         }
 
@@ -162,7 +151,7 @@ namespace pier::api_impl
             return def;
         }
 
-        // ── 选择型控件的下标 / 文本互查 ──────────────────────────────────
+        //  选择型控件的下标 / 文本互查
 
         /** 去掉 Minecraft 的 §x 颜色控制码，用于第二轮宽松匹配。 */
         std::string stripFormatCodes(std::string_view s)
@@ -195,7 +184,7 @@ namespace pier::api_impl
             return std::nullopt;
         }
 
-        // ── SNBT 拼装 ───────────────────────────────────────────────────
+        //  SNBT 拼装
 
         struct SnbtObject
         {
@@ -235,7 +224,7 @@ namespace pier::api_impl
             return "<none>";
         }
 
-        // ── SimpleForm ──────────────────────────────────────────────────
+        //  SimpleForm
 
         bool sendSimple(
             Player& p, CompoundTag const& spec, std::weak_ptr<HostedMod> weakMod, uint64_t ticket)
@@ -296,7 +285,7 @@ namespace pier::api_impl
                 }
                 else if (button >= buttons)
                 {
-                    // V-01：LL 把客户端回传的下标原样交给我们，不做范围检查。
+                    // LL 把客户端回传的下标原样交出，不做范围检查。
                     // 改装客户端可以对 3 个按钮的表单回传 999 —— 交给模组就是
                     // 越界索引（Rust panic → abort / C 越界读）。按取消处理，
                     // 并留下这个玩家的名字。
@@ -313,7 +302,7 @@ namespace pier::api_impl
             return true;
         }
 
-        // ── CustomForm ──────────────────────────────────────────────────
+        //  CustomForm
 
         /**
          * 把滑块参数归一化到客户端能接受的形状。
@@ -566,7 +555,7 @@ namespace pier::api_impl
                             double d = std::get<double>(value);
                             if (auto sl = sliders->find(key); sl != sliders->end())
                             {
-                                // V-01：按发送时的规格钳制；越界说明客户端送来了
+                                // 按发送时的规格钳制；越界说明客户端送来了
                                 // 表单里根本选不出的值。
                                 if (clampSliderValue(sl->second, d))
                                 {
@@ -596,7 +585,7 @@ namespace pier::api_impl
             return true;
         }
 
-        // ── ModalForm ───────────────────────────────────────────────────
+        //  ModalForm
 
         bool sendModal(
             Player& p, CompoundTag const& spec, std::weak_ptr<HostedMod> weakMod, uint64_t ticket)

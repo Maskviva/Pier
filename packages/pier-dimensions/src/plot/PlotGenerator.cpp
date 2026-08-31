@@ -127,12 +127,12 @@ namespace pier::dimensions
         buf.volume = mPrototype;
         buf.volume->mHeight = static_cast<uint>(kTotalHeight);
         buf.volume->mBlocks->mBegin = buf.blocks.data();
-        buf.volume->mBlocks->mEnd = buf.blocks.data() + buf.blocks.size(); // V-40：&*end() 是 UB
+        buf.volume->mBlocks->mEnd = buf.blocks.data() + buf.blocks.size(); // &*end() 是 UB
     }
 
     void PlotGenerator::loadChunk(LevelChunk& lc, bool)
     {
-        // 追踪开关走 chunk_trace.h 的那一份。**不要**在这里再读一遍 env ——
+        // 追踪开关走 chunk_trace.h 的那一份。不要在这里再读一遍 env ——
         // 旧版就是各抄一份，两处判据一旦漂移，症状是「追踪开着但生成这一段
         // 没有日志」，而那看起来像是生成器根本没被调用。
         bool const trace = chunkTraceEnabled();
@@ -188,16 +188,10 @@ namespace pier::dimensions
         lc.recomputeHeightMap(false);
         lc.setSaved();
 
-        // 之前这里是手写的 CAS：
-        //
-        //     auto generating = ChunkState::Generating;
-        //     lc.mLoadState->compare_exchange_strong(generating, ChunkState::Generated);
-        //
-        // 两个问题。一是它只换了那个原子量，而 `LevelChunk::tryChangeState` 是
-        // 一个真正的导出函数，除了换值之外还有别的事要做（等在这块地上的那条
-        // 链路要被叫醒）。二是 CAS 失败时完全静默 —— 状态但凡不是恰好
-        // Generating，这一步就什么都没干，日志上一个字都没有，区块就永远停在
-        // 那儿。
+        // 用 LevelChunk::tryChangeState，不要手写 CAS。tryChangeState 是导出函数，
+        // 除了换那个原子量还要叫醒等在这块地上的链路；手写 CAS 只换值，而且失败时
+        // 完全静默 —— 状态但凡不是恰好 Generating，这一步什么都没干、日志上一个字
+        //都没有，区块永远停在那儿。
         if (!lc.tryChangeState(ChunkState::Generating, ChunkState::Generated))
         {
             hostLogger().error(

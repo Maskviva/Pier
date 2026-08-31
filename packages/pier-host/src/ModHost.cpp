@@ -66,7 +66,7 @@ namespace pier
 
         mod->vtable = PierModVTable{};
 
-        /* ── 拒绝路径的统一出口（V-05） ──────────────────────────────────
+        /*  拒绝路径的统一出口
          * pier_main 一旦被调用，模组就可能已经订阅了事件、注册了总线/服务/
          * 数据包钩子、排了任务。此后任何一条拒绝路径都必须先把这些登记全部
          * 拆掉再 FreeLibrary —— 否则 EventBus 和各注册表里留着指向已 unmap
@@ -98,7 +98,7 @@ namespace pier
             return abandon("'" + mod->getName() + "' 的 " PIER_MAIN_SYMBOL " 返回 false");
         }
 
-        /* ── v1 握手：先看长度，再看版本，再看目标 ──────────────────────
+        /*  v1 握手：先看长度，再看版本，再看目标
          * vtable 自带 struct_size（契约 §2.3），宿主只读模组声明长度以内
          * 的字段。顺序有讲究：长度不够时连 abi_version 都不可信，所以
          * 长度检查必须最先。 */
@@ -112,17 +112,12 @@ namespace pier
             );
         }
 
-        // 兼容是一个区间，不是相等（契约 §2.2）。只追加的演进意味着新宿主
-        // 能跑旧模组：旧模组调用的是我们表的一个逐字节相同的前缀，永远够
-        // 不到它不认识的尾部槽位。
-        //
-        //   太新（mod_abi > 宿主）→ 模组可能调用我们没有的槽。拒绝；升级宿主。
-        //   太旧（mod_abi < 下限）→ 早于一次非追加断裂，我们的表已不是它期待
-        //                            的前缀。拒绝；重编模组。
-        //   区间内 → 安全，装。
-        //
-        // 反向偏斜（旧宿主 + 新模组）由模组侧逐槽比对 struct_size 兜住
-        //（require_slot!），宿主不用管。
+        // 兼容是一个区间，不是相等（契约 §2.2）。只追加的演进意味着新宿主能跑旧
+        // 模组：旧模组调用的是宿主表的一个逐字节相同的前缀，够不到它不认识的尾部
+        // 槽位。太新（mod_abi > 宿主）时模组可能调用宿主没有的槽，拒绝并提示升级
+        // 宿主；太旧（mod_abi < 下限）时它早于一次非追加断裂，宿主的表已不是它期
+        // 待的前缀，拒绝并提示重编模组；区间内则安全。反向偏斜（旧宿主 + 新模组）
+        // 由模组侧逐槽比对 struct_size 兜住，宿主不用管。
         if (vt.abi_version > PIER_ABI_VERSION)
         {
             return abandon(
@@ -140,7 +135,7 @@ namespace pier
         }
 
         // 目标匹配走 flags 的 bit 0（契约 §2.3）。布局在所有目标下相同，
-        // 所以错配**不会**造成槽位错位 —— 这个检查防的是语义层面的荒唐：
+        // 所以错配不会造成槽位错位 —— 这个检查防的是语义层面的荒唐：
         // 服务端宿主里跑一个只会调 client_* 空槽的模组，每一步都「安全地」
         // 失败，不如装载时就把话说清楚。
         uint32_t const hostFlags = bridgeApi()->host_flags;
@@ -204,7 +199,7 @@ namespace pier
             return ll::makeStringError("没有名为 '" + std::string(name) + "' 的 pier 模组");
         }
 
-        // 否决在 on_unload **之前**问，而不是之后：否决的意义是「现在根本
+        // 否决在 on_unload 之前问，而不是之后：否决的意义是「现在根本
         // 不能卸」，那就不该先让模组跑完自己的收尾逻辑再告诉它卸不掉。
         // 典型否决方是 lane：有个栈帧正停在这个模组提供的车道表项里 ——
         // 十有八九就是当前这层调用链自己（提供方的表项触发了命令派发，那
@@ -218,7 +213,7 @@ namespace pier
             );
         }
 
-        // 通用否决（V-06/V-28）：这个模组的某个回调正在执行 —— 要么是当前调用
+        // 通用否决：这个模组的某个回调正在执行 —— 要么是当前调用
         // 链自己（回调里 execute_command("pier unload <self>")），要么是另一
         // 线程正在派发它的总线/数据包回调。两种情况下 FreeLibrary 都会把正在
         // 执行的代码段 unmap 掉。lane 的 busy 只覆盖车道；这个计数覆盖宿主的
@@ -239,7 +234,7 @@ namespace pier
         mod->commandsMuted = true;
 
         // W-EV1：`listeners.clear()` 只丢掉宿主自己那份 shared_ptr。
-        // EventBus 的 EventStorage 存的是**强引用**（OrderedSet<ListenerPtr>），
+        // EventBus 的 EventStorage 存的是强引用（OrderedSet<ListenerPtr>），
         // 所以清空这个 vector 一个监听器都没摘下来 —— 它们连同指向即将被
         // unmap 的 dylib 的回调，继续挂在总线上。必须显式 removeListener。
         for (auto const& l : mod->listeners)
@@ -268,7 +263,7 @@ namespace pier
         return {};
     }
 
-    /* ───────────────────── 运行期模组控制 ───────────────────── */
+    /*  运行期模组控制  */
 
     ll::Expected<> ModHost::controlLoad(Manifest manifest)
     {

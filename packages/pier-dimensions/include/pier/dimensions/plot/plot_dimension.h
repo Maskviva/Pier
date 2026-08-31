@@ -13,20 +13,16 @@ namespace pier::dimensions
     struct DimensionFactoryInfo;
 
     /**
-     * 一个使用 `PlotGenerator` 的自定义维度。
+     * 一个使用 PlotGenerator 的自定义维度。
      *
-     * 结构与 `SimpleCustomDimension` 一致（同样的 override 集合），区别只在
-     * `createGenerator` 返回 `PlotGenerator`，以及把 `PlotLayout` 一起存进
-     * `dimension_config.json` —— 这样重启后布局不会变，玩家已经建好的地皮也就
-     * 不会因为管理员改了配置而错位。
+     * 结构与 SimpleCustomDimension 一致（同样的 override 集合），区别只在
+     * createGenerator 返回 PlotGenerator，以及把 PlotLayout 一起存进
+     * dimension_config.json：布局是维度的固有属性而不是可热改的配置，存下来之后重启
+     * 布局不变，玩家已建好的地皮不会因为管理员改了配置而错位。模组侧配置里的 layout
+     * 只用于新建维度和几何计算，真正决定地形长什么样的是这里存下来的这一份。
      *
-     * 这一点很重要：**布局是维度的固有属性，不是可热改的配置。**
-     * 模组侧配置里的 layout 只用于新建维度和几何计算；真正决定地形长什么样的
-     * 是这里存下来的这一份。
-     *
-     * 旧版这里带着 `MORE_DIMENSIONS_API`（`__declspec(dllexport)`）。已删除：
-     * 本包在新架构里是编进宿主的 object 包，能力经 SlotPack 装进 ABI 表，
-     * 不导出任何符号。
+     * 本包在新架构里是编进宿主的 object 包，能力经 SlotPack 装进 ABI 表，不导出任何
+     * 符号，所以没有导出宏。
      */
     class PlotDimension final : public Dimension
     {

@@ -23,7 +23,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& hopperDef(); // 前向 —— 钩体要用
+        HookEventDef& hopperDef(); // 前向，钩体要用
 
         LL_TYPE_INSTANCE_HOOK(
             HopperSetItemHook,
@@ -41,28 +41,17 @@ namespace pier::hooks
                 return;
             }
 
-            // 卫 —— 必须跑在任何 this-> 虚派发**之前**。
-            //
-            // Container::setItem 的函数体很平凡，于是 MSVC 的 ICF（相同
-            // COMDAT 折叠）极可能把它和箱子/木桶/熔炉/发射器同形状的
-            // setItem 折叠到**同一个**代码地址上。钩那个地址意味着这个
-            // detour 对那些方块实体也会进来，那时 `this` 是比如
-            // ChestBlockActor*，而经它做一次虚调用会按**漏斗的**
-            // Container 子对象偏移去读 vptr ⇒ 垃圾 vptr ⇒ DEP 跳转 ⇒ 崩溃。
-            //
-            // getType() 是 MCFOLD（非虚），读的是**主基类**（偏移 0）上的
-            // BlockActor::mType，而且只在 BlockActor 上定义一次（没有容器
-            // 覆写它）—— 就算它自己也被折叠也对任何方块实体安全，因为它对
-            // 所有方块实体是同一个意思。卫放行之后的东西一定是真正的
-            // HopperBlockActor，所以后面那些非虚的 $getItem / getPosition 是
-            // 安全的。
+            // 这道卫必须跑在任何 this-> 虚派发之前。Container::setItem 函数体平
+            // 凡，MSVC 的 ICF 极可能把它和箱子、熔炉同形状的 setItem 折叠到同一
+            // 地址，于是本 detour 对那些方块实体也会进来；那时 this 是
+            // ChestBlockActor*，经它虚调用按漏斗的 Container 子对象偏移读 vptr，
+            // 拿到垃圾 vptr 后 DEP 跳转崩溃。getType() 非虚、读偏移 0 的
+            // BlockActor::mType、对所有方块实体同义，被折叠也安全。
             if (this->getType() != ::BlockActorType::Hopper)
             {
-                // 判别器：如果崩溃真是 ICF 折叠导致的，这里会对
-                // 箱子/熔炉/等触发，而卫把它修好了。如果反过来是 this
-                // 调整块（adjustor thunk）不匹配，getType() 读到的是垃圾、
-                // 这里会带着一个没意义的值触发 —— 那时计数器将**收不到**任
-                // 何事件，正好告诉我们该换钩点而不是加卫。
+                // 判别器。崩溃若真由 ICF 折叠导致，这里会对箱子、熔炉触发，
+                // 说明卫修好了它；若是 this 调整块不匹配，getType() 读到垃圾，
+                // 这里带着无意义的值触发且计数器收不到事件，说明该换钩点。
                 static std::atomic<bool> logged{false};
                 if (!logged.exchange(true))
                 {
@@ -84,7 +73,7 @@ namespace pier::hooks
             int oldCount = 0;
             std::string oldName;
             {
-                // $getItem：非虚实现 —— 不走 vtable。
+                // $getItem 是非虚实现，不走 vtable。
                 ItemStack const& prev = this->$getItem(slot);
                 oldCount = prev.mCount;
                 if (oldCount > 0) oldName = prev.getTypeName();

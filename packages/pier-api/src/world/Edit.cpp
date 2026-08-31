@@ -1,38 +1,17 @@
 /** world/Edit.cpp —— 批量世界编辑的原生入口。
  *
- * # 这个文件解决的是什么
+ * 把引擎三个现成入口接出来，绕开 api_set_block 底下那条 setblock 控制台命令：
+ * 带状态写方块走 BlockSerializationUtils::tryGetBlockFromNBT 加
+ * BlockSource::setBlock，写方块实体走 BlockSource::getBlockEntity 加
+ * BlockActor::load，从 NBT 放实体走 ActorFactory::loadActor 加 Level::addEntity。
  *
- * 在它之前，SDK 侧往世界里写一个方块只有一条路：`api_set_block`，而那条路
- * 底层曾是 `execute in <dim> run setblock …` **一条控制台命令**。于是三件
- * 事做不了：
+ * 命令那条路做不了三件事：方块状态只能把序列化 NBT 翻成 ["k"=v] 命令语法，翻错
+ * 一处整条命令失败而那一格静默不变（楼梯朝向、原木轴向、门的左右开都丢过）；方
+ * 块实体写不回去，箱子内容、告示牌文字、刷怪笼的怪复制过去就没了；实体只认类型
+ * 名，变种、装备、年龄全丢。同时省掉命令解析、权限检查与分发三层开销。
  *
- *   1. 方块状态只能靠把序列化 NBT 翻译成 `["k"=v]` 命令语法。翻错一处 =
- *      整条命令失败 = 那一格静默不变。楼梯朝向、原木轴向、门的左右开全在
- *      这条路上丢过。
- *   2. 方块实体写不回去。`block_entity_snbt` 只读不写，箱子里的东西、
- *      告示牌的字、刷怪笼的怪，复制过去就没了。
- *   3. 实体放不回去。`spawn_mob` 只认类型名，快照里的变种 / 装备 / 年龄全丢。
- *
- * 引擎侧这三件事都有现成入口，只是没接出来：
- *
- *   | 要做的事 | 引擎入口 |
- *   |---|---|
- *   | 写方块（带状态） | `BlockSerializationUtils::tryGetBlockFromNBT` + `BlockSource::setBlock` |
- *   | 写方块实体 | `BlockSource::getBlockEntity` + `BlockActor::load` |
- *   | 从 NBT 放实体 | `ActorFactory::loadActor` + `Level::addEntity` |
- *
- * # 顺带的量级变化
- *
- * 一次 setblock 命令要过命令解析、权限检查、命令分发；`BlockSource::setBlock`
- * 是一次直接调用。这不是「快一点」，是把「两百万格要分帧跑几十秒」变成
- * 「同一批格子跑一遍就完了」。SDK 侧的分帧引擎仍然要留 —— 但它现在限制的
- * 是**每 tick 的时间预算**，不再是命令分发的吞吐。
- *
- * # 为什么不顺手把 `/setblock` 那条路删掉
- *
- * 因为它还有用：玩家手写的方块规格（`//set 'wool ["color"="red"]'`）走命令
- * 解析是最省事的，而且那条路已经被验证了很久。这个文件加的是**新的**入口，
- * 不是替换 —— 旧模组一行不改照样跑。
+ * /setblock 那条路保留：玩家手写的方块规格走命令解析最省事。本文件是新入口而不
+ * 是替换，旧模组一行不改照样跑。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -112,7 +91,7 @@ namespace pier::api_impl
                         BlockPos{x, y, z}, *def, update_flags, nullptr, bridge::blockEditContext());
                 }
 
-                // 从默认方块的序列化标签出发，**只覆盖调用方给出的那几个状态**。
+                // 从默认方块的序列化标签出发，只覆盖调用方给出的那几个状态。
                 //
                 // 这样做而不是让调用方自己拼整个 {name,states,version}：version
                 // 必须是当前版本，而调用方没有可靠办法知道它。填错（或者不填）
@@ -154,7 +133,7 @@ namespace pier::api_impl
                 auto parsed = CompoundTag::fromSnbt(sv(snbt));
                 if (!parsed) return false;
 
-                // 快照里的 x/y/z 是**源位置**。不改的话，某些方块实体（活塞、
+                // 快照里的 x/y/z 是源位置。不改的话，某些方块实体（活塞、
                 // 命令方块）会按那个坐标去找自己，结果是「内容对了，行为错
                 // 了」。
                 (*parsed)["x"] = x;
@@ -227,7 +206,7 @@ namespace pier::api_impl
                 auto hr = a->traceRay(max_dist, include_actors, include_blocks);
 
                 // 老的 actor_trace_ray 只发 mPos（一个浮点命中点）。命中点正好
-                // 落在方块的**面**上，所以 floor() 有一半概率落到隔壁那一格 ——
+                // 落在方块的面上，所以 floor() 有一半概率落到隔壁那一格 ——
                 // 任何「照着准星选方块」的功能都因此做不了。mBlock 和 mFacing
                 // 一直都在 HitResult 里，只是没往外发。
                 std::string out = "{type:" + snbtNum(static_cast<int>(hr.mType));
@@ -253,7 +232,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        // ───────────────────── 液体层（含水） ─────────────────────
+        //  液体层（含水）
         //
         // Bedrock 的「含水」是同一格上的第二个方块，不是方块状态：主层放楼
         // 梯，液体层放 water。get_block / set_block 只看主层，所以含水的方块

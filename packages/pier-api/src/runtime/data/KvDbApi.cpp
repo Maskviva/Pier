@@ -50,7 +50,7 @@ namespace pier::api_impl
         {
             if (rel.empty()) return {};
             std::filesystem::path p{std::u8string{rel.begin(), rel.end()}};
-            // V-09：只拒 is_absolute() 在 Windows 上不够 —— `\evil`（有根目录无
+            // 只拒 is_absolute() 在 Windows 上不够 —— `\evil`（有根目录无
             // 盘符）和 `D:evil`（有盘符无根目录）都不算绝对路径，而 operator/
             // 对前者丢弃左侧根目录之后的一切、对后者整体替换：dataDir / "\\evil"
             // 得到 C:\evil。任何带根名或根目录的相对路径一律拒绝。
@@ -123,7 +123,7 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!sink) return false;
-                // V-10：先在锁内把值拷出来，锁放掉再调 sink —— sink 是模组代码，
+                // 先在锁内把值拷出来，锁放掉再调 sink —— sink 是模组代码，
                 // 它完全可能再调任何 kvdb_*（非递归 mutex 会当场自死锁）。
                 std::optional<std::string> value;
                 {
@@ -182,7 +182,7 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!sink) return;
-                // V-10：先快照再回调（理由同 kvdb_get）。快照的代价是一次全库拷贝
+                // 先快照再回调（理由同 kvdb_get）。快照的代价是一次全库拷贝
                 // —— 这是「遍历并清理过期键」这类模组代码能安全存在的前提。
                 std::vector<std::pair<std::string, std::string>> snapshot;
                 {

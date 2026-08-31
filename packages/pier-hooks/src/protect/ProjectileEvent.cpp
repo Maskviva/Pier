@@ -1,75 +1,15 @@
 /**
- * hooks/protect/ProjectileEvent.cpp —— "PlayerSpawnProjectileEvent"：玩家即
- * 将发射一个投射物，**并且可以取消**。
+ * hooks/protect/ProjectileEvent.cpp —— 合成事件 "PlayerSpawnProjectileEvent"，可取消。
  *
- * # 为什么 `PlayerUseItemEvent` 从来就不够
+ * 原版投射物是物品组件，投掷走 ThrowableItemComponent::_doThrow →
+ * ProjectileItemComponent::shootProjectile → Item::createProjectileActor。
+ * BedrockSpawner::spawnProjectile 已不在玩家路径上，仅作兜底；PlayerUseItemEvent
+ * 覆盖不了弓弩三叉戟的蓄力—释放路径。五个钩点按覆盖面排列且会嵌套，gDispatching
+ * 把一次发射收敛成一个判定。取消停下的是投射物，不退还弹药：钩子跑到时箭已离开
+ * 背包，客户端一 tick 内自行对齐。
  *
- * 模组侧最初把投掷这件事接在 `PlayerUseItemEvent` 上，然后猜过
- * `PlayerThrowProjectileEvent` / `PlayerShootEvent`（两个在 LL 总线上都不存
- * 在）。`PlayerUseItemEvent` 来自 `GameMode::useItem`，它覆盖点一下就扔的
- * 那类物品，但覆盖不了弓、弩、三叉戟走的蓄力—释放路径。
- *
- * # 为什么这个文件的第一次重写也没work
- *
- * 第一版钩的是 `BedrockSpawner::spawnProjectile`，照抄 LegacyScriptEngine 的
- * `onSpawnProjectile`。它装得上，而在这个构建上对玩家投掷**一次都不触发**
- * —— 被拒绝的玩家扔雪球照样飞。
- *
- * 原因是一次 LSE 还没跟上的版本漂移：原版投射物现在是**物品组件**。一个雪
- * 球是带着 `ThrowableItemComponent` 加 `ProjectileItemComponent` 的
- * `ComponentItem`，而投掷走的是
- *
- *   `ThrowableItemComponent::_doThrow`
- *     → `ProjectileItemComponent::shootProjectile(region, aimPos, aimDir, power, player)`
- *       → `Item::createProjectileActor`（每个物品各自覆写 —— `SnowballItem`、
- *          `EggItem`、`SplashPotionItem`、`ArrowItem`、…）
- *
- * `Spawner::spawnProjectile` 已经不在这条路上了。钩它不算**错**，只是它上游
- * 没有任何玩家会做的事。
- *
- * # 现在钩在哪
- *
- * 按各自能覆盖多少问题排序：
- *
- *   1. `ProjectileItemComponent::shootProjectile` —— 每一个组件驱动的投射
- *      物：雪球、鸡蛋、末影珍珠、喷溅药水与滞留药水、附魔之瓶、风弹、火焰
- *      弹，以及弓或弩释放出的箭。直接带着 `Player*`。返回 `Actor*`，所以取
- *      消就是 `nullptr`。
- *
- *   2. `ShooterItemComponent::_shootProjectiles` —— 弓/弩的释放本身。对投射
- *      物而言与 (1) 冗余，但它在逐箭循环**之前**触发，所以在这里取消能用一
- *      次判定拒掉一发多重射的弩，而不是三次。
- *
- *   3. `TridentItem::releaseUsing` —— 三叉戟仍然是个定制物品，(1) 和 (2) 都
- *      够不到它。
- *
- *   4. `CrossbowItem::_shootFirework` —— 弩发射的烟花火箭，同上。
- *
- *   5. `BedrockSpawner::spawnProjectile` —— 作为兜底留着，给任何仍在走老路
- *      的东西（附加包实体、某些和发射器相邻的代码）。
- *
- * # 重入
- *
- * 钩子 1、2、5 会嵌套：一次弓释放可能为同一支箭穿过全部三层。`gDispatching`
- * 把它收敛成每次发射一个判定 —— 没有它，一个被拒绝的玩家每射一次会得到三
- * 次「没有权限」的判定，更显眼的是三行日志。
- *
- * # 不退还弹药
- *
- * 这些钩子跑到的时候，箭已经离开背包了。取消停下的是**投射物**，不是消耗；
- * 客户端会在一 tick 内自己对齐回来。这是刻意的取舍 —— 拒绝这一发才是安全属
- * 性。如果丢掉的那支箭真的要紧，修的位置在上游的
- * `GameMode::releaseUsingItem`，不在这里。
- *
- * # 载荷
- *
- * ```text
- * {eventId, x, y, z, dim, projectile, _player:{name,xuid,uuid}}
- * ```
- *
- * `projectile` 是尽力而为的名字，对还不知道实体类型的钩子可能为空（2 和 4
- * 在它被解析出来之前就触发了）。订阅方必须把它当参考信息，而不是判定所依据
- * 的东西。
+ * 载荷 {eventId, x, y, z, dim, projectile, _player:{name,xuid,uuid}}。钩点 2、4
+ * 触发时实体类型尚未解析，projectile 可能为空，只作参考。
  */
 #include "pier/hooks/hook_events.h"
 
@@ -104,12 +44,10 @@ namespace pier::hooks
         HookEventDef& projectileDef(); // 前向
 
         /**
-         * 判定进行中的标记，让嵌套的钩子不再重复问。
+         * 判定进行中的标记，嵌套钩点据此不再重复问。
          *
-         * thread_local 而不是普通全局：这些钩点实际都跑在服务器线程上，但按
-         * 线程计的代价是零，而万一哪天有一条路不在主线程上，全局标记会让两次
-         * 并发发射互相吞掉对方的判定 —— 那种漏放是安静的。每个钩子在退出时
-         * 由 DispatchGuard 复原。
+         * thread_local 而非全局：全局标记会让两次并发发射互相吞掉对方的判定，
+         * 那种漏放是安静的。DispatchGuard 在每个钩子退出时复原。
          */
         thread_local bool gDispatching = false;
 
@@ -119,7 +57,7 @@ namespace pier::hooks
             ~DispatchGuard() { gDispatching = false; }
         };
 
-        /** 共享的载荷拼装 —— 每个钩子报告同一个事件形状。 */
+        /** 共享的载荷拼装：五个钩点报告同一个事件形状。 */
         std::string buildSnbt(Player& p, std::string const& projectile, ::Vec3 const& at, int dim)
         {
             return "{\"eventId\":\"PlayerSpawnProjectileEvent\""
@@ -131,8 +69,8 @@ namespace pier::hooks
                 + "\"," + playerRefSnbt(p) + "}";
         }
 
-        /** 名字类调用会抛（物品/实体正在被销毁时）。抛出去等于一次射击把服务
-         *  器带走，所以就地吞掉 —— 订阅方拿到空名字会退回粗判定，不会更松。 */
+        /** 名字类调用在物品或实体正在销毁时会抛，异常穿过 detour 等于整服崩，
+         *  所以就地吞掉。订阅方拿到空名字会退回粗判定，不会更松。 */
         template <class Fn>
         std::string safeName(Fn&& fn)
         {
@@ -153,7 +91,8 @@ namespace pier::hooks
             return dispatchHookEventCancellable(projectileDef(), buildSnbt(p, projectile, at, dim));
         }
 
-        // ── 1. 每个组件驱动的投射物 ────────────────────────────────────────
+        // 1. 组件驱动的投射物：雪球、鸡蛋、末影珍珠、药水、附魔之瓶、风弹、
+        //    火焰弹，以及弓弩射出的箭。直接带 Player*，返回 nullptr 即取消。
 
         LL_TYPE_INSTANCE_HOOK(
             ShootProjectileHook,
@@ -180,7 +119,8 @@ namespace pier::hooks
             return origin(region, aimPos, aimDir, power, player);
         }
 
-        // ── 2. 弓 / 弩释放 ─────────────────────────────────────────────────
+        // 2. 弓弩释放本身。与 1 冗余，但它在逐箭循环之前触发，所以多重射的弩
+        //    在这里只花一次判定。
 
         LL_TYPE_INSTANCE_HOOK(
             ShooterReleaseHook,
@@ -215,7 +155,7 @@ namespace pier::hooks
             origin(shooterStack, player, durationLeft);
         }
 
-        // ── 3. 投出的三叉戟 ────────────────────────────────────────────────
+        // 3. 投出的三叉戟。它是定制物品，钩点 1、2 都够不到。
 
         LL_TYPE_INSTANCE_HOOK(
             TridentReleaseHook,
@@ -247,7 +187,7 @@ namespace pier::hooks
             origin(item, player, durationLeft);
         }
 
-        // ── 4. 装了烟花火箭的弩 ────────────────────────────────────────────
+        // 4. 装了烟花火箭的弩，同 3。
 
         LL_TYPE_INSTANCE_HOOK(
             CrossbowFireworkHook,
@@ -277,7 +217,7 @@ namespace pier::hooks
             origin(projectileInstance, player);
         }
 
-        // ── 5. 老的 spawner 路径，作为兜底 ─────────────────────────────────
+        // 5. 旧 spawner 路径，兜底附加包实体与发射器邻近代码。
 
         LL_TYPE_INSTANCE_HOOK(
             SpawnProjectileHook,
@@ -320,10 +260,9 @@ namespace pier::hooks
             "PlayerSpawnProjectileEvent",
             []
             {
-                // 五个钩点逐个报状态：0 == 成功。**必须逐个报**，因为它们的覆
-                // 盖面不同 —— 只有 1 没装上的话，雪球和弓箭全部漏过而三叉戟仍
-                // 被拦住，表现是「保护对某些投射物时灵时不灵」；不逐个打出来，
-                // 这种局部失效没法从日志区分。
+                // 逐个报状态（0 == 成功）：钩点覆盖面不同，只有 1 装失败时雪球
+                // 和弓箭全部漏过而三叉戟仍被拦，症状是「保护时灵时不灵」。合并
+                // 成一条日志就分不出这种局部失效。
                 int r1 = ShootProjectileHook::hook();
                 int r2 = ShooterReleaseHook::hook();
                 int r3 = TridentReleaseHook::hook();

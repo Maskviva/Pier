@@ -109,7 +109,7 @@ namespace pier::api_impl
 
                 // Player::sendInventory 重建并发送玩家容器的
                 // InventoryContentPacket。`false` = 不顺带重选快捷栏槽位；每次
-                // 刷新都强制换槽会把玩家手里的东西拽走 —— 比我们来修的渲染陈
+                // 刷新都强制换槽会把玩家手里的东西拽走，比这里要修的渲染陈
                 // 旧更糟。
                 p->sendInventory(false);
                 return true;

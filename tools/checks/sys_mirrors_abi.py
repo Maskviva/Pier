@@ -53,7 +53,7 @@ from _abi import (  # noqa: E402
     ROOT, Result, defines, read_abi, same_value, slots_of, strip_comments, struct_body,
 )
 
-SYS = os.path.join(ROOT, "packages", "pier-sys-rs", "src")
+SYS = os.path.join(ROOT, "bindings", "rust", "pier-sys-rs", "src")
 
 
 # C 类型 → 唯一正确的 Rust 拼写。**一对一**，没有「也可以写成」——
@@ -168,7 +168,7 @@ def run():
     if not os.path.isdir(SYS):
         # 故意不是 PASS。没有镜像时这条性质**无从谈起**，而 PASS 会让
         # 交付说明里出现一个骗人的 ✓（契约 §九 的「脚本先行」正是防这个）。
-        r.fail("packages/pier-sys-rs/ 还不存在 —— 镜像尚未落地，这条性质无从检查")
+        r.fail("bindings/rust/pier-sys-rs/ 还不存在 —— 镜像尚未落地，这条性质无从检查")
         return r
 
     text = ""

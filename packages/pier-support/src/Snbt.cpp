@@ -40,7 +40,7 @@ namespace pier
             auto const uc = static_cast<unsigned char>(c);
             if (uc >= 0x80)
             {
-                // V-19：非法 UTF-8 不能原样透传 —— SDK 侧 from_utf8 会失败，整条
+                // 非法 UTF-8 不能原样透传 —— SDK 侧 from_utf8 会失败，整条
                 // 载荷在这里被截断，其后的 dim/取消位全部丢失。改写成 U+FFFD。
                 size_t const n = utf8SeqLen(s, i);
                 if (n == 0)
@@ -72,7 +72,7 @@ namespace pier
                 out += "\\t";
                 break;
             default:
-                // V-31：其余控制字符按 LL 自己的 toSnbt 规则写成 \uXXXX，
+                // 其余控制字符按 LL 自己的 toSnbt 规则写成 \uXXXX，
                 // 别让 0x01/0x08/0x0C 之类原样进入字符串字面量。
                 if (uc < 0x20 || uc == 0x7F)
                 {

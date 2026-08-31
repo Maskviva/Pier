@@ -5,7 +5,7 @@
 
 namespace pier
 {
-    /** 可写引用。**只许** spi::buildApi 在 load() 里用；表随后冻结。 */
+    /** 可写引用。只许 spi::buildApi 在 load() 里用；表随后冻结。 */
     [[nodiscard]] PierApi& mutableApi() noexcept;
 
     /** 冻结后的表，传给每个 pier_main。 */

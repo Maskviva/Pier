@@ -9,4 +9,4 @@ description = "契约 §十「加一门语言」四步的可运行参考。"
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { path = "../../packages/pier-rs" }
+pier-rs = { path = "../../bindings/rust/pier-rs" }

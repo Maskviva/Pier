@@ -5,6 +5,8 @@
 - **契约（产品本体）**：`packages/pier-abi/include/sdk/abi.h` —— C11 可解析，
   单一布局，能力缺席 = 槽位 NULL。
 - **规矩**：`CONTRACT.md`。改代码之前先读它；和它冲突的代码是要改的那一方。
+- **注释规范**：`COMMENTS.md` —— 契约 §七 的展开件。注释只写代码回答不了的
+  问题，三层预算，机检 `tools/checks/comment_style.py` 守着机械部分。
 - **迁移台账**：`MIGRATION.md` —— 「功能只多不少」的逐文件对账单，交付自查
   按它逐行清点。统计行由 `tools/ledger-count.py` 从表体算出，不是手写的。
 
@@ -29,13 +31,13 @@ cargo build --release                    # SDK 与示例
 ```
 
 两条构建线之间**没有构建依赖**，只有契约依赖：Rust 侧读的是那份头文件，
-读法是手写镜像（`packages/pier-sys-rs`），一致性由机检守着。所以「宿主编不过」
+读法是手写镜像（`bindings/rust/pier-sys-rs`），一致性由机检守着。所以「宿主编不过」
 和「绑定编不过」是两件可以分别修的事。
 
 ## 检查
 
 ```bash
-python3 tools/run-checks.py     # 契约 §九 的十三条，任一条红就非零退出
+python3 tools/run-checks.py     # 契约 §九 的十四条，任一条红就非零退出
 ```
 
 每条检查的输出里写着**它覆盖到哪、看不见什么**。交付说明照抄那句话 ——
@@ -98,7 +100,7 @@ manifest 写法（`mods/<名字>/manifest.json`）：
 ## 换一门语言
 
 只需要 `packages/pier-abi/include/sdk/abi.h` 一个文件。四步见 `CONTRACT.md`
-第十节，参考实现是 `packages/pier-sys-rs`。新语言的绑定放
+第十节，参考实现是 `bindings/rust/pier-sys-rs`。新语言的绑定放
 `packages/pier-<lang>`，不进主仓库的必编列表 —— Pier 维护的是契约。
 
 ## 当前进度

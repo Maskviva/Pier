@@ -7,6 +7,7 @@
 | 旧文件 | 新位置 | 状态 |
 |---|---|---|
 | `CONTRACT.md` | `CONTRACT.md` | ✔ v2 重写（真实依赖图 + SPI 机制 + 空槽能力语义） |
+| `—` | `COMMENTS.md` | ✔ 新增（契约 §七 的展开件：注释三层预算与禁写清单，机检 `comment-style` 守机械部分） |
 | `LICENSE` | `LICENSE` | ✔ 原样保留（三份 Cargo.toml 都声明 Apache-2.0，文件却没跟过来 —— 台账里也漏了这一行，是 `ledger-covers-tree` 机检逮到的） |
 | `Cargo.toml` | `Cargo.toml` | ✔ 重写（写明两条构建线之间只有契约依赖、无构建依赖） |
 | `README.md` | `README.md` | ⬜ 待迁移（逐文件重写） |
@@ -149,111 +150,117 @@
 | `packages/pier-host/xmake.lua` | `packages/pier-host/xmake.lua` | ✔ 重写 |
 | `packages/pier-lane/src/Lane.cpp` | `同路径` | ✔ 重写（存活格永不释放/卸载补 release/不查 isEnabled/指纹 0 堵口/锁外跨 dylib 全保留；busy 否决改注册 UnloadVeto，清理改 Teardown 40） |
 | `packages/pier-lane/xmake.lua` | `同路径` | ✔ 重写（可选性说明改写为「槽位缺席即 NULL」新纪律） |
-| `packages/pier-rs/Cargo.toml` | `packages/pier-rs/Cargo.toml` | ✔ 重写（✂ server/more_dimensions 两个 feature —— v1 布局不分岔，能力改运行期判断；client 只填 mod_flags 一位） |
-| `packages/pier-rs/build.rs` | `packages/pier-rs/build.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/block/actions.rs` | `packages/pier-rs/src/block/actions.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/block/gap_fill.rs` | `packages/pier-rs/src/block/gap_fill.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/block/mod.rs` | `packages/pier-rs/src/block/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/block/query.rs` | `packages/pier-rs/src/block/query.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/client/events.rs` | `packages/pier-rs/src/client/events.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/client/input.rs` | `packages/pier-rs/src/client/input.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/client/mod.rs` | `packages/pier-rs/src/client/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/client/status.rs` | `packages/pier-rs/src/client/status.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/command/builder.rs` | `packages/pier-rs/src/command/builder.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/command/mod.rs` | `packages/pier-rs/src/command/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/comms/bus.rs` | `packages/pier-rs/src/comms/bus.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/comms/kvdb.rs` | `packages/pier-rs/src/comms/kvdb.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/comms/mod.rs` | `packages/pier-rs/src/comms/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/comms/more_dimensions.rs` | `packages/pier-rs/src/comms/more_dimensions.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/comms/packet.rs` | `packages/pier-rs/src/packet.rs` | ✔ 重写（**由真实消费方 crossbind 定义优先级**：它是 85 个 ⬜ 里第一个被真正需要的。HookDirection 一个类型拆成 Direction/Directions；闭包从 Send 收紧到 Send+Sync；PacketHook 的 Drop 即注销、forget() 显式续命） |
-| `packages/pier-rs/src/comms/service.rs` | `packages/pier-rs/src/comms/service.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/container/mod.rs` | `packages/pier-rs/src/container/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/container/ops.rs` | `packages/pier-rs/src/container/ops.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/entity/actions.rs` | `packages/pier-rs/src/entity/actions.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/entity/gap_fill.rs` | `packages/pier-rs/src/entity/gap_fill.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/entity/mod.rs` | `packages/pier-rs/src/entity/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/entity/query.rs` | `packages/pier-rs/src/entity/query.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/event/mod.rs` | `packages/pier-rs/src/event/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/event/names/mob.rs` | `packages/pier-rs/src/event/names/mob.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/event/names/mod.rs` | `packages/pier-rs/src/event/names/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/event/names/player.rs` | `packages/pier-rs/src/event/names/player.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/event/names/server.rs` | `packages/pier-rs/src/event/names/server.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/gui/custom.rs` | `packages/pier-rs/src/gui/custom.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/gui/mod.rs` | `packages/pier-rs/src/gui/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/gui/modal.rs` | `packages/pier-rs/src/gui/modal.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/gui/simple.rs` | `packages/pier-rs/src/gui/simple.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/item/gap_fill.rs` | `packages/pier-rs/src/item/gap_fill.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/item/mod.rs` | `packages/pier-rs/src/item/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/item/query.rs` | `packages/pier-rs/src/item/query.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/lane/lane_error.rs` | `packages/pier-rs/src/lane/lane_error.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/lane/mod.rs` | `packages/pier-rs/src/lane/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/lib.rs` | `packages/pier-rs/src/lib.rs` | ✔ 重写（✂ 全部 cfg 裁剪模块树；同一份源码两个目标都编得过） |
-| `packages/pier-rs/src/misc/edit.rs` | `packages/pier-rs/src/misc/edit.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/misc/mod.rs` | `packages/pier-rs/src/misc/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/misc/system.rs` | `packages/pier-rs/src/misc/system.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/misc/types.rs` | `packages/pier-rs/src/misc/types.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/money/listen.rs` | `packages/pier-rs/src/money/listen.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/money/mod.rs` | `packages/pier-rs/src/money/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/money/ops.rs` | `packages/pier-rs/src/money/ops.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/accessors.rs` | `packages/pier-rs/src/nbt/accessors.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/binary.rs` | `packages/pier-rs/src/nbt/binary.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/mod.rs` | `packages/pier-rs/src/nbt/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/parser/containers.rs` | `packages/pier-rs/src/nbt/parser/containers.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/parser/mod.rs` | `packages/pier-rs/src/nbt/parser/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/parser/scalars.rs` | `packages/pier-rs/src/nbt/parser/scalars.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/nbt/serde.rs` | `packages/pier-rs/src/nbt/serde.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/player/actions.rs` | `packages/pier-rs/src/player/actions.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/player/gap_fill.rs` | `packages/pier-rs/src/player/gap_fill.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/player/inventory.rs` | `packages/pier-rs/src/player/inventory.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/player/mod.rs` | `packages/pier-rs/src/player/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/player/query.rs` | `packages/pier-rs/src/player/query.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/player/types.rs` | `packages/pier-rs/src/player/types.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/rt/error.rs` | `packages/pier-rs/src/rt/error.rs` | ✔ 重写 |
-| `packages/pier-rs/src/rt/ffi.rs` | `packages/pier-rs/src/rt/ffi.rs` | ✔ 重写（PierStr 改 c_char 指针；UTF-8 校验与一次性告警保留；新增 collect_byte_chunks） |
-| `packages/pier-rs/src/rt/handle.rs` | `packages/pier-rs/src/rt/handle.rs` | ✔ 重写（AtomicPtr 而非 unsafe impl Send+Sync，理由写在原地） |
-| `packages/pier-rs/src/rt/logger.rs` | `packages/pier-rs/src/rt/logger.rs` | ✔ 重写（槽位改 Option，填表漏了不再崩在日志上；补 fatal） |
-| `packages/pier-rs/src/rt/mod.rs` | `packages/pier-rs/src/rt/mod.rs` | ✔ 重写 |
-| `packages/pier-rs/src/rt/registration.rs` | `packages/pier-rs/src/rt/registration.rs` | ✔ 重写（v1 三道握手：长度→版本区间→目标标志；✂ TARGET_MASK 高位标记；vtable 填四字段头） |
-| `packages/pier-rs/src/misc/system.rs` | `packages/pier-rs/src/host.rs` | ✔ 新建（宿主/系统层面的能力聚到一处；同时是 rt::ffi 那几个 sink 的第一个调用方） |
-| `packages/pier-rs/src/rt/runtime.rs` | `packages/pier-rs/src/rt/runtime.rs` | ✔ 重写（require_slot! 补第二道闸「槽非空」；报错文案 ✂ 历史产品名，改为带上宿主 ABI 版本与表长） |
-| `packages/pier-rs/src/scoreboard/mod.rs` | `packages/pier-rs/src/scoreboard/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/scoreboard/ops.rs` | `packages/pier-rs/src/scoreboard/ops.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/mod.rs` | `packages/pier-rs/src/server/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/ops/commands.rs` | `packages/pier-rs/src/server/ops/commands.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/ops/events.rs` | `packages/pier-rs/src/server/ops/events.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/ops/mod.rs` | `packages/pier-rs/src/server/ops/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/ops/sim.rs` | `packages/pier-rs/src/server/ops/sim.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/ops/status.rs` | `packages/pier-rs/src/server/ops/status.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/ops/time.rs` | `packages/pier-rs/src/server/ops/time.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/run/data.rs` | `packages/pier-rs/src/server/run/data.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/run/fill.rs` | `packages/pier-rs/src/server/run/fill.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/run/mod.rs` | `packages/pier-rs/src/server/run/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/run/profiler.rs` | `packages/pier-rs/src/server/run/profiler.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/run/tick.rs` | `packages/pier-rs/src/server/run/tick.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/run/ticking.rs` | `packages/pier-rs/src/server/run/ticking.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/sel/dimsel.rs` | `packages/pier-rs/src/server/sel/dimsel.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/sel/mod.rs` | `packages/pier-rs/src/server/sel/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/world/blocks.rs` | `packages/pier-rs/src/server/world/blocks.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/world/entities.rs` | `packages/pier-rs/src/server/world/entities.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/world/gap_fill.rs` | `packages/pier-rs/src/server/world/gap_fill.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/world/mod.rs` | `packages/pier-rs/src/server/world/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/server/world/particles.rs` | `packages/pier-rs/src/server/world/particles.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/sim/actions.rs` | `packages/pier-rs/src/sim/actions.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/sim/mod.rs` | `packages/pier-rs/src/sim/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/world/mod.rs` | `packages/pier-rs/src/world/mod.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/world/scan.rs` | `packages/pier-rs/src/world/scan.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/src/world/structures.rs` | `packages/pier-rs/src/world/structures.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-rs/tests/lane.rs` | `packages/pier-rs/tests/lane.rs` | ⬜ 待迁移（逐文件重写） |
-| `packages/pier-sys-rs/Cargo.toml` | `packages/pier-sys-rs/Cargo.toml` | ✔ 重写（✂ server/client/more_dimensions 三个会改布局的 feature —— 那正是「两侧错位 7 槽」的根因；只留 client，且它一个字段都不增删） |
-| `packages/pier-sys-rs/src/api.rs` | `packages/pier-sys-rs/src/api.rs` | ✔ 重写（194 字段逐格对 abi.h，sys-mirrors-abi 已守；零 #[cfg]） |
-| `packages/pier-sys-rs/src/consts/actor.rs` | `packages/pier-sys-rs/src/consts/actor.rs` | ✔ 重写（85 个常量；搬运时漏掉的 PIER_AACT_ADD_EFFECT 已由机检逮到并补上） |
-| `packages/pier-sys-rs/src/consts/player.rs` | `packages/pier-sys-rs/src/consts/player.rs` | ✔ 重写（73 个常量） |
-| `packages/pier-sys-rs/src/consts/world.rs` | `packages/pier-sys-rs/src/consts/world.rs` | ✔ 重写（123 个常量） |
-| `packages/pier-sys-rs/src/consts.rs` | `packages/pier-sys-rs/src/consts.rs` | ✔ 重写 |
-| `packages/pier-sys-rs/src/lib.rs` | `packages/pier-sys-rs/src/lib.rs` | ✔ 重写（✂ PIER_ABI_TARGET_MASK / TAGGED_VERSION —— 目标标记改走 mod_flags） |
-| `packages/pier-sys-rs/src/money.rs` | `src/types.rs`（并入） | ✔ 并入 types.rs；LLMoneyEvent → PierMoneyEvent（旧名与 LegacyMoney 全局同名类型撞车） |
-| `packages/pier-sys-rs/src/types.rs` | `packages/pier-sys-rs/src/types.rs` | ✔ 重写（PierStr 显式 {ptr,len}；19 个回调签名逐个对上） |
-| `packages/pier-sys-rs/src/vtable.rs` | `packages/pier-sys-rs/src/vtable.rs` | ✔ 重写（v1 新握手：struct_size / abi_version / mod_flags 四字段头） |
+| `bindings/rust/pier-rs/Cargo.toml` | `bindings/rust/pier-rs/Cargo.toml` | ✔ 重写（✂ server/more_dimensions 两个 feature —— v1 布局不分岔，能力改运行期判断；client 只填 mod_flags 一位） |
+| `bindings/rust/pier-rs/build.rs` | `—` | ✂ 不随迁 —— 它算的是车道指纹，新仓改由 `LaneContract::FINGERPRINT` 关联常量给出：两侧引用同一个契约定义时它自然一致，而靠构建期各算各的正是「手抄一份相同常量」要防的那种情况 |
+| `bindings/rust/pier-rs/src/block/actions.rs` | `bindings/rust/pier-rs/src/block/state.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/block/gap_fill.rs` | `bindings/rust/pier-rs/src/block/edit.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/block/mod.rs` | `bindings/rust/pier-rs/src/block/mod.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/block/query.rs` | `bindings/rust/pier-rs/src/block/props.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/client/events.rs` | `bindings/rust/pier-rs/src/client.rs` | ✔ 重写（客户端专属；服务端宿主上是空槽而非编译错误） |
+| `bindings/rust/pier-rs/src/client/input.rs` | `bindings/rust/pier-rs/src/client.rs` | ✔ 重写（客户端专属；服务端宿主上是空槽而非编译错误） |
+| `bindings/rust/pier-rs/src/client/mod.rs` | `bindings/rust/pier-rs/src/client.rs` | ✔ 重写（客户端专属；服务端宿主上是空槽而非编译错误） |
+| `bindings/rust/pier-rs/src/client/status.rs` | `bindings/rust/pier-rs/src/client.rs` | ✔ 重写（客户端专属；服务端宿主上是空槽而非编译错误） |
+| `bindings/rust/pier-rs/src/command/builder.rs` | `bindings/rust/pier-rs/src/command.rs` | ✔ 重写（原始文本与带类型 overload 两种；命令不可反注册，闭包刻意泄漏） |
+| `bindings/rust/pier-rs/src/command/mod.rs` | `bindings/rust/pier-rs/src/command.rs` | ✔ 重写（原始文本与带类型 overload 两种；命令不可反注册，闭包刻意泄漏） |
+| `bindings/rust/pier-rs/src/comms/bus.rs` | `bindings/rust/pier-rs/src/bus.rs` | ✔ 重写（跨模组广播；Drop 即退订） |
+| `bindings/rust/pier-rs/src/comms/kvdb.rs` | `bindings/rust/pier-rs/src/kvdb.rs` | ✔ 重写（键值库；本族线程安全，Drop 即关闭） |
+| `bindings/rust/pier-rs/src/comms/mod.rs` | `—` | ✂ 目录本身的 mod 声明；扁平化之后没有对应文件（契约 §八：一个关注点一个 TU） |
+| `bindings/rust/pier-rs/src/comms/more_dimensions.rs` | `bindings/rust/pier-rs/src/dimensions.rs` | ✔ 重写（md_* 可选能力包门面；规则「没登记」与「登记为 false」分开） |
+| `bindings/rust/pier-rs/src/comms/packet.rs` | `bindings/rust/pier-rs/src/packet.rs` | ✔ 重写（**由真实消费方 crossbind 定义优先级**：它是 85 个 ⬜ 里第一个被真正需要的。HookDirection 一个类型拆成 Direction/Directions；闭包从 Send 收紧到 Send+Sync；PacketHook 的 Drop 即注销、forget() 显式续命） |
+| `bindings/rust/pier-rs/src/comms/service.rs` | `bindings/rust/pier-rs/src/service.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/container/mod.rs` | `bindings/rust/pier-rs/src/container.rs` | ✔ 重写（五种容器；写完要 refresh，方块容器明确拒绝） |
+| `bindings/rust/pier-rs/src/container/ops.rs` | `bindings/rust/pier-rs/src/container.rs` | ✔ 重写（五种容器；写完要 refresh，方块容器明确拒绝） |
+| `bindings/rust/pier-rs/src/entity/actions.rs` | `bindings/rust/pier-rs/src/entity/actions.rs` | ✔ 重写（actor_* 全族；四个关系槽的两道闸留在各自调用点） |
+| `bindings/rust/pier-rs/src/entity/gap_fill.rs` | `bindings/rust/pier-rs/src/entity/relations.rs` | ✔ 重写（actor_* 全族；四个关系槽的两道闸留在各自调用点） |
+| `bindings/rust/pier-rs/src/entity/mod.rs` | `bindings/rust/pier-rs/src/entity/mod.rs` | ✔ 重写（actor_* 全族；四个关系槽的两道闸留在各自调用点） |
+| `bindings/rust/pier-rs/src/entity/query.rs` | `bindings/rust/pier-rs/src/entity/props.rs` | ✔ 重写（actor_* 全族；四个关系槽的两道闸留在各自调用点） |
+| `bindings/rust/pier-rs/src/event/mod.rs` | `bindings/rust/pier-rs/src/event/mod.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/event/names/mob.rs` | `bindings/rust/pier-rs/src/event/names.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/event/names/mod.rs` | `bindings/rust/pier-rs/src/event/names.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/event/names/player.rs` | `bindings/rust/pier-rs/src/event/names.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/event/names/server.rs` | `bindings/rust/pier-rs/src/event/names.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/gui/custom.rs` | `bindings/rust/pier-rs/src/gui.rs` | ✔ 重写（三种表单；回调至多一次，静音那一路刻意泄漏） |
+| `bindings/rust/pier-rs/src/gui/mod.rs` | `bindings/rust/pier-rs/src/gui.rs` | ✔ 重写（三种表单；回调至多一次，静音那一路刻意泄漏） |
+| `bindings/rust/pier-rs/src/gui/modal.rs` | `bindings/rust/pier-rs/src/gui.rs` | ✔ 重写（三种表单；回调至多一次，静音那一路刻意泄漏） |
+| `bindings/rust/pier-rs/src/gui/simple.rs` | `bindings/rust/pier-rs/src/gui.rs` | ✔ 重写（三种表单；回调至多一次，静音那一路刻意泄漏） |
+| `bindings/rust/pier-rs/src/item/gap_fill.rs` | `bindings/rust/pier-rs/src/item.rs` | ✔ 重写（ItemStack 值对象；SNBT 一律经 NbtValue::to_snbt 转义） |
+| `bindings/rust/pier-rs/src/item/mod.rs` | `bindings/rust/pier-rs/src/item.rs` | ✔ 重写（ItemStack 值对象；SNBT 一律经 NbtValue::to_snbt 转义） |
+| `bindings/rust/pier-rs/src/item/query.rs` | `bindings/rust/pier-rs/src/item.rs` | ✔ 重写（ItemStack 值对象；SNBT 一律经 NbtValue::to_snbt 转义） |
+| `bindings/rust/pier-rs/src/lane/lane_error.rs` | `bindings/rust/pier-rs/src/lane.rs` | ✔ 重写（快车道；alive 用 Acquire 读，调用期间占住 busy） |
+| `bindings/rust/pier-rs/src/lane/mod.rs` | `bindings/rust/pier-rs/src/lane.rs` | ✔ 重写（快车道；alive 用 Acquire 读，调用期间占住 busy） |
+| `bindings/rust/pier-rs/src/lib.rs` | `bindings/rust/pier-rs/src/lib.rs` | ✔ 重写（✂ 全部 cfg 裁剪模块树；同一份源码两个目标都编得过） |
+| `bindings/rust/pier-rs/src/misc/edit.rs` | `bindings/rust/pier-rs/src/block.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/misc/mod.rs` | `—` | ✂ 目录本身的 mod 声明；扁平化之后没有对应文件（契约 §八：一个关注点一个 TU） |
+| `bindings/rust/pier-rs/src/misc/system.rs` | `bindings/rust/pier-rs/src/host.rs` | ✔ 重写（本行与下面 host.rs 那行说的是同一个旧文件；台账里它被列了两次，状态曾互相矛盾） |
+| `bindings/rust/pier-rs/src/misc/types.rs` | `bindings/rust/pier-rs/src/types.rs` | ✔ 重写（共享值类型收口（坐标/枚举/位标志），域模块之间共享它而不互相依赖） |
+| `bindings/rust/pier-rs/src/money/listen.rs` | `bindings/rust/pier-rs/src/money.rs` | ✔ 重写（经济全族；balance 把 -1 翻成 Err） |
+| `bindings/rust/pier-rs/src/money/mod.rs` | `bindings/rust/pier-rs/src/money.rs` | ✔ 重写（经济全族；balance 把 -1 翻成 Err） |
+| `bindings/rust/pier-rs/src/money/ops.rs` | `bindings/rust/pier-rs/src/money.rs` | ✔ 重写（经济全族；balance 把 -1 翻成 Err） |
+| `bindings/rust/pier-rs/src/nbt/accessors.rs` | `bindings/rust/pier-rs/src/nbt/mod.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/nbt/binary.rs` | `bindings/rust/pier-rs/src/nbt/binary.rs` | ✔ 重写（SNBT ↔ 二进制，走宿主解析器） |
+| `bindings/rust/pier-rs/src/nbt/mod.rs` | `bindings/rust/pier-rs/src/nbt/mod.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/nbt/parser/containers.rs` | `bindings/rust/pier-rs/src/nbt/parse.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/nbt/parser/mod.rs` | `bindings/rust/pier-rs/src/nbt/parse.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/nbt/parser/scalars.rs` | `bindings/rust/pier-rs/src/nbt/parse.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/nbt/serde.rs` | `bindings/rust/pier-rs/src/nbt/mod.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/player/actions.rs` | `bindings/rust/pier-rs/src/player/admin.rs` | ✔ 重写（player_* 全族；选择器身份纪律写在模块头） |
+| `bindings/rust/pier-rs/src/player/gap_fill.rs` | `bindings/rust/pier-rs/src/player/props.rs` | ✔ 重写（player_* 全族；选择器身份纪律写在模块头） |
+| `bindings/rust/pier-rs/src/player/inventory.rs` | `bindings/rust/pier-rs/src/player/items.rs` | ✔ 重写（player_* 全族；选择器身份纪律写在模块头） |
+| `bindings/rust/pier-rs/src/player/mod.rs` | `bindings/rust/pier-rs/src/player/mod.rs` | ✔ 重写（player_* 全族；选择器身份纪律写在模块头） |
+| `bindings/rust/pier-rs/src/player/query.rs` | `bindings/rust/pier-rs/src/player/props.rs` | ✔ 重写（player_* 全族；选择器身份纪律写在模块头） |
+| `bindings/rust/pier-rs/src/player/types.rs` | `bindings/rust/pier-rs/src/types.rs` | ✔ 重写（共享值类型收口（坐标/枚举/位标志），域模块之间共享它而不互相依赖） |
+| `bindings/rust/pier-rs/src/rt/error.rs` | `bindings/rust/pier-rs/src/rt/error.rs` | ✔ 重写 |
+| `bindings/rust/pier-rs/src/rt/ffi.rs` | `bindings/rust/pier-rs/src/rt/ffi.rs` | ✔ 重写（PierStr 改 c_char 指针；UTF-8 校验与一次性告警保留；新增 collect_byte_chunks） |
+| `bindings/rust/pier-rs/src/rt/handle.rs` | `bindings/rust/pier-rs/src/rt/handle.rs` | ✔ 重写（AtomicPtr 而非 unsafe impl Send+Sync，理由写在原地） |
+| `bindings/rust/pier-rs/src/rt/logger.rs` | `bindings/rust/pier-rs/src/rt/logger.rs` | ✔ 重写（槽位改 Option，填表漏了不再崩在日志上；补 fatal） |
+| `bindings/rust/pier-rs/src/rt/mod.rs` | `bindings/rust/pier-rs/src/rt/mod.rs` | ✔ 重写 |
+| `bindings/rust/pier-rs/src/rt/registration.rs` | `bindings/rust/pier-rs/src/rt/registration.rs` | ✔ 重写（v1 三道握手：长度→版本区间→目标标志；✂ TARGET_MASK 高位标记；vtable 填四字段头） |
+| `bindings/rust/pier-rs/src/misc/system.rs` | `bindings/rust/pier-rs/src/host.rs` | ✔ 新建（宿主/系统层面的能力聚到一处；同时是 rt::ffi 那几个 sink 的第一个调用方） |
+| `bindings/rust/pier-rs/src/rt/runtime.rs` | `bindings/rust/pier-rs/src/rt/runtime.rs` | ✔ 重写（require_slot! 补第二道闸「槽非空」；报错文案 ✂ 历史产品名，改为带上宿主 ABI 版本与表长） |
+| `bindings/rust/pier-rs/src/scoreboard/mod.rs` | `bindings/rust/pier-rs/src/scoreboard.rs` | ✔ 重写（scoreboard_op 多路槽的具名门面；「没有分数」与「分数是 0」分开） |
+| `bindings/rust/pier-rs/src/scoreboard/ops.rs` | `bindings/rust/pier-rs/src/scoreboard.rs` | ✔ 重写（scoreboard_op 多路槽的具名门面；「没有分数」与「分数是 0」分开） |
+| `bindings/rust/pier-rs/src/server/mod.rs` | `bindings/rust/pier-rs/src/server.rs` | ✔ 重写（tick 冻结/步进/倍速 + 分项采样） |
+| `bindings/rust/pier-rs/src/server/ops/commands.rs` | `bindings/rust/pier-rs/src/command.rs` | ✔ 重写（原始文本与带类型 overload 两种；命令不可反注册，闭包刻意泄漏） |
+| `bindings/rust/pier-rs/src/server/ops/events.rs` | `bindings/rust/pier-rs/src/event/mod.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/server/ops/mod.rs` | `—` | ✂ 目录本身的 mod 声明；扁平化之后没有对应文件（契约 §八：一个关注点一个 TU） |
+| `bindings/rust/pier-rs/src/server/ops/sim.rs` | `bindings/rust/pier-rs/src/sim.rs` | ✔ 重写（模拟玩家动词表） |
+| `bindings/rust/pier-rs/src/server/ops/status.rs` | `bindings/rust/pier-rs/src/host.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/server/ops/time.rs` | `bindings/rust/pier-rs/src/world.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/server/run/data.rs` | `bindings/rust/pier-rs/src/world.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/server/run/fill.rs` | `bindings/rust/pier-rs/src/world/commands.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/server/run/mod.rs` | `—` | ✂ 目录本身的 mod 声明；扁平化之后没有对应文件（契约 §八：一个关注点一个 TU） |
+| `bindings/rust/pier-rs/src/server/run/profiler.rs` | `bindings/rust/pier-rs/src/server.rs` | ✔ 重写（tick 冻结/步进/倍速 + 分项采样） |
+| `bindings/rust/pier-rs/src/server/run/tick.rs` | `bindings/rust/pier-rs/src/server.rs` | ✔ 重写（tick 冻结/步进/倍速 + 分项采样） |
+| `bindings/rust/pier-rs/src/server/run/ticking.rs` | `bindings/rust/pier-rs/src/server.rs` | ✔ 重写（tick 冻结/步进/倍速 + 分项采样） |
+| `bindings/rust/pier-rs/src/server/sel/dimsel.rs` | `bindings/rust/pier-rs/src/sel.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/server/sel/mod.rs` | `bindings/rust/pier-rs/src/sel.rs` | ✔ 重写（并入扁平域模块） |
+| `bindings/rust/pier-rs/src/server/world/blocks.rs` | `bindings/rust/pier-rs/src/block.rs` | ✔ 重写（方块读写 + edit_* 原生写入 + 液体层（含水方块是同格第二个方块）） |
+| `bindings/rust/pier-rs/src/server/world/entities.rs` | `bindings/rust/pier-rs/src/entity.rs` | ✔ 重写（actor_* 全族；四个关系槽的两道闸留在各自调用点） |
+| `bindings/rust/pier-rs/src/server/world/gap_fill.rs` | `bindings/rust/pier-rs/src/world.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/server/world/mod.rs` | `bindings/rust/pier-rs/src/world.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/server/world/particles.rs` | `bindings/rust/pier-rs/src/world/edit.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/sim/actions.rs` | `bindings/rust/pier-rs/src/sim.rs` | ✔ 重写（模拟玩家动词表） |
+| `bindings/rust/pier-rs/src/sim/mod.rs` | `bindings/rust/pier-rs/src/sim.rs` | ✔ 重写（模拟玩家动词表） |
+| `bindings/rust/pier-rs/src/world/mod.rs` | `bindings/rust/pier-rs/src/world.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/world/scan.rs` | `bindings/rust/pier-rs/src/world/edit.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/src/world/structures.rs` | `bindings/rust/pier-rs/src/world.rs` | ✔ 重写（关卡读写 + 流式扫描 + 区块存档键（二进制键不过 UTF-8）） |
+| `bindings/rust/pier-rs/tests/lane.rs` | `bindings/rust/pier-rs/tests/lane.rs` | ⬜ 待迁移（逐文件重写） |
+| `bindings/rust/pier-sys-rs/Cargo.toml` | `bindings/rust/pier-sys-rs/Cargo.toml` | ✔ 重写（✂ server/client/more_dimensions 三个会改布局的 feature —— 那正是「两侧错位 7 槽」的根因；只留 client，且它一个字段都不增删） |
+| `bindings/rust/pier-sys-rs/src/api.rs` | `bindings/rust/pier-sys-rs/src/api.rs` | ✔ 重写（194 字段逐格对 abi.h，sys-mirrors-abi 已守；零 #[cfg]） |
+| `bindings/rust/pier-sys-rs/src/consts/actor.rs` | `bindings/rust/pier-sys-rs/src/consts/actor.rs` | ✔ 重写（85 个常量；搬运时漏掉的 PIER_AACT_ADD_EFFECT 已由机检逮到并补上） |
+| `bindings/rust/pier-sys-rs/src/consts/player.rs` | `bindings/rust/pier-sys-rs/src/consts/player.rs` | ✔ 重写（73 个常量） |
+| `bindings/rust/pier-sys-rs/src/consts/world.rs` | `bindings/rust/pier-sys-rs/src/consts/world.rs` | ✔ 重写（123 个常量） |
+| `bindings/rust/pier-sys-rs/src/consts.rs` | `bindings/rust/pier-sys-rs/src/consts.rs` | ✔ 重写 |
+| `bindings/rust/pier-sys-rs/src/lib.rs` | `bindings/rust/pier-sys-rs/src/lib.rs` | ✔ 重写（✂ PIER_ABI_TARGET_MASK / TAGGED_VERSION —— 目标标记改走 mod_flags） |
+| `bindings/rust/pier-sys-rs/src/money.rs` | `src/types.rs`（并入） | ✔ 并入 types.rs；LLMoneyEvent → PierMoneyEvent（旧名与 LegacyMoney 全局同名类型撞车） |
+| `bindings/rust/pier-sys-rs/src/types.rs` | `bindings/rust/pier-sys-rs/src/types.rs` | ✔ 重写（PierStr 显式 {ptr,len}；19 个回调签名逐个对上） |
+| `bindings/rust/pier-sys-rs/src/vtable.rs` | `bindings/rust/pier-sys-rs/src/vtable.rs` | ✔ 重写（v1 新握手：struct_size / abi_version / mod_flags 四字段头） |
+| `—` | `compile_commands.json` | ✂ 构建产物（xmake 生成的编译数据库），不是源文件；已加进 `.gitignore`。这一行存在只是为了让 `ledger-covers-tree` 对工作区里这份残留也有出处 —— 清单漏一项，按清单核对就永远查不出那一项 |
+| `—` | `bindings/rust/pier-rs/src/rt/accessors.rs` | ✔ 新建（`accessors!` 宏 —— 属性访问器由常量表生成，取代四个域里几十个一行体查表方法） |
+| `—` | `bindings/rust/pier-rs/src/block/state.rs` | ✔ 新建（方块状态与方块实体（从扁平的 block.rs 拆出）） |
+| `—` | `bindings/rust/pier-rs/src/block/edit.rs` | ✔ 新建（方块写入与液体层（从扁平的 block.rs 拆出）） |
+| `—` | `bindings/rust/pier-rs/src/entity/relations.rs` | ✔ 新建（实体关系、装备效果、射线（从扁平的 entity.rs 拆出）） |
+| `—` | `bindings/rust/pier-rs/src/player/io.rs` | ✔ 新建（玩家出站通道：消息、标题、粒子、原始包（从扁平的 player.rs 拆出）） |
 | `xmake.lua` | `xmake.lua` | ✔ 重写（全局宏根作用域；object 包聚合） |
 
 
@@ -314,7 +321,7 @@
 | `packages/pier-support/src/Snbt.cpp` | ✔ 新建 —— SNBT 转义/数字格式化，旧仓散在各处 |
 | `packages/pier-support/xmake.lua` | ✔ 新建 —— pier-support 整包是新架构引入的层（日志入口必须住在比 host 更低的地方，见契约 §一） |
 
-**统计**：✔ 115 ｜ ✂ 6 ｜ ⬜ 128（共 249 个旧文件）
+**统计**：✔ 199 ｜ ✂ 12 ｜ ⬜ 45（共 256 个旧文件）
 
 ---
 
@@ -700,9 +707,9 @@ wiring / dispatch），而且满屏 `unwrap_or(0)` —— 「这个键没有」�
 
 | 文件 | 内容 |
 |---|---|
-| `packages/pier-rs/src/nbt/mod.rs` | `NbtValue` 值类型；**两套取值**：`opt_*`（Option，我自己兜底）与 `get_*`（Result，缺键与类型不符是不同的错、且带键名）；数组下标路径 `a.b[2].c`；`as_vec3`/`as_block_pos`；`From` 构造助手；`serde_json` 双向桥 |
-| `packages/pier-rs/src/nbt/parse.rs` | SNBT 解析：类型后缀（`b/s/L/f/d`）、裸键与裸字符串、`true`/`false`、类型化数组 `[B;…]`/`[I;…]`/`[L;…]`、`\uXXXX` 转义、多字节 UTF-8；错误带字节偏移 |
-| `packages/pier-rs/src/nbt/write.rs` | SNBT 写出：类型后缀一个不省、键一律加引号、控制字符写 `\uXXXX`、非有限浮点落 0 |
+| `bindings/rust/pier-rs/src/nbt/mod.rs` | `NbtValue` 值类型；**两套取值**：`opt_*`（Option，我自己兜底）与 `get_*`（Result，缺键与类型不符是不同的错、且带键名）；数组下标路径 `a.b[2].c`；`as_vec3`/`as_block_pos`；`From` 构造助手；`serde_json` 双向桥 |
+| `bindings/rust/pier-rs/src/nbt/parse.rs` | SNBT 解析：类型后缀（`b/s/L/f/d`）、裸键与裸字符串、`true`/`false`、类型化数组 `[B;…]`/`[I;…]`/`[L;…]`、`\uXXXX` 转义、多字节 UTF-8；错误带字节偏移 |
+| `bindings/rust/pier-rs/src/nbt/write.rs` | SNBT 写出：类型后缀一个不省、键一律加引号、控制字符写 `\uXXXX`、非有限浮点落 0 |
 
 ## Rust SDK 域封装补齐（第 2 批：事件与服务）
 
@@ -710,7 +717,7 @@ wiring / dispatch），而且满屏 `unwrap_or(0)` —— 「这个键没有」�
 
 | 文件 | 内容 |
 |---|---|
-| `packages/pier-rs/src/event/mod.rs` | `Event`（类型化取值、`_unresolved` 感知的 `dim()`、`player()` 三形状归一、差量 `edit`/`cancel`）、RAII `Listener`（退订失败不静默）、`Wiring` 批量订阅 builder（`arm()` 整体失败即撤回 / `arm_lenient()`） |
-| `packages/pier-rs/src/event/names.rs` | 事件 id 常量：LL 注册表事件 + **全部 29 个合成事件**，每条注明可否取消与载荷字段；`ALL_SYNTHETIC` 便于启动自检 |
-| `packages/pier-rs/src/service.rs` | `call` / `call_json::<T>` / `call_with` / `call_optional`；`CallError` 分类（NotFound / Provider / Refused / Decode / Unavailable）；`register` / `register_json`；`exists` 改为真解析（上一代是 JSON 文本子串匹配） |
-| `packages/pier-rs/src/sel.rs` | `PlayerSel` 枚举取代裸 `kind: i32`；把「`Name` 会走显示名回退、不能当身份」写进类型层（`is_stable()`） |
+| `bindings/rust/pier-rs/src/event/mod.rs` | `Event`（类型化取值、`_unresolved` 感知的 `dim()`、`player()` 三形状归一、差量 `edit`/`cancel`）、RAII `Listener`（退订失败不静默）、`Wiring` 批量订阅 builder（`arm()` 整体失败即撤回 / `arm_lenient()`） |
+| `bindings/rust/pier-rs/src/event/names.rs` | 事件 id 常量：LL 注册表事件 + **全部 29 个合成事件**，每条注明可否取消与载荷字段；`ALL_SYNTHETIC` 便于启动自检 |
+| `bindings/rust/pier-rs/src/service.rs` | `call` / `call_json::<T>` / `call_with` / `call_optional`；`CallError` 分类（NotFound / Provider / Refused / Decode / Unavailable）；`register` / `register_json`；`exists` 改为真解析（上一代是 JSON 文本子串匹配） |
+| `bindings/rust/pier-rs/src/sel.rs` | `PlayerSel` 枚举取代裸 `kind: i32`；把「`Name` 会走显示名回退、不能当身份」写进类型层（`is_stable()`） |

@@ -78,7 +78,7 @@ def prelude_exports(lib_rs):
 def main():
     problems = []
     examples = os.path.join(ROOT, "examples")
-    lib_rs = os.path.join(ROOT, "packages", "pier-rs", "src", "lib.rs")
+    lib_rs = os.path.join(ROOT, "bindings", "rust", "pier-rs", "src", "lib.rs")
     if not os.path.exists(lib_rs) or not os.path.isdir(examples):
         print("  没有 pier-rs 或 examples/ —— 无从检查")
         return 0
@@ -122,10 +122,10 @@ def main():
             for m in re.finditer(r"levilamina::(\w+)!", code):
                 mac = m.group(1)
                 src = open(
-                    os.path.join(ROOT, "packages", "pier-rs", "src", "rt", "runtime.rs"),
+                    os.path.join(ROOT, "bindings", "rust", "pier-rs", "src", "rt", "runtime.rs"),
                     encoding="utf-8",
                 ).read() + open(
-                    os.path.join(ROOT, "packages", "pier-rs", "src", "rt", "registration.rs"),
+                    os.path.join(ROOT, "bindings", "rust", "pier-rs", "src", "rt", "registration.rs"),
                     encoding="utf-8",
                 ).read()
                 if ("macro_rules! %s" % mac) not in src:

@@ -1,8 +1,8 @@
-/** hooks/engine/TickControl.cpp —— carpet 风格的世界时钟控制
- *（tick_freeze / tick_step / tick_warp），背后是 Level::$tick 上**一个**
- * detour。hook_events.h 的生命周期规矩适用：第一次控制调用时懒安装、永不
- * 卸补丁（控制调用来自**tick 内部**执行的命令处理器）、空闲开销 = 一个可
- * 预测的分支。 */
+/** hooks/engine/TickControl.cpp —— carpet 风格的世界时钟控制。
+ *
+ * tick_freeze / tick_step / tick_warp，背后是 Level::$tick 上一个 detour。
+ * hook_events.h 的生命周期规矩适用：第一次控制调用时懒安装，永不卸补丁（控制调
+ * 用来自 tick 内部执行的命令处理器），空闲开销是一个可预测的分支。 */
 #include <cstdint>
 
 #include "ll/api/memory/Hook.h"
@@ -83,7 +83,7 @@ namespace pier::hooks
             PIER_API_GUARD_BEGIN
                 if (n == 0) return false;
                 if (!gTick.hooked || !gTick.frozen) return false; // 步进只在冻结时有意义
-                // V-38：冻结态下一帧内执行全部待步进 tick；无上限等于一次调用冻住线程。
+                // 冻结态下一帧内执行全部待步进 tick，无上限等于一次调用冻住线程。
                 if (n > 1200 || gTick.pendingSteps > 1200 - n) return false;
                 gTick.pendingSteps += n;
                 return true;

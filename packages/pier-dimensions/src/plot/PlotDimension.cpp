@@ -66,27 +66,20 @@ namespace pier::dimensions
 
     void PlotDimension::init(br::worldgen::StructureSetRegistry const& structureSetRegistry)
     {
-        // 这里以前是 `mHasSkylight = false;`，注释写的是「地皮世界不要天光计算
-        // 带来的额外开销」。那是把地皮世界改成了下界的照明模型。
+        // 保留天光。原版只有 NetherDimension 和 TheEndDimension 重写 init 关掉天
+        // 光，OverworldDimension 根本没重写；本包两个自定义维度类都关掉的话，等于
+        // 把每一个自定义维度都做成下界。
         //
-        // 对照原版：OverworldDimension **根本没有重写 init**，用的是基类默认
-        // （有天光）；只有 NetherDimension 和 TheEndDimension 才重写 init 关掉
-        // 天光。我们这两个自定义维度类都重写了并关掉，等于每一个自定义维度都
-        // 被做成了下界。
-        //
-        // 地皮世界是露天的、光源只有天空，关掉天光之后整张地图的光照全是 0。
-        // 方块、碰撞、区块下发都完全正常 —— 服务端日志上一点异常都看不出来 ——
-        // 但玩家看到的是全黑，很容易被当成「区块没加载出来」。
-        //
-        // 判断方法：进去后能不能站在地皮地面上不往下掉。能站住就说明方块是在的，
-        // 那就是照明问题而不是区块问题。
+        // 地皮世界是露天的、光源只有天空，关掉之后整张地图光照全是 0。方块、碰撞、
+        // 区块下发都正常，服务端日志看不出异常，玩家看到的却是全黑，容易被当成区块
+        // 没加载。判断方法：进去后能站在地面上不往下掉，就说明方块在，是照明问题。
         Dimension::init(structureSetRegistry);
 
         // 子区块请求全部被回 IndexOutOfBounds，说明服务端判越界用的高度范围和
-        // 我们告诉客户端的那一份对不上。引擎判越界走的是
+        // 发给客户端的那一份对不上。引擎判越界走的是
         // `Dimension::isSubChunkHeightWithinRange`，它读的就是 mHeightRange。
         // 所以这里把它实际是什么打出来，并且在不对的时候纠正回来 —— 纠正是
-        // 安全的：这两个数就是我们发给客户端的那一份定义。
+        // 安全的：这两个数就是发给客户端的那一份定义。
         verifyHeightRange(*this, PlotLayout::kMinY, PlotLayout::kMaxY, "PlotDimension");
     }
 

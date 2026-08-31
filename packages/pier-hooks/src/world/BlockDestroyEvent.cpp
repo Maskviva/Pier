@@ -1,24 +1,15 @@
 /** world/BlockDestroyEvent.cpp —— 「有东西把这一格挖掉了」，不问是谁。
  *
- * # 为什么需要它
- *
  * 玩家挖方块有 LL 的 PlayerDestroyBlockEvent 和本包的
- * PlayerStartDestroyBlockEvent。**其余一切**都没有事件：末影人搬走草方块、
- * 凋灵撞碎墙、爬行者炸出的坑、蠹虫钻进石头、村民踩坏耕地、命令方块
- * `/setblock air destroy`、其它插件调 destroyBlock —— 在地皮保护看来它们
- * 全是「方块凭空消失」，而且事后无从追查。
+ * PlayerStartDestroyBlockEvent，其余一切都没有事件：末影人搬走草方块、凋灵撞碎
+ * 墙、爬行者炸坑、蠹虫钻石头、村民踩坏耕地、/setblock air destroy、别的插件调
+ * destroyBlock。在保护看来它们全是「方块凭空消失」，事后无从追查。
+ * Level::destroyBlock 是这些路径的公共汇合点，钩它一个就够；方块被替换
+ * （BlockSource::setBlock）这里看不见，那条路归 LL 的 BlockChangedEvent，两者
+ * 互补，都不是对方的超集。
  *
- * `Level::destroyBlock` 是这些路径的公共汇合点（`/setblock ... destroy`、
- * `Mob::_destroyBlock`、爆炸的方块清除都终结在这里），所以钩它一个就够。
- * 反过来，这里**看不见**方块被替换（`BlockSource::setBlock`）—— 那条路要靠
- * LL 的 BlockChangedEvent。两者互补，都不是对方的超集。
- *
- * # 载荷里为什么没有「谁干的」
- *
- * 这个签名不带 Actor：引擎在这一层已经把来源丢掉了。硬编一个 `_player`
- * 字段只会让消费方以为自己知道来源。要区分来源就订阅更上游的那几个
- * （PlayerDestroyBlockEvent / ActorHurtEvent / 本包的投射物事件），
- * 这里只回答「哪一格、哪个维度、掉不掉东西」。
+ * 载荷不带「谁干的」：这个签名没有 Actor，引擎在这一层已经把来源丢掉，硬编一个
+ * _player 只会让消费方以为自己知道来源。要区分来源就订阅更上游的那几个事件。
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -67,8 +58,7 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // 读不出来不是拒绝的理由：位置和维度才是判定用的，方块名只是
-                // 给日志看的。
+                // 读不出来不是拒绝的理由：判定用位置和维度，方块名只给日志看。
             }
 
             std::string snbt = "{\"eventId\":\"BlockDestroyEvent\""
@@ -81,8 +71,8 @@ namespace pier::hooks
 
             if (dispatchHookEventCancellable(def, snbt))
             {
-                // 返回 false = 「没破坏成功」。调用方（含原版路径）本来就要处理
-                // 这个返回值，所以取消是安全的：引擎不会停在半更新状态。
+                // 返回 false 即没破坏成功。调用方本来就要处理这个返回值，所以取
+                // 消是安全的，引擎不会停在半更新状态。
                 return false;
             }
             return origin(region, pos, dropResources, changeSourceContext);

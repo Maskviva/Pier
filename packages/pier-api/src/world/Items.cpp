@@ -64,7 +64,7 @@ namespace pier::api_impl
                 case PIER_IPROP_IS_DAMAGED:
                     *out = item->isDamaged() ? 1.0 : 0.0;
                     return true;
-                /* ── 追加：物品补漏 ── */
+                /*  追加：物品补漏  */
                 case PIER_IPROP_MAX_DAMAGE:
                     *out = static_cast<double>(item->getMaxDamage());
                     return true;
@@ -141,7 +141,7 @@ namespace pier::api_impl
                 case PIER_ISTR_RAW_NAME_ID:
                     sink(ctx, ps(item->getRawNameId()));
                     return true;
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_ISTR_LORE:
                 {
                     auto const& lore = item->getCustomLore();
@@ -255,7 +255,7 @@ namespace pier::api_impl
                     item->setCustomLore(lore);
                     break;
                 }
-                /* ── 追加 ── */
+                /*  追加  */
                 case PIER_IOP_SET_UNBREAKABLE:
                     item->setUnbreakable(narg != 0.0);
                     break;
@@ -268,7 +268,7 @@ namespace pier::api_impl
                 case PIER_IOP_ADD_ENCHANT:
                 {
                     // sarg = "enchant_name:level" —— 完整实现需要
-                    // EnchantUtils::applyEnchant。V-32：桩必须诚实地报失败，
+                    // EnchantUtils::applyEnchant。桩必须诚实地报失败，
                     // 而不是原样返回物品并宣称成功（契约 §5.1）。
                     return false;
                 }
@@ -283,7 +283,7 @@ namespace pier::api_impl
                     break;
                 case PIER_IOP_SET_CAN_DESTROY:
                 {
-                    // sarg = 包成 {v:["minecraft:stone", …]} 的 SNBT 列表（与
+                    // sarg = 包成 {v:["minecraft:stone",…]} 的 SNBT 列表（与
                     // SET_LORE 同一个模式）—— CompoundTag::fromSnbt 只解析复合标
                     // 签，裸 [..] 列表没法直接喂。
                     auto tag = CompoundTag::fromSnbt(sv(sarg));

@@ -1,70 +1,17 @@
 /**
- * hooks/protect/TakeEntityEvent.cpp —— "PlayerTakeEntityEvent"：玩家正要把
- * 一个**实体**收进物品栏，**可取消**。
+ * hooks/protect/TakeEntityEvent.cpp —— 合成事件 "PlayerTakeEntityEvent"，可取消。
  *
- * # 为什么需要它，而不是用 PlayerPickUpItemEvent
+ * 补 LeviLamina PlayerPickUpItemEvent 的缺口：那个事件只在 ActorCategory::Item
+ * 上发布，而落地的箭矢与三叉戟仍是投射物实体，从不进入判定。两者覆盖面互补不
+ * 重叠，掉落物归那个事件，箭矢和三叉戟归本事件，都要管就都订阅。
  *
- * LeviLamina 的 `PlayerPickUpItemEvent` 挂在 `Player::take` 上，但里面有一
- * 道门（`ll/api/event/player/PlayerPickUpItemEvent.cpp`）：
+ * 钩点取各投射物自己的 playerTouch 虚函数，不是 Player::take。Arrow 与
+ * ThrownTrident 各有独立 playerTouch 实现，直接把物品塞进背包，不经过
+ * Player::take。新增漏网投射物加一行 PIER_PICKUP_HOOK 即可。
  *
- * ```cpp
- * if (itemActor.hasCategory(ActorCategory::Item)) {
- *     auto ev = PlayerPickUpItemEvent(...);
- *     EventBus::getInstance().publish(ev);
- *     if (ev.isCancelled()) return false;
- * }
- * return origin(itemActor, orgCount, favoredSlot);   // ← 非 Item 类走这里
- * ```
- *
- * **射出去的箭矢和三叉戟不是 `ActorCategory::Item`。** 它们是投射物实体
- * （`minecraft:arrow` / `minecraft:thrown_trident`），落地后仍然是投射物，
- * 于是那个事件对它们**根本不发布**。
- *
- * 这个失效方式特别难查：订阅是成功的（日志里不会有任何异常），保护对掉落物
- * 完全正常，只有箭矢和三叉戟悄悄穿过去。看起来像「保护偶尔失灵」，其实是这
- * 一类实体从来就没进过那条判定。
- *
- * # 钩点：各投射物自己的 playerTouch，**不是** Player::take
- *
- * 这里踩过一次坑，值得写死在文件头，因为它和上面那段的结论正好差一层：
- *
- * 上一版挂的是 `Player::take` —— 那是 `ItemActor::playerTouch` 内部调的函
- * 数，掉落物走它。但 `Arrow::playerTouch` 和 `ThrownTrident::playerTouch`
- * 是**各自独立的实现**，它们直接把物品塞进背包，根本不经过 `Player::take`。
- * 所以那个钩子对箭矢一次都没触发过 —— 装是装上了，只是挂错了地方，而
- * 「装上了」和「有效」在日志里长得一模一样。
- *
- * `playerTouch` 是 `Actor` 上的虚函数，每个子类各有一份实现，所以按具体类
- * 分别挂：目前是 `Arrow` 和 `ThrownTrident` 两类。将来发现别的漏网投射物，
- * 加一行 `PIER_PICKUP_HOOK(...)` 即可，不用碰这个文件之外的任何东西。
- *
- * # 和 PlayerPickUpItemEvent 的分工
- *
- * 两者钩的是不同函数，覆盖面互补、不重叠：
- *
- *   - 掉落物（`ItemActor`）→ `Player::take` → LeviLamina 的
- *     `PlayerPickUpItemEvent`。本文件**不**触发。
- *   - 箭矢 / 三叉戟 → 各自的 `playerTouch` → 本文件的
- *     `PlayerTakeEntityEvent`。
- *
- * 所以订阅了本事件的模组补上的正是原先漏掉的那一半，而已经订阅
- * `PlayerPickUpItemEvent` 的模组行为一个字都不变。想同时管住两类，两个事件
- * 都订阅。
- *
- * # 载荷
- *
- * ```text
- * {eventId, x, y, z, dim, entity, entityId, isItemActor, item, _player:{name,xuid,uuid}}
- * ```
- *
- * - `entity` —— 被捡实体的类型名（`minecraft:arrow` 等）
- * - `isItemActor` —— 是不是掉落物。按上面的分工，当前的钩点集合下它**恒为
- *   false**；字段保留是为了载荷形状稳定：将来若真的把 `ItemActor` 也纳进
- *   来，订阅方不用改解析代码就能分辨两类。
- * - `item` —— 掉落物时是里面的物品名；非掉落物时为空串
- *
- * `x/y/z` 是玩家位置的整数，和本目录其它合成事件一致（LL 的反射把 Vec3 序
- * 列化成 JSON **数组**，按 `{x,y,z}` 读的消费方什么都读不到）。
+ * 载荷 {eventId, x, y, z, dim, entity, entityId, isItemActor, item, _player:{…}}。
+ * isItemActor 在当前钩点集合下恒为 false，保留是为载荷形状稳定；x/y/z 取整，
+ * 因为 LL 的反射把 Vec3 序列化成 JSON 数组。
  */
 #include "pier/hooks/hook_events.h"
 
@@ -89,7 +36,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& takeDef(); // 前向 —— gDef 定义在本文件末尾
+        HookEventDef& takeDef(); // 前向；gDef 定义在本文件末尾
 
         /** 被捡实体的类型名。取不到就给空串而不是猜。 */
         std::string safeActorType(Actor const& a)
@@ -134,11 +81,8 @@ namespace pier::hooks
                 + "\"," + playerRefSnbt(p) + "}";
         }
 
-        /** 每种实体类型打一次到达证明。
-         *
-         *  这条日志的用途是把「箭矢到底有没有走到这里」变成可以确认的事实
-         *  —— 「钩子没装上」「装错了函数」「装对了但判定放行」三种情况的现象
-         *  完全一样，没有它只能靠猜，而上一版正是挂错了函数却看不出来。 */
+        /** 每种实体类型打一次到达证明。「钩子没装上」「挂错了函数」「装对了但
+         *  判定放行」三种情况的现象完全一样，这条日志是区分它们的唯一凭据。 */
         void logFirstTouch(Actor const& a)
         {
             static std::set<std::string> seen;
@@ -152,14 +96,13 @@ namespace pier::hooks
         /**
          * 拦一类投射物的拾取。
          *
-         * `playerTouch` 返回 void，没法「取消」—— 拦截方式是**不调用
-         * origin**：不调用就等于这次触碰什么都没发生，实体留在原地，玩家什么
-         * 也没拿到，下次走过去还能再试。
+         * playerTouch 返回 void，没有取消位，拦截方式是不调用 origin：这次触碰
+         * 等于没发生，实体留在原地，下次走过去还能再试。
          */
 #define PIER_PICKUP_HOOK(HookName, ActorClass)                                                  \
     LL_TYPE_INSTANCE_HOOK(                                                                      \
-        /* 虚函数必须挂 $ 前缀那份 —— LeviLamina 用它绕开 vtable 派发；                        \
-         * 直接取 &Cls::playerTouch 会被 static_assert 拦下。同 DropItemEvent。 */              \
+        /* 虚函数必须挂 $ 前缀那份，LeviLamina 用它绕开 vtable 派发；直接取                     \
+         * &Cls::playerTouch 会被 static_assert 拦下。同 DropItemEvent。 */                     \
         HookName, ll::memory::HookPriority::Normal, ActorClass, &ActorClass::$playerTouch, void, \
         ::Player& player)                                                                       \
     {                                                                                           \
@@ -172,7 +115,7 @@ namespace pier::hooks
         logFirstTouch(*this);                                                                   \
         if (dispatchHookEventCancellable(def, buildSnbt(player, *this, false)))                 \
         {                                                                                       \
-            /* 不调 origin = 这次触碰什么都没发生。实体留在原地，可以再试。 */                  \
+            /* 不调 origin：这次触碰等于没发生，实体留在原地，可以再试。 */                     \
             return;                                                                             \
         }                                                                                       \
         origin(player);                                                                         \
@@ -187,9 +130,8 @@ namespace pier::hooks
             "PlayerTakeEntityEvent",
             []
             {
-                // 和 DropItemEvent 一样显式装、显式报状态：0 == 成功。
-                // 装失败必须看得见 —— 一个没装上的保护和「装上了但从不拦」在
-                // 行为上完全一样，而这正是箭矢那个 bug 拖了这么久的原因。
+                // 显式装、显式报状态（0 == 成功）。没装上的保护和「装上了但从
+                // 不拦」在行为上完全一样，装失败必须看得见。
                 int ra = ArrowPickupHook::hook();
                 int rt = TridentPickupHook::hook();
                 auto& log = hostLogger();

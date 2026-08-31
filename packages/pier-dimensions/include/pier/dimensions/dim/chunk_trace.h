@@ -5,29 +5,16 @@
 /**
  * chunk_trace.h —— 区块生命周期追踪。
  *
- * 只在环境变量 `PIER_TRACE_CHUNK=1` 时才真正安装 hook —— 关掉时一个 detour
- * 都不装，热路径上没有任何额外开销。
+ * 只在 PIER_TRACE_CHUNK=1 时才真正安装 hook，关掉时一个 detour 都不装，热路径上没
+ * 有额外开销。可选变量：PIER_TRACE_CHUNK_DIM 只看某个维度（-1 为全部，默认只打自定
+ * 义维度 id >= 3），PIER_TRACE_CHUNK_FAIL=1 连 tryChangeState 的失败分支一起打。
  *
- * 用法（PowerShell）：
+ * 开关暴露在头文件里，因为 PlotGenerator::loadChunk 也要问「现在在追踪吗」。判据只
+ * 能有一份：在两处各抄一遍读 env 的代码，改了变量名或判据只改一处时，症状是「追踪
+ * 开着而生成那一段没有日志」，看起来像生成器根本没被调用。
  *
- *     $env:PIER_TRACE_CHUNK=1
- *     $env:PIER_TRACE_CHUNK_DIM=3        # 可选，只看某个维度
- *     $env:PIER_TRACE_CHUNK_FAIL=1       # 可选，连 tryChangeState 的失败分支一起打
- *     .\bedrock_server.exe
- *
- * 默认只打自定义维度（id >= 3）。想连主世界一起看，设 `PIER_TRACE_CHUNK_DIM=-1`。
- *
- * ## 为什么开关暴露在头文件里
- *
- * `PlotGenerator::loadChunk` 也要问「现在在追踪吗」。旧版是在
- * PlotGenerator.cpp 里**又抄了一遍**读 env 的那三行 —— 抄多了的代价不是行数
- * 是**漂移**：改了变量名或判据只改一处，症状是「追踪开着，但生成那一段没有
- * 日志」，而这看起来像是生成器根本没被调用。判据只能有一份。
- *
- * ## 变量名从 MORE_DIMENSIONS_* 改成 PIER_*
- *
- * 环境变量是**用户可见字符串**，同受契约 §七 的产品名禁令。
- * 旧名不做兼容 —— 这是排查开关，不是数据格式，改名的代价只是一次文档更新。
+ * 环境变量是用户可见字符串，同受契约 §七 的产品名禁令，所以前缀是 PIER_。这是排查
+ * 开关不是数据格式，旧名不做兼容。
  */
 namespace pier::dimensions
 {

@@ -1,21 +1,14 @@
 /** hooks/engine/Profiler.cpp —— 分子系统的 MSPT 采样。
  *
- * profile_begin(ticks) 武装一个 N 个 level tick 的采样窗口；
- * profile_take() 轮询取完成的报告（SNBT）。五个计时 detour，全部遵守
- * hook_events.h 的生命周期规矩（第一次 profile_begin 时一起安装、永不卸补
- * 丁、未武装时走快路径分支）：
+ * profile_begin(ticks) 武装一个 N 个 level tick 的采样窗口，profile_take() 轮询
+ * 取完成的报告（SNBT）。五个计时 detour 覆盖 level_tick、dimension_tick、
+ * redstone、chunk_blocks、block_entities，全部遵守 hook_events.h 的生命周期规矩：
+ * 第一次 profile_begin 时一起安装、永不卸补丁、未武装时走快路径分支。
  *
- *     level_tick       Level::$tick               （整帧）
- *     dimension_tick   Dimension::$tick           （分维度切片）
- *     redstone         Dimension::$tickRedstone
- *     chunk_blocks     LevelChunk::tickBlocks     （随机/计划方块 tick）
- *     block_entities   LevelChunk::tickBlockEntities
- *
- * 时间是**包含式**墙钟时间（steady_clock）：dimension_tick 跑在 level_tick
- * 里；redstone / chunk 两桶跑在 dimension_tick 里。并排报告它们，别求和。
- * 与 TickControl 在同一个 Level::$tick 上的 detour 共存 —— LeviLamina 会把
- * 钩子串成链，每个真正执行的 tick 只被量一次，所以 `/tick warp 5` 显示 5
- * 倍的样本数、每 tick 数字依旧真实。
+ * 时间是包含式墙钟时间（steady_clock）：dimension_tick 跑在 level_tick 里，
+ * redstone 与 chunk 两桶跑在 dimension_tick 里。并排报告，不要求和。与 TickControl
+ * 在同一个 Level::$tick 上的 detour 共存，LeviLamina 把钩子串成链，每个真正执行
+ * 的 tick 只被量一次，所以 /tick warp 5 显示 5 倍样本数而每 tick 数字依旧真实。
  */
 #include <chrono>
 #include <cstdint>

@@ -13,31 +13,16 @@ namespace pier::dimensions
     /**
      * 地皮世界的几何布局。
      *
-     * ── 网格约定（C++ 生成器与模组侧必须完全一致）──────────────────────
+     * 网格约定，C++ 生成器与模组侧必须完全一致（cell = plotSize + roadWidth，
+     *   ix = mod(worldX, cell)，iz = mod(worldZ, cell)）：
+     *   ix >= plotSize || iz >= plotSize   → 道路
+     *   否则距地皮边缘 < borderWidth       → 边框（算地皮的一部分）
+     *   否则                               → 地皮内部
+     * 地皮占单元格的低位区间 [0, plotSize)，道路占高位区间 [plotSize, cell)。这条约定同时被
+     * PlotGenerator::loadChunk 和模组侧的 plot_at / is_border 使用，改一处必须改另一处。
      *
-     *   cell = plotSize + roadWidth
-     *   ix   = mod(worldX, cell),  iz = mod(worldZ, cell)
-     *
-     *   ix >= plotSize || iz >= plotSize          → 道路
-     *   否则，距地皮边缘 < borderWidth             → 边框（地皮的一部分）
-     *   否则                                       → 地皮内部
-     *
-     * 也就是说：**地皮占据每个单元格的低位区间 [0, plotSize)，道路占据高位
-     * 区间 [plotSize, cell)；边框算在 plotSize 之内。**
-     *
-     * 这条约定同时被以下两处使用，改一处必须改另一处：
-     *   - 本文件的 PlotGenerator::loadChunk（决定方块长什么样）
-     *   - 模组侧的 plot_at / is_border（决定谁能建）
-     *
-     * 写「模组侧」而不是某一门语言：地皮系统是通过 md_set_plot_grid 这组槽位
-     * 接进来的，实现它的模组用什么语言写与这条约定无关。
-     *
-     * 竖直方向：
-     *   minY          基岩
-     *   (minY, floorY) 填充方块
-     *   floorY         地表 / 道路方块
-     *   floorY + 1     边框方块（只在边框格上；相当于一圈路缘）
-     *   其余           空气
+     * 竖直方向：minY 基岩；(minY, floorY) 填充方块；floorY 地表或道路方块；floorY + 1 边框
+     * 方块，只在边框格上，相当于一圈路缘；其余空气。
      */
     struct PlotLayout
     {
@@ -53,7 +38,7 @@ namespace pier::dimensions
         std::string biome = "minecraft:plains";
 
         /**
-         * 世界竖直范围。**不要在这里写字面量** —— 它必须和
+         * 世界竖直范围。不要在这里写字面量 —— 它必须和
          * `DimensionDefinition` 发给客户端的那一份是同一个来源，
          * 见 DimensionHeight.h。
          */
@@ -66,7 +51,7 @@ namespace pier::dimensions
         [[nodiscard]] int cellSize() const { return plotSize + roadWidth; }
 
         /**
-         * 夹到安全范围。**永远不要相信跨 ABI 传进来的数值** —— 一个越界的
+         * 夹到安全范围。永远不要相信跨 ABI 传进来的数值 —— 一个越界的
          * floorY 会让缓冲区索引越界，直接崩服。
          */
         void clamp()
@@ -130,9 +115,9 @@ namespace pier::dimensions
 
         /** 从 SNBT 解析；解析失败返回全默认值（已 clamp）。 */
         /**
-         * 解析布局 SNBT。空串 = 用默认布局；**非空但解析失败返回 nullopt**。
+         * 解析布局 SNBT。空串 = 用默认布局；非空但解析失败返回 nullopt。
          *
-         * V-40：以前解析失败静默退回默认布局，而布局会随维度写进
+         * 以前解析失败静默退回默认布局，而布局会随维度写进
          * dimension_config.json 永久保存 —— 一处拼写错误就把一个世界的地皮
          * 尺寸定死在默认值上，没有任何日志，事后也改不回来（改了就和存档里
          * 已经生成的地形对不上）。宁可现在失败。

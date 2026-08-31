@@ -17,8 +17,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "packages/pier-sys-rs",
-    "packages/pier-rs",
+    "bindings/rust/pier-sys-rs",
+    "bindings/rust/pier-rs",
     "examples/hello-pier",
 ]
 

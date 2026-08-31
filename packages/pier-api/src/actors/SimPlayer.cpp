@@ -1,24 +1,17 @@
 /** actors/SimPlayer.cpp —— 模拟（假）玩家。
  *
- * 只有两个主 ABI 入口：
- *   - sim_spawn(name, dim, x, y, z)：SimulatedPlayer::create（LeviLamina 的
- *     便捷封装）。产物是一个顶着这个名字的真 ServerPlayer，所以**每个**已
- *     有的按玩家 API（传送、血量、背包、踢出、发消息、位置、…）都经普通
- *     的名字选择器对它生效 —— 不需要复制一套接口面。
- *   - sim_do(sel, action, args_snbt)：simulate* 家族上的多路动词派发器。
- *     新动词加在**这里**、桥的这一侧，不涨 ABI 表 —— 动作词表是数据，不是
- *     布局。用 Actor::isSimulatedPlayer() 把门，真玩家永远不可能被操纵。
- *     args 是 SNBT（无参动词给 {} 或 ""）。
+ * 两个主 ABI 入口。sim_spawn(name, dim, x, y, z) 走 SimulatedPlayer::create，产物
+ * 是一个顶着这个名字的真 ServerPlayer，所以每个已有的按玩家 API 都经普通名字选择
+ * 器对它生效，不需要复制一套接口面。sim_do(sel, action, args_snbt) 是 simulate*
+ * 家族上的多路动词派发器，新动词加在桥这一侧、不涨 ABI 表（动作词表是数据不是布
+ * 局），用 Actor::isSimulatedPlayer() 把门，真玩家不可能被操纵，args 是 SNBT。
  *
- * 动词（花括号里是参数，'=' 后是默认值）：
+ * 动词，花括号内是参数，'=' 后是默认值：
  *   despawn | stop | jump | attack | interact | use_item | drop | respawn
- *   move_to{x,y,z,speed=1,face_target=1}      直线移动
- *   navigate_to{x,y,z,speed=4.3}              寻路移动
- *   look_at{x,y,z}
+ *   move_to{x,y,z,speed=1,face_target=1}   navigate_to{x,y,z,speed=4.3}
+ *   look_at{x,y,z}   interact_block{x,y,z,face=1}   chat{msg}
  *   destroy_block{x,y,z,face=1} | destroy_look{hand=5.5} | stop_destroy
- *   interact_block{x,y,z,face=1}
  *   sneak{on=1} | fly{on=1}
- *   chat{msg}
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -86,9 +79,9 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!bridge::levelReady()) return false;
-                // V-15：目标维度必须能经维度桥建出（同 player_teleport）。
+                // 目标维度必须能经维度桥建出（同 player_teleport）。
                 if (!bridge::blockSourceOf(dimension)) return false;
-                // V-30：不允许和在线玩家同名 —— 所有按名字寻址的槽都会在两者之间
+                // 不允许和在线玩家同名 —— 所有按名字寻址的槽都会在两者之间
                 // 随机命中，`chat` 动词还能以真人的名字发言。
                 if (bridge::resolvePlayer(PierPlayerSel{0, name}) != nullptr) return false;
                 auto sp = SimulatedPlayer::create(

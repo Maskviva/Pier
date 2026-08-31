@@ -61,8 +61,20 @@ def strip(text):
     # crossbind 的 item_remap.rs 就是这么从 123/123 变成 120/122 的：
     # 文件里一个 raw string 都没有，全是这条正则自己造的。
     text = re.sub(r'(?<![A-Za-z0-9_])r#*"(?:.|\n)*?"#*', keep_nl, text)
+    # 字符字面量必须**先于**字符串剥掉，而且只剥**窄形式**。
+    #
+    # 先后顺序：`Some(b'"')` 里那个引号会让下面剥字符串的正则从这里一路吞到
+    # 文件里下一个 `"`，连同中间所有括号和调用点。nbt/parse.rs 就是这么让
+    # `self.scalar()` 凭空消失、让「零调用方」报了一个假阳性的。
+    #
+    # 窄形式：引号之间**恰好一个**字符或一个转义。这是安全的判别式 ——
+    # 生命周期 `'a` 没有右引号，`Formatter<'_>` 里 `'_>` 是两个字符，
+    # `<'a, 'b>` 之间是三个字符，都匹配不上。上一版的教训（见下）是**宽**
+    # 形式（`'…*'`）会把 `'_>) -> fmt::Result {` 整段吞掉，那和这里不是
+    # 一回事，所以这条不是推翻它，是把它收窄到安全的那一半。
+    text = re.sub(r"b?'(?:[^'\\\n]|\\.)'", keep_nl, text)
     text = re.sub(r'"(?:[^"\\]|\\.)*"', keep_nl, text, flags=re.S)
-    # **不要**试图剥字符字面量。
+    # **不要**用宽形式剥字符字面量。
     #
     # Rust 的 `'a` 生命周期和字符字面量 `'x'` 前缀相同，任何只看引号的正则
     # 都会把 `Formatter<'_>) -> fmt::Result {` 里的 `'_>) -> fmt::Result {`
@@ -146,6 +158,62 @@ def check_file(path, rel, problems):
             problems.append("%s:%d 悬空的 `///`（后面没有任何项）：%s"
                             % (rel, i + 1, line.strip()[:60]))
             break
+
+
+    # ── 文档块与它的目标之间有空行 ────────────────────────────────
+    #
+    # `clippy::empty_line_after_doc_comments`。这一条是被一次真实事故逼出来的：
+    # 一次脚本化的方法抽取把函数搬走了、文档留在原地，于是那段文档静默挂到了
+    # **下一个**函数上 —— `/// 往返延迟（毫秒）。` 挂在了 `set_level` 头上。
+    # 那正是契约 §5.4 说的「注释对代码撒谎」，而且编译器只在留下空行时才吭声。
+    for n, line in enumerate(lines, 1):
+        if not line.strip().startswith("///"):
+            continue
+        if n < len(lines) and lines[n].strip() != "":
+            continue
+        k = n
+        while k < len(lines) and lines[k].strip() == "":
+            k += 1
+        if k < len(lines) and lines[k].strip().startswith(
+            ("pub ", "fn ", "#[", "struct ", "enum ", "impl ")
+        ):
+            problems.append(
+                "%s:%d `///` 和它下面那个项之间有空行 —— 文档要么挂错了目标，"
+                "要么它的目标被搬走了" % (rel, n)
+            )
+
+    # ── format! 参数里多余的 `&` ──────────────────────────────────
+    #
+    # `clippy::useless_borrows_in_formatting`。`format!("{}", &x)` 里的 `&`
+    # 什么都不做 —— `Display` 对引用有 blanket impl。它通常是从
+    # `warn(&format!(..))` 那个**外层**的 `&` 复制粘贴出来的：外层那个是必要的
+    # （函数收 `&str`），内层那个不是。
+    for n, line in enumerate(lines, 1):
+        m = re.search(r'format!\("[^"]*"\s*,(.*)\)', line)
+        if not m:
+            continue
+        for arg in m.group(1).split(","):
+            a = arg.strip()
+            if a.startswith("&") and not a.startswith("&&") and not a.startswith("&mut"):
+                problems.append(
+                    "%s:%d format! 的参数 `%s` 带了多余的 `&`（Display 对引用有 "
+                    "blanket impl）" % (rel, n, a[:40])
+                )
+                break
+
+    # ── 同一个作用域里重复的 use ──────────────────────────────────
+    #
+    # E0252。脚本化地拼装 use 块时很容易出，而它同时会触发 unused_imports，
+    # 在 `-D warnings` 下是两条错。只看顶层（缩进为 0）的 use，函数体内的
+    # 局部 use 各有各的作用域，重复是合法的。
+    seen = {}
+    for n, line in enumerate(lines, 1):
+        s = line.rstrip()
+        if not s.startswith("use ") or not s.endswith(";"):
+            continue
+        if s in seen:
+            problems.append("%s:%d 与第 %d 行是同一条 use：%s" % (rel, n, seen[s], s.strip()))
+        seen[s] = n
 
     # C 类型名残留。手抄 FFI 镜像的典型产物 —— 它们不是 Rust 类型，
     # rustc 会报 `cannot find type`，但那要等到有 rustc 的机器上。
@@ -268,16 +336,22 @@ def check_dead_crate_items(crate_dir, problems):
                         if started and depth <= 0:
                             break
                         j += 1
-                    impl_ranges.append((i + 1, j + 1, mi.group(1)))
+                    # trait 实现（`impl X for Y`）和 trait 定义里的方法由
+                    # trait 分发，不是死码 —— 文本上看不到调用点是正常的。
+                    is_trait = bool(
+                        re.match(r"^\s*impl\b[^{]*\bfor\b", lines[i])
+                        or re.match(r"^\s*(?:pub\s+)?trait\s", lines[i])
+                    )
+                    impl_ranges.append((i + 1, j + 1, mi.group(1), is_trait))
                     i = j + 1
                 else:
                     i += 1
 
             def owner_of(ln):
                 """这一行落在哪个 impl 块里；不在任何 impl 里返回 None。"""
-                for a, b, owner in impl_ranges:
+                for a, b, owner, is_trait in impl_ranges:
                     if a <= ln <= b:
-                        return owner
+                        return None if is_trait else owner
                 return None
 
             for ln, line in enumerate(lines, 1):
@@ -286,13 +360,23 @@ def check_dead_crate_items(crate_dir, problems):
                     r"(?:const\s+)?(fn|struct|enum|trait|type|static|const)\s+(\w+)",
                     line,
                 )
-                if not m:
+                if m:
+                    owner = owner_of(ln)
+                    if m.group(1) == "fn" and owner:
+                        method_defs.append((m.group(2), owner, rel, ln))
+                    else:
+                        free_defs.append((m.group(2), rel, ln))
                     continue
-                owner = owner_of(ln)
-                if m.group(1) == "fn" and owner:
-                    method_defs.append((m.group(2), owner, rel, ln))
-                else:
-                    free_defs.append((m.group(2), rel, ln))
+
+                # impl 块里**没有 pub** 的方法。这一支是被一次真实事故补上的：
+                # 三个域各自有一份 `num_i32` / `num_bool` 私有 helper，属性墙
+                # 搬进 `accessors!` 表格之后宏把转换内联了，helper 全成了死码。
+                # `pub(crate)` 那一支覆盖不到它们 —— 私有方法连 `pub` 都没有。
+                mp = re.match(r"^\s{4}(?:unsafe\s+)?fn (\w+)\s*\(", line)
+                if mp:
+                    owner = owner_of(ln)
+                    if owner:
+                        method_defs.append((mp.group(1), owner, rel, ln))
     body = strip(whole)
 
     for name, rel, line in free_defs:
@@ -314,7 +398,7 @@ def check_dead_crate_items(crate_dir, problems):
             continue
         # 调用形状：`.name(` 或 `Type::name(`。定义处是 `fn name(`，不算。
         if not re.search(r"(?:\.|::)%s\s*\(" % re.escape(name), body):
-            problems.append("%s:%d `pub(crate)` 的方法 %s::%s 在整个 crate 里没有调用点 —— "
+            problems.append("%s:%d 方法 %s::%s 在整个 crate 里没有调用点 —— "
                             "clippy 会报 never used（名字出现次数不算数：同名的字段、"
                             "参数、类型都会把计数撑过去）" % (rel, line, owner, name))
     if ambiguous:
@@ -327,26 +411,45 @@ def check_dead_crate_items(crate_dir, problems):
 
 
 def main():
-    target = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "packages")
+    # 默认扫两处:`packages/` 里现在一个 .rs 都没有了（绑定搬去了 `bindings/`），
+    # 但留着它 —— 那里再冒出 Rust 是分层出了问题，应当被扫到而不是被忽略。
+    targets = (
+        [sys.argv[1]]
+        if len(sys.argv) > 1
+        else [os.path.join(ROOT, "packages"), os.path.join(ROOT, "bindings")]
+    )
     problems = []
     n = 0
-    for dp, dirs, fs in os.walk(target):
-        dirs[:] = [d for d in dirs if d not in ("target", ".git")]
-        for fn in sorted(fs):
-            if not fn.endswith(".rs"):
-                continue
-            p = os.path.join(dp, fn)
-            n += 1
-            check_file(p, os.path.relpath(p, ROOT), problems)
+    for target in targets:
+        for dp, dirs, fs in os.walk(target):
+            dirs[:] = [d for d in dirs if d not in ("target", ".git")]
+            for fn in sorted(fs):
+                if not fn.endswith(".rs"):
+                    continue
+                p = os.path.join(dp, fn)
+                n += 1
+                check_file(p, os.path.relpath(p, ROOT), problems)
 
     # 每个 crate 单独看：`pub(crate)` 的可见范围就是一个 crate。
-    for base in (os.path.join(ROOT, "packages"), os.path.join(ROOT, "examples")):
+    #
+    # **递归找 Cargo.toml，不假设它在固定深度。** 上一版写死了「base 的下一层」，
+    # 绑定从 `packages/pier-rs` 搬到 `bindings/rust/pier-rs` 之后多了一层，
+    # 于是这条检查对整个绑定静默失效 —— 不报错，只是什么都不查了。
+    # 一条静默失效的检查比没有检查更糟：它还在输出 PASS。
+    seen_crates = []
+    for base in (os.path.join(ROOT, "bindings"), os.path.join(ROOT, "examples")):
         if not os.path.isdir(base):
             continue
-        for d in sorted(os.listdir(base)):
-            cd = os.path.join(base, d)
-            if os.path.exists(os.path.join(cd, "Cargo.toml")):
-                check_dead_crate_items(cd, problems)
+        for dp, dirs, fs in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in ("target", ".git", "src")]
+            if "Cargo.toml" in fs and os.path.isdir(os.path.join(dp, "src")):
+                seen_crates.append(dp)
+                check_dead_crate_items(dp, problems)
+    if not seen_crates:
+        problems.append(
+            "一个 crate 都没找到（bindings/ 与 examples/ 下没有带 src/ 的 Cargo.toml）"
+            " —— 零调用方检查这一轮什么都没查"
+        )
 
     for pb in problems:
         print("  ✗ %s" % pb)

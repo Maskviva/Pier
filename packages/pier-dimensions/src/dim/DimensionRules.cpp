@@ -1,32 +1,18 @@
 /**
  * DimensionRules.cpp —— 按维度生效的行为规则。
  *
- * # 为什么不用 gamerule
+ * 基岩版的 gamerule 是全服一份的：想让创造用的地皮世界不刷怪只能
+ * doMobSpawning=false，而这会把同一个服务器上的生存世界也变成空城。这里换成钩住真
+ * 正干活的那几个函数（Spawner::spawnMob、Level::explode 之类），它们都带着一个
+ * BlockSource，从中拿得到维度 id，判定于是真正按维度隔离。
  *
- * 基岩版的 gamerule 是**全服一份**的。想让创造用的地皮世界不刷怪，只能
- * `doMobSpawning=false`，而这会连带把同一个服务器上的生存世界也变成空城。
- * 之前那一版就是这么做的（在玩家进世界时整体切 gamerule），代价是两个玩家
- * 分处不同世界时会互相干扰。
+ * 规则表按维度 id 稀疏存储，查不到就直接 origin()：这些 hook 装在全局，绝不能因为
+ * 装了 hook 就改变没被管理的维度的行为，调用方不需要为原版维度显式开启任何东西。
  *
- * 这里换成钩住**真正干活的那几个函数**：`Spawner::spawnMob`、`Level::explode`
- * 之类。这些函数都带着一个 `BlockSource`，从中拿得到维度 id，于是判定可以
- * 真正做到按维度隔离。参考实现：IceBlcokMC/PlotX 的 PermCore 也是这么做的 ——
- * 它把 `preCheck(BlockSource&, BlockPos const&)` 作为所有拦截的入口，第一件事
- * 就是比对维度 id。
- *
- * # 没有条目的维度完全不受影响
- *
- * 规则表按维度 id 稀疏存储。查不到就直接 `origin()`，原版维度保持原版行为，
- * 调用方不需要为它们显式「开启」任何东西。这一点很重要：这些 hook 是全局装
- * 上去的，绝不能因为装了 hook 就改变没被管理的维度的行为。
- *
- * # 八个挂载点覆盖十二条规则
- *
- * 数目对不上是正常的：`SpawnMonster` / `SpawnAnimal` / `SpawnSpawner` 共用
- * `Spawner::spawnMob` 一个点，`ExplodeBlocks` / `MobGriefing` 共用
- * `Level::explode`，`PistonPush` / `PistonCrossPlot` 共用
- * `PistonBlockActor::_checkAttachedBlocks`。`EntityCrossPlot` 不在本文件 ——
- * 它由 PlotConfine.cpp 自己的挂载点实现。
+ * 八个挂载点覆盖十二条规则。SpawnMonster、SpawnAnimal、SpawnSpawner 共用
+ * Spawner::spawnMob，ExplodeBlocks 与 MobGriefing 共用 Level::explode，PistonPush
+ * 与 PistonCrossPlot 共用 PistonBlockActor::_checkAttachedBlocks。EntityCrossPlot
+ * 不在本文件，它由 PlotConfine.cpp 自己的挂载点实现。
  */
 #include "pier/dimensions/dim/dimension_rules.h"
 
@@ -57,7 +43,7 @@
 
 namespace pier::dimensions
 {
-    // 编号必须和 ABI 逐值一致。写两遍是不得已（这一侧要有名字），但**不能**
+    // 编号必须和 ABI 逐值一致。写两遍是不得已（这一侧要有名字），但不能
     // 只靠人来保持同步 —— 错位之后的症状是「设了不刷怪、关掉的却是火焰蔓延」，
     // 从现象完全看不出根因在编号上。所以钉在编译期。
     static_assert(static_cast<int>(DimRule::SpawnMonster) == PIER_DIMRULE_SPAWN_MONSTER);
@@ -80,7 +66,7 @@ namespace pier::dimensions
         using ::pier::hostLogger;
 
         /**
-         * (维度 id, 规则) -> 允许与否。**只存显式设过的项**。
+         * (维度 id, 规则) -> 允许与否。只存显式设过的项。
          *
          * 用 mutex 而不是无锁结构：写入只发生在世界创建/加载时（每服几十次），
          * 读取在 spawn 路径上（每秒几百次）。读多写少，但读的绝对量也不大 ——
@@ -105,7 +91,7 @@ namespace pier::dimensions
                 | static_cast<uint32_t>(rule);
         }
 
-        /** 该维度是否有**任何**规则。没有就整个 hook 走快速路径。 */
+        /** 该维度是否有任何规则。没有就整个 hook 走快速路径。 */
         std::unordered_map<int, int>& dimCounts()
         {
             static std::unordered_map<int, int> m;
@@ -160,7 +146,7 @@ namespace pier::dimensions
         /**
          * 查一条规则。没设过就返回 `fallback`（一律是 true = 按原版走）。
          *
-         * **默认放行是这里的关键约束**：这些 hook 装在全局，任何一个没被管理
+         * 默认放行是这里的关键约束：这些 hook 装在全局，任何一个没被管理
          * 的维度都必须完全感觉不到它们的存在。
          */
         bool allowed(int dimension, DimRule rule, bool fallback = true)
@@ -171,7 +157,7 @@ namespace pier::dimensions
         }
 
         /**
-         * 取维度 id。**-1 是「问不出来」，不是某个维度**（契约 §5.2）——
+         * 取维度 id。-1 是「问不出来」，不是某个维度（契约 §5.2）——
          * 所有调用点都写成 `dim < 0 → 直接 origin()`，也就是「不知道就别管」。
          * 这是刻意的：一个读不出维度的 BlockSource 说明引擎状态已经不正常，
          * 这时候按某个猜出来的维度去执行保护规则，比不执行更危险。
@@ -188,16 +174,16 @@ namespace pier::dimensions
             }
         }
 
-        // ───────────────────── 生物生成 ─────────────────────
+        //  生物生成
 
         /*
-         * `Spawner::spawnMob` 是**所有**生成的必经之路：自然刷怪、刷怪笼、
+         * `Spawner::spawnMob` 是所有生成的必经之路：自然刷怪、刷怪笼、
          * 刷怪蛋、指令召唤都从这里过。所以要靠参数区分来源，别把玩家用刷怪蛋
          * 放的羊也拦掉。
          *
          *   naturalSpawn == true   自然生成 -> 按 SpawnMonster / SpawnAnimal
          *   fromSpawner  == true   刷怪笼   -> 按 SpawnSpawner
-         *   两者都 false           指令/刷怪蛋/繁殖 -> **永远放行**
+         *   两者都 false           指令/刷怪蛋/繁殖 -> 永远放行
          *
          * 最后那条是有意的：玩家在创造世界里主动放生物是正常玩法，不该被
          * 「这个世界不刷怪」的设置拦住。
@@ -262,7 +248,7 @@ namespace pier::dimensions
             return origin(region, id, spawner, pos, naturalSpawn, surface, fromSpawner);
         }
 
-        // ───────────────────── 弹射物 ─────────────────────
+        //  弹射物
 
         LL_TYPE_INSTANCE_HOOK(
             DimRuleSpawnProjectileHook,
@@ -285,25 +271,19 @@ namespace pier::dimensions
             return origin(region, id, spawner, position, direction);
         }
 
-        // ───────────────────── 爆炸 ─────────────────────
+        //  爆炸
 
         /*
-         * 关键取舍：**不取消爆炸，只把「破坏方块」这一位关掉**。
+         * 关键取舍：不取消爆炸，只把「破坏方块」这一位关掉。Level::explode 有一个
+         * breaksBlocks 参数，传 false 就是「炸得响、有伤害、但不留坑」；整个取消会
+         *连带吃掉伤害和粒子，玩家会觉得苦力怕失灵了。
          *
-         * `Level::explode` 有一个 `breaksBlocks` 参数，直接传 false 就是
-         * 「炸得响、有伤害、但不留坑」。整个取消爆炸会连带吃掉伤害和粒子，
-         * 玩家会觉得苦力怕失灵了；只关方块破坏才是「保护地形」该有的样子，
-         * 也正是原版 mobGriefing 的语义。
+         * ExplodeBlocks = false 时任何爆炸都不破坏方块（含 TNT）；MobGriefing =
+         * false 时只有生物引发的爆炸不破坏方块，玩家点的 TNT 照炸。两个都设时任意
+         * 一个禁止就不破坏。
          *
-         * mobGriefing 和 explodeBlocks 的分工：
-         *   ExplodeBlocks = false  -> 任何爆炸都不破坏方块（含 TNT）
-         *   MobGriefing   = false  -> **只有生物引发的**爆炸不破坏方块，
-         *                             玩家点的 TNT 照炸
-         * 两个都设时，任意一个禁止就不破坏。
-         *
-         * 只钩了带 BlockSource 的那个重载。另一个 `$explode(Explosion&)` 的
-         * Explosion 对象里没有 BlockSource 成员（只有 mPos / mSourceID），
-         * 拿不到维度，所以钩它没有意义 —— 好在带参数的这个重载是主路径。
+         * 只钩带 BlockSource 的那个重载。另一个 $explode(Explosion&) 的 Explosion
+         * 里没有 BlockSource 成员（只有 mPos / mSourceID），拿不到维度。
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleExplodeHook,
@@ -343,7 +323,7 @@ namespace pier::dimensions
                 }
                 catch (...)
                 {
-                    // 问不出类别就当它不是生物 —— 这条路只会让爆炸**照原样**
+                    // 问不出类别就当它不是生物 —— 这条路只会让爆炸照原样
                     // 破坏方块（也就是不额外施加 MobGriefing），是这两条规则
                     // 里更保守的那一侧：ExplodeBlocks 仍然管着它。
                     isMob = false;
@@ -359,7 +339,7 @@ namespace pier::dimensions
             );
         }
 
-        // ───────────────────── 火焰蔓延 ─────────────────────
+        //  火焰蔓延
 
         /*
          * `FireBlock::checkBurn` 是火向邻居扩散的那一步。拦住它，已经点着的火
@@ -391,7 +371,7 @@ namespace pier::dimensions
             origin(region, pos, chance, random, age, firePos);
         }
 
-        // ───────────────────── 液体蔓延 ─────────────────────
+        //  液体蔓延
 
         /*
          * `LiquidBlock::_trySpreadTo` 是水/岩浆向某一格扩散的那一步。拦住它，
@@ -421,7 +401,7 @@ namespace pier::dimensions
             origin(region, pos, neighbor, flowFromPos, flowFromDirection);
         }
 
-        // ───────────────────── 耕地被踩坏 ─────────────────────
+        //  耕地被踩坏
 
         /*
          * `FarmBlock::$transformOnFall` 是「踩上去变回泥土」。地皮世界里这个
@@ -447,34 +427,21 @@ namespace pier::dimensions
             origin(region, pos, actor, fallDistance);
         }
 
-        // ───────────────────── 活塞推动 ─────────────────────
+        //  活塞推动
 
         /*
-         * `PistonBlockActor::_checkAttachedBlocks` 决定这次伸缩能不能带动附着
-         * 的方块。返回 false = 推不动，活塞会卡住而不是把方块搬走。
+         * PistonBlockActor::_checkAttachedBlocks 决定这次伸缩能不能带动附着的方块，
+         * 返回 false 即推不动，活塞卡住而不是把方块搬走。拦这里而不拦活塞本身：活塞
+         * 照常动、红石照常工作，整个禁用活塞会把很多红石装置弄坏。
          *
-         * 为什么拦这里而不是拦活塞本身：活塞照常动、红石照常工作，只是搬不动
-         * 方块。整个禁用活塞会把很多红石装置直接弄坏。
+         * PistonPush 与 PistonCrossPlot 共用这一个 hook：前者整维度一刀切，后者按边
+         * 界判。同一个符号上叠两层补丁只多一次间接跳转和一处「谁先跑」的不确定性。
          *
-         * 这一条对应 PlotSquared 的 `DisablePhysics` —— 防的是「用活塞把方块
-         * 推过地皮边界」这种越界建造。
-         *
-         * ── PistonCrossPlot：同一个 hook 点，另一个问题 ──
-         *
-         * `PistonPush` 是整维度一刀切。「不出地皮」要的是按边界判：地皮内部照常
-         * 推，跨界才拦。两者挂的是同一个函数，所以合在一个 hook 里而不是再装一
-         * 个 detour —— 同一个符号上叠两层补丁没有任何好处，只是多一次间接跳转和
-         * 一处「谁先跑」的不确定性。
-         *
-         * **必须先 `origin(region)`。** 要移动哪些方块是这个函数**算出来**的
-         * （`_attachedBlockWalker` 往 `mAttachedBlocks` 里填），不跑就没有清单
-         * 可查。跑完拿到 true 之后再逐块检查「现在这一格」和「落点那一格」是不
-         * 是都和活塞自己在同一片区域，任何一块出界就整次拒绝 —— 部分放行会把一
-         * 台飞行器撕成两半，那比推过去还糟。
-         *
-         * 拒绝时**不清 `mAttachedBlocks`**：返回 false 正是引擎自己「推不动」的
-         * 出口（撞到基岩、超过 12 块都走这条），清单留在那里是它本来就有的状态，
-         * 下一拍 walker 会重填。为了「看起来干净」去动引擎的成员，风险大于收益。
+         * 必须先 origin(region)：要移动哪些方块由它算出（_attachedBlockWalker 往
+         * mAttachedBlocks 里填），不跑就没有清单可查。拿到 true 之后再逐块检查当前
+         * 格与落点格是否都和活塞同区，任何一块出界就整次拒绝 —— 部分放行会把一台飞
+         * 行器撕成两半。拒绝时不清 mAttachedBlocks：返回 false 正是引擎自己「推不
+         * 动」的出口（撞基岩、超过 12 块都走这条），清单留着是它本来就有的状态。
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRulePistonHook,
@@ -503,7 +470,7 @@ namespace pier::dimensions
 
             try
             {
-                // 位置和清单走**成员**而不是 `getPosition()` / `getAttachedBlocks()`：
+                // 位置和清单走成员而不是 `getPosition()` / `getAttachedBlocks()`：
                 // 那两个都是 MCFOLD，要在运行时解析符号，多一个会因版本漂移而失败
                 // 的环节，而它们只是把这两个成员读出来。`getFacingDir` 不同 ——
                 // 它要从方块状态算朝向，只能调。
@@ -511,7 +478,7 @@ namespace pier::dimensions
                 auto const& facing = this->getFacingDir(region);
                 for (auto const& b : this->mAttachedBlocks.get())
                 {
-                    // 起点和落点都要查。只查落点的话，把方块从别人地里**拉出来**
+                    // 起点和落点都要查。只查落点的话，把方块从别人地里拉出来
                     // （粘性活塞回缩）会被放行，而那和推进去是同一类越界。
                     if (!sameArea(dim, self.x, self.z, b.x, b.z)
                         || !sameArea(dim, self.x, self.z, b.x + facing.x, b.z + facing.z))
@@ -528,13 +495,13 @@ namespace pier::dimensions
             return true;
         }
 
-        // ───────────────────── 乘坐载具 ─────────────────────
+        //  乘坐载具
 
         /*
          * `Actor::$canAddPassenger` 是「这个东西能不能被骑」。挂在 Actor 上，
          * 所以船、矿车、马、猪一起覆盖。挂载点取自 LSE 的 `onRide`。
          *
-         * 注意这里的维度是从**被骑的那个实体**取的，不是乘客 —— 两者一定在同
+         * 注意这里的维度是从被骑的那个实体取的，不是乘客 —— 两者一定在同
          * 一个维度，取哪个都行，取 this 少一次解引用。
          */
         LL_TYPE_INSTANCE_HOOK(
@@ -583,7 +550,7 @@ namespace pier::dimensions
         if (gInstalled) return;
         DimRuleHookReg::hook();
         gInstalled = true;
-        // 说数目就要说准：**8 个挂载点**，覆盖 12 条规则（第 13 条
+        // 说数目就要说准：8 个挂载点，覆盖 12 条规则（第 13 条
         // EntityCrossPlot 在 PlotConfine.cpp）。旧版这里写的是「9 类」——
         // 两个数都对不上，而一条对不上号的日志会让人去数错的地方。
         hostLogger().debug("按维度生效的行为规则已启用：8 个挂载点，覆盖 12 条规则");

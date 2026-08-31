@@ -190,8 +190,13 @@ vtable 从此也能追加生命周期回调而不升版本。目标匹配走 `mo
 
 ## 七、注释与命名
 
-C++ 侧保留文件头和函数级长注释；每条回答「为什么」，记录被否掉的做法，修
-bug 写症状（症状可搜索，结论不行）。命名：ABI 类型 `Pier`+帕斯卡、宏
+**注释规范见 `COMMENTS.md`，那是本节的展开件，冲突以它为准。** 一句话：注释只
+写代码回答不了的问题 —— 约束、反直觉的事实、危险、契约、被否掉的显然做法。
+修 bug 写症状（症状可搜索，结论不行），但不写过程：代码的历史在 git 里。
+预算 L1 文件头 ≤16 行 / L2 声明 ≤14 行 / L3 体内 ≤8 行，`pier-abi` 是唯一例外
+（它是产品文档，且注释用英文）。机检 `tools/checks/comment_style.py`。
+
+命名：ABI 类型 `Pier`+帕斯卡、宏
 `PIER_`+大写、入口 `pier_`+蛇形、命名空间 `pier`、C++ 类型不带语言名。
 Rust 包名 `pier-*-rs`，crate 名保持 `levilamina` / `levilamina_sys` —— 包名
 说属于哪条 ABI，crate 名贴调用方心智模型。**用户可见字符串同受语言名禁令**：
@@ -226,6 +231,7 @@ v2 补一条同样重要的：**脚本 PASS 也只能给它覆盖到的那部分
 | `include-resolves` | 每条内部 `#include` 逐字符解析得到真实文件 | 完整 |
 | `sys-mirrors-abi` | 槽序、**每个槽的签名逐参数**、结构体字段、常量、枚举成员与 `abi.h` 逐格对上；镜像里禁条件编译 | 完整（比 `cargo check` 更严：宽度写错两边都编得过） |
 | `comment-claims` | 「吞掉 / 捕获 / 不会抛」类注释同函数内必须有 try/catch | 需同时出现异常词汇，避免与丢包语义的 swallow 混淆 |
+| `comment-style` | `COMMENTS.md` 的机械部分：预算、禁用词、票号、markdown 排版、行宽、契约头语言 | 看不见「注释是否真实 / 是否复述代码」，那三条要人读 |
 | `manifest-matches-host` | 示例的 `manifest.json` 的 type / 依赖名 / entry 真能被宿主装上 | 完整 |
 | `host-loadable` | 统一内存算子 / 模组注册各恰好一处，且所在包必然进产物 | 完整 |
 | `ledger-covers-tree` | 工作区里的每个文件，台账里都要有一行（台账的**反方向**） | 完整 |
@@ -265,5 +271,5 @@ v2 补一条同样重要的：**脚本 PASS 也只能给它覆盖到的那部分
    vtable 填 `struct_size / abi_version / mod_flags` 和三个生命周期回调；
 4. 每个非核心槽调用前查 `struct_size` 覆盖且槽非 NULL。
 
-`packages/pier-sys-rs` 是这四步的参考实现。新语言绑定放
+`bindings/rust/pier-sys-rs` 是这四步的参考实现。新语言绑定放
 `packages/pier-<lang>`，不进主仓库必编列表 —— Pier 维护的是契约。

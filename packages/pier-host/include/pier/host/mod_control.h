@@ -13,7 +13,7 @@ namespace pier::mod_control
      * 磁盘上一个 `mods/<dir>/manifest.json`（`"type": "pier"`）。
      *
      * 直接读文件而不是复用 ll::mod::Manifest，因为 `reloadSafe` 在那个结构
-     * 里没有位置。LeviLamina 的反射反序列化器遍历的是**结构体的成员**、逐个
+     * 里没有位置。LeviLamina 的反射反序列化器遍历的是结构体的成员、逐个
      * 去 JSON 里找 —— 它从不遍历 JSON 自己的键，所以 manifest 里多一个顶层
      * 字段对 LeviLamina 完全不可见，加了不会影响正常的启动装载。
      */
@@ -52,7 +52,7 @@ namespace pier::mod_control
      */
     std::vector<std::string> dependentsOf(std::string_view name);
 
-    /** `name` 已装载且归我们管（pier 模组）。 */
+    /** `name` 已装载且归本宿主管（pier 模组）。 */
     bool isHostedMod(std::string_view name);
 
     /** `name` 被任何管理器装载着。 */
