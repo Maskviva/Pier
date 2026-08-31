@@ -46,6 +46,7 @@ namespace pier::hooks
                 ",\"x\":" + snbtNum(pos.x)
                 + ",\"y\":" + snbtNum(pos.y)
                 + ",\"z\":" + snbtNum(pos.z)
+                + ",\"dim\":" + snbtNum(static_cast<int>(p.getDimensionId())) // V-17
                 + ",\"face\":" + snbtNum(static_cast<int>(face))
                 + "," + playerRefSnbt(p) + "}";
             dispatchHookEvent(def, snbt); // 在 origin 之前 —— 见文件头
@@ -53,7 +54,7 @@ namespace pier::hooks
             return origin(pos, face, hasDestroyedBlock);
         }
 
-        HookEventDef gDef{"PlayerStartDestroyBlockEvent", [] { StartDestroyBlockHook::hook(); }};
+        HookEventDef gDef{"PlayerStartDestroyBlockEvent", [] { return StartDestroyBlockHook::hook() == 0; }};
         HookEventDef& destroyDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

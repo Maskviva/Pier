@@ -83,6 +83,8 @@ namespace pier::hooks
             PIER_API_GUARD_BEGIN
                 if (n == 0) return false;
                 if (!gTick.hooked || !gTick.frozen) return false; // 步进只在冻结时有意义
+                // V-38：冻结态下一帧内执行全部待步进 tick；无上限等于一次调用冻住线程。
+                if (n > 1200 || gTick.pendingSteps > 1200 - n) return false;
                 gTick.pendingSteps += n;
                 return true;
             PIER_API_GUARD_END

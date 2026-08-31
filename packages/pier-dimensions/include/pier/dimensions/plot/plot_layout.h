@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -128,15 +129,24 @@ namespace pier::dimensions
         }
 
         /** 从 SNBT 解析；解析失败返回全默认值（已 clamp）。 */
-        [[nodiscard]] static PlotLayout fromSnbt(std::string const& snbt)
+        /**
+         * 解析布局 SNBT。空串 = 用默认布局；**非空但解析失败返回 nullopt**。
+         *
+         * V-40：以前解析失败静默退回默认布局，而布局会随维度写进
+         * dimension_config.json 永久保存 —— 一处拼写错误就把一个世界的地皮
+         * 尺寸定死在默认值上，没有任何日志，事后也改不回来（改了就和存档里
+         * 已经生成的地形对不上）。宁可现在失败。
+         */
+        [[nodiscard]] static std::optional<PlotLayout> fromSnbt(std::string const& snbt)
         {
-            auto tag = CompoundTag::fromSnbt(snbt);
-            if (!tag)
+            if (snbt.empty())
             {
                 PlotLayout l;
                 l.clamp();
                 return l;
             }
+            auto tag = CompoundTag::fromSnbt(snbt);
+            if (!tag) return std::nullopt;
             return fromNbt(*tag);
         }
     };

@@ -227,6 +227,8 @@ v2 补一条同样重要的：**脚本 PASS 也只能给它覆盖到的那部分
 | `sys-mirrors-abi` | 槽序、**每个槽的签名逐参数**、结构体字段、常量、枚举成员与 `abi.h` 逐格对上；镜像里禁条件编译 | 完整（比 `cargo check` 更严：宽度写错两边都编得过） |
 | `comment-claims` | 「吞掉 / 捕获 / 不会抛」类注释同函数内必须有 try/catch | 需同时出现异常词汇，避免与丢包语义的 swallow 混淆 |
 | `manifest-matches-host` | 示例的 `manifest.json` 的 type / 依赖名 / entry 真能被宿主装上 | 完整 |
+| `host-loadable` | 统一内存算子 / 模组注册各恰好一处，且所在包必然进产物 | 完整 |
+| `ledger-covers-tree` | 工作区里的每个文件，台账里都要有一行（台账的**反方向**） | 完整 |
 | `no-silent-fallback` | `catch` 块既不打日志、不重抛、不返回、不复位目标、也不装进错误值 | **仅这一种形状**；跨函数的默认值补齐看不见 |
 
 后四条是 v2 新加的。`build-config`、`include-resolves`、
@@ -238,10 +240,15 @@ v2 补一条同样重要的：**脚本 PASS 也只能给它覆盖到的那部分
 `levilamina-rust-loader`，而那个名字的模组在改名之后已经不存在 ——
 示例装不上，且没有任何报错，只是不在 `/pier list` 里。
 
-**五个 surrogate 不在这张表里**（`python3 tools/run-surrogates.py` 一次跑齐）。
-`link-` / `include-` / `rust-` / `example-surrogate` 和 `ledger-count` 分别是
-没有工具链时对链接器、C++ 编译器、`cargo clippy`、示例可编译性、人工清点的
-临时替身。它们查得到的东西编译器本来就会报，所以按 §九 的判据
+`host-loadable` 同样：`MemoryOperators.cpp` 从头到尾没写，98 个 TU 全编过、
+`pier.dll` 链好、mod 打包完成，装的时候 LeviLamina 才说「没有使用统一的
+内存分配操作符」。这一族的共同形状是 —— **编译期完全看不见，装载期才报，
+而报出来的话和构建过程毫无关系。**
+
+**七个 surrogate 不在这张表里**（`python3 tools/run-surrogates.py` 一次跑齐）：
+`build-prereqs` / `link-` / `include-` / `rust-` / `example-surrogate` /
+`typed-storage` / `ledger-count`，分别是构建前置条件、链接器、C++ 编译器、
+`cargo clippy`、示例可编译性、`TypedStorage` 坍缩规则、人工清点的替身。它们查得到的东西编译器本来就会报，所以按 §九 的判据
 （「编译器和 clippy 查不到的才值得写脚本」）它们不该是契约的一部分。
 
 它们是**第一次真机编译**之后补齐的：那一次报出的四类错误

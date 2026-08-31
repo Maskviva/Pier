@@ -17,10 +17,13 @@
 #define PIER_THREAD_EXEC ll::thread::ServerThreadExecutor
 #endif
 
+
 #include "pier/host/hosted_mod.h"
+#include "pier/host/mod_host.h"
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/module.h"
 
 namespace pier::api_impl
 {
@@ -44,6 +47,8 @@ namespace pier::api_impl
             HostedMod* mod = nullptr; // 只作身份比对；永不盲目解引用
             PierTaskCb cb = nullptr;
             void* user = nullptr;
+            /** 仅旧槽任务：回调所在模块基址（V-03）。 */
+            void const* legacyBase = nullptr;
         };
 
         std::mutex gTaskMutex;
@@ -73,7 +78,62 @@ namespace pier::api_impl
             auto mod = weakMod.lock();
             if (!mod || mod.get() != task.mod) return; // 模组没了；dylib 可能已 unmap
             if (!mod->isEnabled()) return;             // 禁用期间静音
+            CallbackScope scope{mod.get()};            // V-06/V-28
             if (task.cb) task.cb(task.user);
+        }
+
+        /* ── 无主旧槽（schedule / schedule_after）的归属恢复（V-03） ───────
+         * 这两个槽没有模组句柄，旧实现「发后不管」：模组卸载后定时器照样触发，
+         * 跳进已 unmap 的代码段。现在它们也走 gPendingTasks（mod=nullptr），
+         * 并记下回调所在模块的基址；拆除时按基址清掉，触发时再查一次基址仍
+         * 属于某个活模组。 */
+        void const* moduleBaseOfCb(PierTaskCb cb)
+        {
+            auto* host = ModHost::instance();
+            if (!host) return nullptr;
+            for (auto const& hosted : host->hostedMods())
+            {
+                void const* base = hosted->lib.handle();
+                if (base && addressOwnedBy(base, reinterpret_cast<void const*>(cb))) return base;
+            }
+            return nullptr;
+        }
+
+        void runLegacyTask(uint64_t id)
+        {
+            PendingTask task;
+            {
+                std::lock_guard lock(gTaskMutex);
+                auto it = gPendingTasks.find(id);
+                if (it == gPendingTasks.end()) return; // 卸载清掉了
+                task = it->second;
+                gPendingTasks.erase(it);
+            }
+            if (!task.cb) return;
+            // 基址在登记时就查过；触发前再确认它仍属于某个活着的模组 —— 不属于
+            // 任何模组的回调（宿主自身或未知来源）照旧执行。
+            if (task.legacyBase && moduleBaseOfCb(task.cb) != task.legacyBase) return;
+            task.cb(task.user);
+        }
+
+        void submitLegacy(PierTaskCb cb, void* user, bool delayed, uint64_t delayMs)
+        {
+            void const* base = moduleBaseOfCb(cb);
+            uint64_t id;
+            {
+                std::lock_guard lock(gTaskMutex);
+                id = gNextTaskId++;
+                gPendingTasks[id] = PendingTask{nullptr, cb, user, base};
+            }
+            auto fire = [id] { runLegacyTask(id); };
+            if (delayed)
+            {
+                (void)PIER_THREAD_EXEC::getDefault().executeAfter(fire, std::chrono::milliseconds(delayMs));
+            }
+            else
+            {
+                PIER_THREAD_EXEC::getDefault().execute(fire);
+            }
         }
 
         /** 两个入口的共享主体。 */
@@ -114,7 +174,7 @@ namespace pier::api_impl
                 // 历史的无主槽：为 schedule_for 出现之前编译的模组保留。
                 // 跨卸载天然不安全 —— 这样的模组不许标 reload_safe。
                 if (!cb) return;
-                PIER_THREAD_EXEC::getDefault().execute([cb, user] { cb(user); });
+                submitLegacy(cb, user, /*delayed=*/false, 0);
             PIER_API_GUARD_END_VOID
         }
 
@@ -122,11 +182,7 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!cb) return;
-                // 发后不管：返回的 CancellableCallback 刻意丢弃。
-                (void)PIER_THREAD_EXEC::getDefault().executeAfter(
-                    [cb, user] { cb(user); },
-                    std::chrono::milliseconds(delayMs)
-                );
+                submitLegacy(cb, user, /*delayed=*/true, delayMs);
             PIER_API_GUARD_END_VOID
         }
 
@@ -181,9 +237,14 @@ namespace pier::api_impl
             size_t dropped = 0;
             {
                 std::lock_guard lock(gTaskMutex);
+                void const* base = mod ? mod->lib.handle() : nullptr;
                 for (auto it = gPendingTasks.begin(); it != gPendingTasks.end();)
                 {
-                    if (it->second.mod == mod)
+                    bool const mine = it->second.mod == mod
+                        || (it->second.mod == nullptr && base
+                            && (it->second.legacyBase == base
+                                || addressOwnedBy(base, reinterpret_cast<void const*>(it->second.cb))));
+                    if (mine)
                     {
                         it = gPendingTasks.erase(it);
                         ++dropped;

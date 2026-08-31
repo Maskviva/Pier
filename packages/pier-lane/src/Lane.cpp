@@ -239,9 +239,13 @@ namespace pier::lane
             }
 
             // 锁外。发布时自己持有的那一份 + 每个未归还的租约各一份。
+            // V-18：只替**未归还的租约**补调 release —— 这是 abi.h（lane_publish /
+            // lane_unpublish 的说明）唯一承诺的事。旧实现还多调了一次「publish 时
+            // 的那一份」，而契约从未记载过这次释放：按文档实现引用计数的提供方
+            // 会被多减一次（下溢 → 释放后使用）。发布时移交的那份引用由提供方
+            // 在 unpublish 之后自行回收。
             if (release)
             {
-                release(data); // publish 时的那一份
                 for (uint32_t i = 0; i < outstanding; ++i) release(data);
             }
             if (outstanding > 0)

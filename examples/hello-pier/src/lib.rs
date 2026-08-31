@@ -65,9 +65,18 @@ impl LeviMod for HelloPier {
 
         // 把一段活儿丢回服务器线程。闭包被装箱交给宿主，跑完立刻释放 ——
         // 所有权全程在模组这一侧（契约 §三）。
-        host.schedule_after(1000, || {
+        //
+        // 返回的是**票据**：这条路走的是带模组句柄的 `schedule_for`，宿主按模组
+        // 记账，卸载时会把没跑完的整批丢掉（旧的无主槽做不到这一点，定时器会在
+        // 模组卸载后跳进已经 unmap 的代码段）。想提前取消就 `host.cancel(task)`。
+        let task = host.schedule_after(1000, || {
             Logger::get().info("一秒后的排期任务跑到了。");
         })?;
+        ctx.logger().info(&format!(
+            "排期票据 {}；本模组名下待执行 {} 个。",
+            task.raw(),
+            host.pending_tasks()
+        ));
         Ok(())
     }
 

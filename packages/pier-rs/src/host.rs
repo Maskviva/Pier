@@ -20,9 +20,9 @@
 use core::ffi::c_void;
 
 use crate::rt::error::{Error, Result};
-use crate::rt::ffi::{call_out_str, collect_strs, r, s};
+use crate::rt::ffi::{call_out_str, collect_strs, r_owned, s};
 use crate::rt::logger::Logger;
-use crate::rt::runtime::api;
+use crate::rt::runtime::{api, rt, TaskId};
 use crate::sys;
 
 /// 服务器的运行阶段。镜像 `ll::GamingStatus`。
@@ -74,23 +74,57 @@ impl Host {
     /// 闭包被装箱后交给宿主，回调里取回并执行，执行完立刻释放 ——
     /// 所有权全程在模组这一侧，符合契约 §三（跨边界不移交所有权：
     /// 我们递过去的是一个不透明指针，宿主只负责原样回传）。
-    pub fn schedule(&self, f: impl FnOnce() + Send + 'static) -> Result<()> {
-        let cb = api()
-            .schedule
-            .ok_or_else(|| Error("宿主没有提供 `schedule`".to_owned()))?;
+    ///
+    /// V-03：走**带模组句柄**的 `schedule_for`，不再走无主的 `schedule`。
+    /// 无主槽的任务在模组卸载后照样触发 —— 跳进已经 unmap 的代码段。带句柄
+    /// 的任务由宿主按模组记账，卸载时整批丢弃（并打一行 warn 提醒你自己
+    /// 取消）。返回的 [`TaskId`] 可用于 [`Host::cancel`]。
+    pub fn schedule(&self, f: impl FnOnce() + Send + 'static) -> Result<TaskId> {
+        let cb = crate::require_slot!(schedule_for, "排期任务");
         let boxed: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(f));
-        unsafe { cb(task_trampoline, Box::into_raw(boxed).cast()) };
-        Ok(())
+        let user = Box::into_raw(boxed);
+        let id = unsafe { cb(rt().handle(), task_trampoline, user.cast()) };
+        if id == 0 {
+            // 宿主拒收：闭包还没交出去，收回所有权。
+            drop(unsafe { Box::from_raw(user) });
+            return Err(Error("宿主拒绝了排期任务（模组尚未被接管，或句柄无效）".to_owned()));
+        }
+        Ok(TaskId(id))
     }
 
     /// 同上，但延迟 `delay_ms` 毫秒。线程安全。
-    pub fn schedule_after(&self, delay_ms: u64, f: impl FnOnce() + Send + 'static) -> Result<()> {
-        let cb = api()
-            .schedule_after
-            .ok_or_else(|| Error("宿主没有提供 `schedule_after`".to_owned()))?;
+    pub fn schedule_after(&self, delay_ms: u64, f: impl FnOnce() + Send + 'static) -> Result<TaskId> {
+        let cb = crate::require_slot!(schedule_after_for, "延迟排期任务");
         let boxed: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(f));
-        unsafe { cb(task_trampoline, Box::into_raw(boxed).cast(), delay_ms) };
-        Ok(())
+        let user = Box::into_raw(boxed);
+        let id = unsafe { cb(rt().handle(), task_trampoline, user.cast(), delay_ms) };
+        if id == 0 {
+            drop(unsafe { Box::from_raw(user) });
+            return Err(Error("宿主拒绝了延迟排期任务（模组尚未被接管，或句柄无效）".to_owned()));
+        }
+        Ok(TaskId(id))
+    }
+
+    /// 取消一个尚未执行的任务。已执行、已取消或不属于本模组的票据返回 `false`。
+    ///
+    /// 注意：取消只是把票据作废；闭包本身在宿主拆除时不会被调用，也不会被
+    /// 释放 —— 它随进程结束回收。要避免泄漏就别在热路径上大量排期再取消。
+    pub fn cancel(&self, task: TaskId) -> bool {
+        if !task.is_valid() {
+            return false;
+        }
+        match api().schedule_cancel {
+            Some(f) => unsafe { f(rt().handle(), task.0) },
+            None => false,
+        }
+    }
+
+    /// 本模组名下还有多少任务没跑。适合在 `on_unload` 里断言为 0。
+    pub fn pending_tasks(&self) -> u32 {
+        match api().schedule_pending_count {
+            Some(f) => unsafe { f(rt().handle()) },
+            None => 0,
+        }
     }
 
     /// 以控制台身份执行一条命令，取回它的输出。
@@ -138,6 +172,32 @@ impl Host {
             .ok_or_else(|| Error(format!("宿主读不出服务器信息项 {prop}")))
     }
 
+    /// 服务端的网络协议版本号。
+    ///
+    /// 具名访问器而不是让调用方自己传 `PIER_SRV_PROTOCOL_VERSION`：这个数
+    /// 是**跨版本适配类模组的第一个判据**，写错常量号的代价是拿到 BDS
+    /// 版本串然后解析失败，而那个失败离根因很远。
+    ///
+    /// ABI 上它是字符串（`SharedConstants::NetworkProtocolVersion` 转过来的），
+    /// 这里解析成数字并把解析失败**如实报错**，不返回 0 —— 「问不出来」
+    /// 和「协议版本是 0」必须分开（契约 §5.2）。
+    pub fn protocol_version(&self) -> Result<u32> {
+        let raw = self.server_info(sys::PIER_SRV_PROTOCOL_VERSION)?;
+        raw.trim().parse::<u32>().map_err(|e| {
+            Error(format!("宿主报的协议版本 {raw:?} 解析不成数字：{e}"))
+        })
+    }
+
+    /// BDS 的版本串（`Common::getGameVersionString`）。
+    pub fn bds_version(&self) -> Result<String> {
+        self.server_info(sys::PIER_SRV_BDS_VERSION)
+    }
+
+    /// 数据包门面。
+    pub fn packets(&self) -> crate::packet::Packets {
+        crate::packet::Packets::get()
+    }
+
     /// 当前 tick 计数。
     pub fn current_tick(&self) -> Option<u64> {
         api().get_current_tick.map(|f| unsafe { f() })
@@ -177,5 +237,5 @@ struct CmdOut {
 unsafe extern "C" fn cmd_sink(ctx: *mut c_void, success: bool, output: sys::PierStr) {
     let out = &mut *ctx.cast::<CmdOut>();
     out.success = success;
-    out.text = r(output).to_owned();
+    out.text = r_owned(output);
 }

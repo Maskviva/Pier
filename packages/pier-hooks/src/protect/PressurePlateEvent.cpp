@@ -49,6 +49,7 @@
  */
 #include "pier/hooks/decision_throttle.h"
 #include "pier/hooks/hook_events.h"
+#include "pier/support/log.h"
 
 #include <string>
 #include <unordered_map>
@@ -68,9 +69,18 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& plateDef(); // 前向
+        HookEventDef& plateDef();      // 前向：玩家踩
+        HookEventDef& actorPlateDef(); // 前向：非玩家实体踩
 
         std::unordered_map<std::string, ThrottledDecision>& plateCache()
+        {
+            static std::unordered_map<std::string, ThrottledDecision> c;
+            return c;
+        }
+
+        /** 非玩家实体用**另一张**表：两类键（xuid / 实体 id）落在同一张表里会
+         *  互相挤占那 512 条上限，而实体的数量级远大于玩家。 */
+        std::unordered_map<std::string, ThrottledDecision>& actorPlateCache()
         {
             static std::unordered_map<std::string, ThrottledDecision> c;
             return c;
@@ -83,33 +93,71 @@ namespace pier::hooks
         bool refuseTrigger(
             ::Actor& entity, ::BlockSource& region, ::BlockPos const& pos, char const* kind)
         {
-            auto& def = plateDef();
-            if (!def.live() || !entity.isPlayer()) return false;
+            bool const isPlayer = entity.isPlayer();
+            auto& def = isPlayer ? plateDef() : actorPlateDef();
+            if (!def.live()) return false;
 
-            auto& p = *static_cast<Player*>(&entity);
+            Player* p = isPlayer ? static_cast<Player*>(&entity) : nullptr;
 
-            std::string key = p.getXuid();
-            if (key.empty()) key = p.getRealName(); // 离线模式服务器
+            // 节流键：玩家用 xuid（指针会被回收，见 decision_throttle.h），
+            // 非玩家用「类型名 + 实体 id」—— id 同样不复用，比裸指针安全。
+            std::string key;
+            if (p)
+            {
+                key = p->getXuid();
+                if (key.empty()) key = p->getRealName(); // 离线模式服务器
+            }
+            else
+            {
+                try
+                {
+                    key = std::to_string(entity.getOrCreateUniqueID().rawID);
+                }
+                catch (...)
+                {
+                    return false; // 连 id 都问不出来的实体不值得为它派发
+                }
+            }
 
             int const dim = static_cast<int>(region.getDimensionId());
             long long const now = throttleNowMs();
 
             bool cached = false;
-            if (throttleLookup(plateCache(), key, pos.x, pos.y, pos.z, dim, now, cached))
+            auto& cache = isPlayer ? plateCache() : actorPlateCache();
+            if (throttleLookup(cache, key, pos.x, pos.y, pos.z, dim, now, cached))
             {
                 return cached;
             }
 
-            std::string snbt = "{\"eventId\":\"PlayerStepOnPressurePlateEvent\""
-                ",\"x\":" + snbtNum(pos.x)
+            std::string snbt = isPlayer
+                ? std::string{"{\"eventId\":\"PlayerStepOnPressurePlateEvent\""}
+                : std::string{"{\"eventId\":\"ActorStepOnPressurePlateEvent\""};
+            snbt += ",\"x\":" + snbtNum(pos.x)
                 + ",\"y\":" + snbtNum(pos.y)
                 + ",\"z\":" + snbtNum(pos.z)
                 + ",\"dim\":" + snbtNum(dim)
-                + ",\"kind\":\"" + kind
-                + "\"," + playerRefSnbt(p) + "}";
+                + ",\"kind\":\"" + kind + "\"";
+            if (p)
+            {
+                snbt += "," + playerRefSnbt(*p);
+            }
+            else
+            {
+                std::string type;
+                try
+                {
+                    type = entity.getTypeName();
+                }
+                catch (...)
+                {
+                    type.clear();
+                }
+                snbt += ",\"actor\":\"" + snbtEscape(type) + "\",\"actorId\":" + key + "L";
+            }
+            snbt += "}";
 
             bool const cancelled = dispatchHookEventCancellable(def, snbt);
-            throttleStore(plateCache(), key, pos.x, pos.y, pos.z, dim, now, cancelled);
+            throttleStore(cache, key, pos.x, pos.y, pos.z, dim, now, cancelled);
             return cancelled;
         }
 
@@ -177,14 +225,36 @@ namespace pier::hooks
             "PlayerStepOnPressurePlateEvent",
             []
             {
-                PressurePlateInsideHook::hook();
-                TripWireInsideHook::hook();
-                PressurePlateShouldTriggerHook::hook();
-                TripWireShouldTriggerHook::hook();
+                int const r1 = PressurePlateInsideHook::hook();
+                int const r2 = TripWireInsideHook::hook();
+                int const r3 = PressurePlateShouldTriggerHook::hook();
+                int const r4 = TripWireShouldTriggerHook::hook();
+                if (r1 != 0 || r2 != 0 || r3 != 0 || r4 != 0)
+                {
+                    hostLogger().error(
+                        "[PressurePlateEvent] 有 detour 未装上（codes: {} {} {} {}）—— 订阅被拒绝。",
+                        r1, r2, r3, r4);
+                }
+                return r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0;
             }
         };
         HookEventDef& plateDef() { return gDef; }
 
+        // 同一组 detour 供两个事件 id 使用（同 RideEvent）。
+        HookEventDef gActorDef{
+            "ActorStepOnPressurePlateEvent",
+            []
+            {
+                int const r1 = PressurePlateInsideHook::hook();
+                int const r2 = TripWireInsideHook::hook();
+                int const r3 = PressurePlateShouldTriggerHook::hook();
+                int const r4 = TripWireShouldTriggerHook::hook();
+                return r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0;
+            }
+        };
+        HookEventDef& actorPlateDef() { return gActorDef; }
+
         HookEventRegistrar gReg{gDef};
+        HookEventRegistrar gActorReg{gActorDef};
     } // namespace
 } // namespace pier::hooks

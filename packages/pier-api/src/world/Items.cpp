@@ -206,9 +206,9 @@ namespace pier::api_impl
                 case PIER_ISTR_COLOR:
                 {
                     auto color = item->getColor();
-                    std::string snbt = "{r:" + snbtNum(color.r);
-                    snbt += ",g:" + snbtNum(color.g);
-                    snbt += ",b:" + snbtNum(color.b) + "}";
+                    std::string snbt = "{r:" + snbtDouble(color.r);
+                    snbt += ",g:" + snbtDouble(color.g);
+                    snbt += ",b:" + snbtDouble(color.b) + "}";
                     sink(ctx, ps(snbt));
                     return true;
                 }
@@ -268,8 +268,9 @@ namespace pier::api_impl
                 case PIER_IOP_ADD_ENCHANT:
                 {
                     // sarg = "enchant_name:level" —— 完整实现需要
-                    // EnchantUtils::applyEnchant；目前是桩，原样返回物品。
-                    break;
+                    // EnchantUtils::applyEnchant。V-32：桩必须诚实地报失败，
+                    // 而不是原样返回物品并宣称成功（契约 §5.1）。
+                    return false;
                 }
                 case PIER_IOP_REMOVE_ENCHANTS:
                     item->removeEnchants();

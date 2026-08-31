@@ -355,6 +355,8 @@ namespace pier::hooks
                         "的拦截会缺失。",
                         r2, r3, r4, r5);
                 }
+                // 主钩点必须在；辅助钩点缺失只降级（已 warn）。
+                return r1 == 0;
             }
         };
         HookEventDef& projectileDef() { return gDef; }

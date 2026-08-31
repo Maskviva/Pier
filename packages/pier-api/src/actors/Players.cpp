@@ -472,9 +472,9 @@ namespace pier::api_impl
                     auto const& ns = *opt;
                     std::string snbt = "{ping:" + snbtNum(ns.mCurrentPing->count());
                     snbt += ",avg_ping:" + snbtNum(ns.mAveragePing->count());
-                    snbt += ",packet_loss:" + snbtNum(ns.mCurrentPacketLoss);
-                    snbt += ",avg_packet_loss:" + snbtNum(ns.mAveragePacketLoss);
-                    snbt += ",max_bps:" + snbtNum(ns.mApproximateMaxBps) + "}";
+                    snbt += ",packet_loss:" + snbtDouble(ns.mCurrentPacketLoss);
+                    snbt += ",avg_packet_loss:" + snbtDouble(ns.mAveragePacketLoss);
+                    snbt += ",max_bps:" + snbtDouble(ns.mApproximateMaxBps) + "}";
                     sink(ctx, ps(snbt));
                     return true;
                 }
@@ -648,6 +648,7 @@ namespace pier::api_impl
                 case PIER_PACT_CAN_USE_ABILITY:
                 {
                     int idx = static_cast<int>(a);
+                    if (idx < 0 || idx >= static_cast<int>(AbilitiesIndex::AbilityCount)) return false;
                     bool can = p->canUseAbility(static_cast<AbilitiesIndex>(idx));
                     if (out) out(ctx, ps(std::string_view{can ? "1" : "0"}));
                     return true;

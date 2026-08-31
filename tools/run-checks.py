@@ -46,6 +46,8 @@ SCRIPTS = [
     ("include_resolves.py", ["include-resolves"]),
     ("sys_mirrors_abi.py", ["sys-mirrors-abi"]),
     ("manifest_matches_host.py", ["manifest-matches-host"]),
+    ("host_loadable.py", ["host-loadable"]),
+    ("ledger_covers_tree.py", ["ledger-covers-tree"]),
     ("prose_and_fallback.py", ["comment-claims", "no-silent-fallback"]),
 ]
 
@@ -73,8 +75,8 @@ def main():
         print("FAIL —— %d 条不通过：%s" % (len(failed), "、".join(failed)))
         return 1
     print("PASS —— %d 个脚本全部通过。" % ran)
-    print("提醒：optional-drops / sys-mirrors-abi 只过了静态必要条件，")
-    print("      交付前仍要在有工具链的机器上真跑一次 xmake f 与 cargo check。")
+    print("提醒：optional-drops 只过了静态必要条件（可选包符号无人跨包引用）；")
+    print("      交付前仍要真跑一次 xmake f 与 cargo clippy。")
     return 0
 
 

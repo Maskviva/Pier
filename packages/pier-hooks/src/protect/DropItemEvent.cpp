@@ -218,6 +218,7 @@ namespace pier::hooks
                         "解析错误。结果：丢弃物品保护完全不生效（物品照常掉落，且不触发任何"
                         "拦截日志）。请用服务器实际运行的 LeviLamina/BDS 版本重新编译本宿主。");
                 }
+                return r1 == 0 && r2 == 0;
             }
         };
         HookEventDef& dropItemDef() { return gDef; }

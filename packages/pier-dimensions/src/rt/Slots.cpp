@@ -133,8 +133,17 @@ namespace pier::dimensions::rt
                     dimName, seed, sv(layoutSnbt)
                 );
                 auto layout = PlotLayout::fromSnbt(toString(layoutSnbt));
+                if (!layout)
+                {
+                    // V-40：布局随维度永久持久化，解析失败不能拿默认值顶替。
+                    hostLogger().error(
+                        "add_plot_dimension('{}') 拒绝：布局 SNBT 解析失败，收到的是：{}",
+                        dimName, sv(layoutSnbt)
+                    );
+                    return -1;
+                }
                 auto id = CustomDimensionManager::getInstance().addDimension<PlotDimension>(
-                    dimName, seed, layout
+                    dimName, seed, *layout
                 );
                 return id.value();
             PIER_API_GUARD_END_VAL(-1)

@@ -80,14 +80,39 @@ pub(crate) unsafe fn r<'a>(raw: sys::PierStr) -> &'a str {
 
 /// # Safety
 /// `ctx` 必须是一个有效的 `*mut Vec<String>`。
+/// 拷贝一份宿主字符串。非法 UTF-8 **不截断**：`r()` 的截断会把一条事件载荷
+/// 在第一个坏字节处砍成两半，其后的 dim/取消位全部丢失（V-19）；这里改成
+/// `from_utf8_lossy`，坏字节变成 U+FFFD，结构保住。凡是要拿走所有权的地方
+/// 都该用它。
+pub(crate) unsafe fn r_owned(raw: sys::PierStr) -> String {
+    if raw.ptr.is_null() {
+        return String::new();
+    }
+    let bytes = core::slice::from_raw_parts(raw.ptr as *const u8, raw.len);
+    match core::str::from_utf8(bytes) {
+        Ok(s) => s.to_owned(),
+        Err(e) => {
+            static WARNED: core::sync::atomic::AtomicBool =
+                core::sync::atomic::AtomicBool::new(false);
+            if !WARNED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+                crate::Logger::get().warn(&format!(
+                    "宿主交来的字符串不是合法 UTF-8（第 {} 字节起），坏字节已替换为 U+FFFD；这条只报一次。",
+                    e.valid_up_to()
+                ));
+            }
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+    }
+}
+
 pub(crate) unsafe extern "C" fn push_string(ctx: *mut c_void, item: sys::PierStr) {
-    (*ctx.cast::<Vec<String>>()).push(r(item).to_owned());
+    (*ctx.cast::<Vec<String>>()).push(r_owned(item));
 }
 
 /// # Safety
 /// `ctx` 必须是一个有效的 `*mut Option<String>`。
 pub(crate) unsafe extern "C" fn set_string(ctx: *mut c_void, item: sys::PierStr) {
-    *ctx.cast::<Option<String>>() = Some(r(item).to_owned());
+    *ctx.cast::<Option<String>>() = Some(r_owned(item));
 }
 
 /// 调一个「成功就往 sink 里写一次」的槽，把那一次写取回来。

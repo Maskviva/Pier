@@ -105,6 +105,14 @@ namespace pier::api_impl
             HostedMod* mod = nullptr;
             PierCommandCb cb = nullptr;
             void* user = nullptr;
+            /** V-07：最近一次注册声明的权限等级（0..4）。Bedrock 侧的命令建好
+             *  后改不了等级，所以执行闭包按**这个**值再复核一次 —— 重注册只能
+             *  收紧，不能放宽。 */
+            int32_t permission = 0;
+            /** V-07：Bedrock 侧建命令时的等级与 overload 形状摘要；重注册若不
+             *  一致就拒绝，绝不静默沿用旧声明。 */
+            int32_t bedrockPermission = -1;
+            std::string shape;
         };
 
         std::mutex gCmdMutex;
@@ -113,18 +121,52 @@ namespace pier::api_impl
         /** 给 `mod` 占下 `cmdName`；被别的**活**模组占着返回 nullptr。
          *  `freshlyRegistered` = Bedrock 侧的命令还没建过（头一次见这个名字）。 */
         std::shared_ptr<CommandBinding> claimBinding(
-            std::string const& cmdName, HostedMod* mod, PierCommandCb cb, void* user, bool& freshlyRegistered)
+            std::string const& cmdName, HostedMod* mod, PierCommandCb cb, void* user,
+            int32_t permission, std::string const& shape, bool& freshlyRegistered)
         {
             std::lock_guard lock(gCmdMutex);
             auto [it, inserted] = gCommands.try_emplace(cmdName, std::make_shared<CommandBinding>());
             auto binding = it->second;
             bool rebind = !inserted && (binding->mod == nullptr || binding->mod == mod);
             if (!inserted && !rebind) return nullptr; // 被别的活模组占着
+            if (!inserted && binding->bedrockPermission >= 0)
+            {
+                // V-07：Bedrock 侧的命令不能注销也不能改等级/形状。重注册声明
+                // 的等级或 overload 与首次不一致时，旧行为是静默沿用首次声明
+                // —— 热修一个 permission 写错的 bug 会毫无提示地失效。
+                if (binding->bedrockPermission != permission || binding->shape != shape)
+                {
+                    if (mod)
+                    {
+                        mod->getLogger().error(
+                            "register_command('{}')：与本会话首次注册的声明不一致"
+                            "（等级 {} → {}，形状 {}），Bedrock 命令一旦建好就改不了。"
+                            "拒绝重绑定 —— 重启服务器以采用新声明。",
+                            cmdName, binding->bedrockPermission, permission,
+                            binding->shape == shape ? "相同" : "不同"
+                        );
+                    }
+                    return nullptr;
+                }
+            }
             binding->mod = mod;
             binding->cb = cb;
             binding->user = user;
+            binding->permission = permission;
+            if (inserted)
+            {
+                binding->bedrockPermission = permission;
+                binding->shape = shape;
+            }
             freshlyRegistered = inserted;
             return binding;
+        }
+
+        /** V-07：执行前按**当前声明**的等级复核一次来源权限。Bedrock 侧的等级
+         *  是首次注册时定下的；这里只可能比它更严，不可能更松。 */
+        bool originAllowed(CommandOrigin const& origin, CommandBinding const& b)
+        {
+            return static_cast<int32_t>(origin.getPermissionsLevel()) >= b.permission;
         }
 
         std::string originIdentity(CommandOrigin const& origin)
@@ -145,7 +187,7 @@ namespace pier::api_impl
             {
                 auto pos = entity->getPosition();
                 out += ",dim:" + snbtNum(static_cast<int>(entity->getDimensionId()));
-                out += ",x:" + snbtNum(pos.x) + ",y:" + snbtNum(pos.y) + ",z:" + snbtNum(pos.z) + "d";
+                out += ",x:" + snbtDouble(pos.x) + ",y:" + snbtDouble(pos.y) + ",z:" + snbtDouble(pos.z);
             }
             out += "}";
             return out;
@@ -164,10 +206,11 @@ namespace pier::api_impl
                 if (!mod || !cb) return false;
                 std::string cmdName = toString(name);
 
+                int32_t const perm = std::clamp<int32_t>(permission, 0, 4);
                 bool fresh = false;
-                auto binding = claimBinding(cmdName, mod, cb, user, fresh);
+                auto binding = claimBinding(cmdName, mod, cb, user, perm, "raw", fresh);
                 if (!binding) return false;
-                if (!fresh) return true; // Bedrock 侧已建过（重载后重新绑定）
+                if (!fresh) return true; // Bedrock 侧已建过（重载后重新绑定，声明已核对一致）
 
                 try
                 {
@@ -194,12 +237,18 @@ namespace pier::api_impl
                                 output.error("命令 '" + cmdName + "' 当前不可用（模组已禁用）");
                                 return;
                             }
+                            if (!originAllowed(origin, local))
+                            {
+                                output.error("命令 '" + cmdName + "' 需要更高的权限等级");
+                                return;
+                            }
                             std::string args;
                             if (auto const& p = rt["args"]; p.hold(ParamKind::RawText))
                             {
                                 args = p.get<ParamKind::RawText>().mText;
                             }
                             std::string originName = originIdentity(origin);
+                            CallbackScope scope{local.mod}; // V-06/V-28
                             local.cb(
                                 local.user,
                                 ps(args),
@@ -475,10 +524,23 @@ namespace pier::api_impl
                     return false;
                 }
 
+                // overload 形状摘要：每个 overload 的「name:kind[?]」序列。
+                std::string shape;
+                for (auto const& decls : overloads)
+                {
+                    shape += '[';
+                    for (auto const& d : decls)
+                    {
+                        shape += d.name + ':' + std::to_string(static_cast<int>(d.kind))
+                            + (d.optional ? "?" : "") + ',';
+                    }
+                    shape += ']';
+                }
+                int32_t const perm = std::clamp<int32_t>(permission, 0, 4);
                 bool fresh = false;
-                auto binding = claimBinding(cmdName, mod, cb, user, fresh);
+                auto binding = claimBinding(cmdName, mod, cb, user, perm, shape, fresh);
                 if (!binding) return false;
-                if (!fresh) return true; // Bedrock 侧已存在（重载后重新绑定）
+                if (!fresh) return true; // Bedrock 侧已存在（重载后重新绑定，声明已核对一致）
 
                 try
                 {
@@ -530,6 +592,12 @@ namespace pier::api_impl
                                     output.error("命令 '" + cmdName + "' 当前不可用（模组已禁用）");
                                     return;
                                 }
+                                if (!originAllowed(origin, local))
+                                {
+                                    output.error("命令 '" + cmdName + "' 需要更高的权限等级");
+                                    return;
+                                }
+                                CallbackScope scope{local.mod}; // V-06/V-28
                                 std::string args = "{overload:" + snbtNum(idx) + ",args:{";
                                 for (auto const& d : decls)
                                 {

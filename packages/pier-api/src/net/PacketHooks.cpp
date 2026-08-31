@@ -89,6 +89,9 @@ namespace pier::api_impl
         struct PacketSub
         {
             HostedMod* mod;
+            /** 注册时取得的弱引用（V-06）：快照只能让**条目**活着，回调
+             *  目标代码段随 FreeLibrary 消失，派发前必须经它复核。 */
+            std::weak_ptr<HostedMod> owner;
             int32_t dirMask;
             PierPacketCb cb;
             void* user;
@@ -97,9 +100,26 @@ namespace pier::api_impl
         struct ConnSub
         {
             HostedMod* mod;
+            std::weak_ptr<HostedMod> owner;
             PierConnCb cb;
             void* user;
         };
+
+        /** 复核订阅者仍在世；在世则返回其 shared_ptr（持有到回调返回）。
+         *  mod 为空（无归属登记）的条目照旧派发。 */
+        template <class Sub>
+        std::shared_ptr<HostedMod> liveOwner(Sub const& sub, bool& skip)
+        {
+            skip = false;
+            if (!sub.mod) return {};
+            auto mod = sub.owner.lock();
+            if (!mod || mod.get() != sub.mod)
+            {
+                skip = true; // 已卸载：条目还在快照里，代码段已经不在
+                return {};
+            }
+            return mod;
+        }
 
         using PacketSubs = std::vector<std::shared_ptr<PacketSub>>;
         using ConnSubs = std::vector<std::shared_ptr<ConnSub>>;
@@ -384,6 +404,11 @@ namespace pier::api_impl
                 DepthGuard depth;
                 for (auto const& sub : subs)
                 {
+                    bool skip = false;
+                    auto owner = liveOwner(*sub, skip);
+                    if (skip) continue;
+                    CallbackScope scope{owner.get()};
+
                     PierPacketEvent ev{};
                     ev.struct_size = static_cast<uint32_t>(sizeof(PierPacketEvent));
                     ev.direction = direction;
@@ -456,6 +481,10 @@ namespace pier::api_impl
 
             for (auto const& sub : subs)
             {
+                bool skip = false;
+                auto owner = liveOwner(*sub, skip);
+                if (skip) continue;
+                CallbackScope scope{owner.get()};
                 try
                 {
                     sub->cb(sub->user, connId, ps(*address), opened);
@@ -622,15 +651,28 @@ namespace pier::api_impl
                 // 什么都不做的句柄。
                 if ((dirMask & (PIER_PKT_MASK_INBOUND | PIER_PKT_MASK_OUTBOUND)) == 0) return nullptr;
 
-                auto sub = std::make_shared<PacketSub>(PacketSub{asMod(mod), dirMask, cb, user});
-                PacketSub* raw = sub.get();
+                auto* raw = asMod(mod);
+                std::weak_ptr<HostedMod> owner;
+                if (raw)
+                {
+                    try
+                    {
+                        owner = raw->shared_from_this();
+                    }
+                    catch (...)
+                    {
+                        return nullptr; // 还没被 shared_ptr 接管的模组拒收（同 Bus）
+                    }
+                }
+                auto sub = std::make_shared<PacketSub>(PacketSub{raw, std::move(owner), dirMask, cb, user});
+                PacketSub* rawSub = sub.get();
                 {
                     std::unique_lock<std::shared_mutex> g{registryLock()};
                     packetSubs().push_back(std::move(sub));
                     refreshGatesLocked();
                 }
                 ensureInstalled();
-                return static_cast<PierPacketHookHandle>(raw);
+                return static_cast<PierPacketHookHandle>(rawSub);
             PIER_API_GUARD_END
         }
 
@@ -659,15 +701,28 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 if (!cb) return nullptr;
 
-                auto sub = std::make_shared<ConnSub>(ConnSub{asMod(mod), cb, user});
-                ConnSub* raw = sub.get();
+                auto* raw = asMod(mod);
+                std::weak_ptr<HostedMod> owner;
+                if (raw)
+                {
+                    try
+                    {
+                        owner = raw->shared_from_this();
+                    }
+                    catch (...)
+                    {
+                        return nullptr;
+                    }
+                }
+                auto sub = std::make_shared<ConnSub>(ConnSub{raw, std::move(owner), cb, user});
+                ConnSub* rawSub = sub.get();
                 {
                     std::unique_lock<std::shared_mutex> g{registryLock()};
                     connSubs().push_back(std::move(sub));
                     refreshGatesLocked();
                 }
                 ensureInstalled();
-                return static_cast<PierPacketHookHandle>(raw);
+                return static_cast<PierPacketHookHandle>(rawSub);
             PIER_API_GUARD_END
         }
 

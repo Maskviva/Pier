@@ -50,7 +50,8 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& rideDef(); // 前向
+        HookEventDef& rideDef();      // 前向：玩家上骑乘物
+        HookEventDef& actorRideDef(); // 前向：非玩家实体上骑乘物
 
         LL_TYPE_INSTANCE_HOOK(
             PlayerRideHook,
@@ -60,38 +61,53 @@ namespace pier::hooks
             bool,
             ::Actor& passenger)
         {
-            auto& def = rideDef();
-            // 两条快路径，便宜的在前：没人订阅，或者骑乘者是生物。生物骑乘
-            //（僵尸骑鸡、村民上船）不是权限问题，而某些农场每 tick 都在产生
-            // 它们。
-            if (!def.live() || !passenger.isPlayer())
+            auto& playerDef = rideDef();
+            auto& actorDef = actorRideDef();
+
+            bool const passengerIsPlayer = passenger.isPlayer();
+            auto& def = passengerIsPlayer ? playerDef : actorDef;
+            if (!def.live())
             {
                 return origin(passenger);
             }
 
-            auto& p = *static_cast<Player*>(&passenger);
-
-            // getTypeName 会抛（实体正在被销毁时）。抛出去等于一次骑乘把服务
-            // 器带走，所以就地吞掉 —— 订阅方读到空名字会退回粗动作，不会更
-            // 松。
             std::string vehicleName;
+            std::string passengerName;
             try
             {
                 vehicleName = this->getTypeName();
+                passengerName = passenger.getTypeName();
             }
             catch (...)
             {
                 vehicleName.clear();
+                passengerName.clear();
             }
 
             auto const& pos = this->getPosition();
-            std::string snbt = "{\"eventId\":\"PlayerRideEvent\""
-                ",\"x\":" + snbtNum(static_cast<int>(pos.x))
+            std::string snbt = passengerIsPlayer
+                ? std::string{"{\"eventId\":\"PlayerRideEvent\""}
+                : std::string{"{\"eventId\":\"ActorRideEvent\""};
+            snbt += ",\"x\":" + snbtNum(static_cast<int>(pos.x))
                 + ",\"y\":" + snbtNum(static_cast<int>(pos.y))
                 + ",\"z\":" + snbtNum(static_cast<int>(pos.z))
                 + ",\"dim\":" + snbtNum(static_cast<int>(this->getDimensionId()))
-                + ",\"vehicle\":\"" + snbtEscape(vehicleName)
-                + "\"," + playerRefSnbt(p) + "}";
+                + ",\"vehicle\":\"" + snbtEscape(vehicleName) + "\""
+                + ",\"vehicleId\":" + snbtNum(static_cast<int64_t>(this->getOrCreateUniqueID().rawID)) + "L";
+            if (passengerIsPlayer)
+            {
+                snbt += "," + playerRefSnbt(*static_cast<Player*>(&passenger));
+            }
+            else
+            {
+                // 非玩家乘客：船里的村民、矿车里的猪、被拴住的动物。载荷给类型和
+                // id，而不是伪造一个 `_player` —— 消费方按「有没有 _player」就能
+                // 分辨两条路径。
+                snbt += ",\"passenger\":\"" + snbtEscape(passengerName) + "\""
+                    + ",\"passengerId\":"
+                    + snbtNum(static_cast<int64_t>(passenger.getOrCreateUniqueID().rawID)) + "L";
+            }
+            snbt += "}";
 
             if (dispatchHookEventCancellable(def, snbt))
             {
@@ -100,9 +116,15 @@ namespace pier::hooks
             return origin(passenger);
         }
 
-        HookEventDef gDef{"PlayerRideEvent", [] { PlayerRideHook::hook(); }};
+        HookEventDef gDef{"PlayerRideEvent", [] { return PlayerRideHook::hook() == 0; }};
         HookEventDef& rideDef() { return gDef; }
 
+        // 同一个 detour 供两个事件 id 使用：谁先被订阅谁负责装钩子，第二个订阅
+        // 时 `hook()` 已经装过（LL 的 hook 是幂等的，重复调用返回 0）。
+        HookEventDef gActorDef{"ActorRideEvent", [] { return PlayerRideHook::hook() == 0; }};
+        HookEventDef& actorRideDef() { return gActorDef; }
+
         HookEventRegistrar gReg{gDef};
+        HookEventRegistrar gActorReg{gActorDef};
     } // namespace
 } // namespace pier::hooks

@@ -17,7 +17,7 @@
 //!
 //! `require_slot!` 把两道闸包在一起，返回一个说得清「缺哪个函数」的 Err。
 
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::rt::handle::Handle;
 use crate::sys;
@@ -29,17 +29,23 @@ pub(crate) struct Runtime {
     pub(crate) host_struct_size: usize,
 }
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+/// V-43：以前是 `OnceLock`——只能设一次。`/pier reload` 不卸映像、重跑
+/// `pier_main`，第二次 `set` 必然失败，于是 pier-rs 模组根本不能 reload，
+/// 而且失败时 SDK 一行日志都打不出来。现在允许覆盖：每次 `pier_main` 都拿
+/// 到新的 `PierModHandle`（旧 HostedMod 已析构，旧句柄悬空），必须换掉。
+/// 旧的 `Runtime` 刻意泄漏（每次 reload 几十字节）：仍在跑的回调可能还持有
+/// 指向它的 `&'static`，释放才是真正的 use-after-free。
+static RUNTIME: AtomicPtr<Runtime> = AtomicPtr::new(core::ptr::null_mut());
 
 pub(crate) fn set_runtime(api: &'static sys::PierApi, handle: sys::PierModHandle) -> bool {
     let host_struct_size = api.struct_size as usize;
-    RUNTIME
-        .set(Runtime {
-            api,
-            handle: Handle::new(handle),
-            host_struct_size,
-        })
-        .is_ok()
+    let fresh = Box::into_raw(Box::new(Runtime {
+        api,
+        handle: Handle::new(handle),
+        host_struct_size,
+    }));
+    RUNTIME.store(fresh, Ordering::Release);
+    true
 }
 
 /// 闸一：宿主的表覆盖到这个偏移了吗。
@@ -71,9 +77,12 @@ pub fn host_abi() -> (u32, usize) {
 }
 
 pub(crate) fn rt() -> &'static Runtime {
-    RUNTIME
-        .get()
-        .expect("Pier 运行时尚未初始化 —— 是不是漏了 register_mod!？")
+    let p = RUNTIME.load(Ordering::Acquire);
+    if p.is_null() {
+        panic!("Pier 运行时尚未初始化 —— 是不是漏了 register_mod!？");
+    }
+    // SAFETY：指针来自 Box::into_raw 且永不释放（见 RUNTIME 的注释）。
+    unsafe { &*p }
 }
 
 /// 交给模组生命周期回调的上下文。
@@ -89,6 +98,16 @@ impl ModContext {
 
     pub fn logger(&self) -> crate::Logger {
         crate::Logger::get()
+    }
+
+    /// 宿主与系统层面的能力（运行阶段、排期、执行命令、协议版本…）。
+    pub fn host(&self) -> crate::Host {
+        crate::Host::get()
+    }
+
+    /// 数据包门面。等价于 `ctx.host().packets()`，写起来短一截。
+    pub fn packets(&self) -> crate::packet::Packets {
+        crate::packet::Packets::get()
     }
 
     /// 宿主是按客户端目标编的吗。

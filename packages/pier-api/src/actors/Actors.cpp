@@ -292,6 +292,9 @@ namespace pier::api_impl
                             return false;
                         }
                     }
+                    // V-15：与 player_teleport 同一道闸。维度桥必须能建出实例且
+                    // 引擎自报 id 与请求一致，否则区块线程抛未捕获异常 → fastfail。
+                    if (!bridge::blockSourceOf(dim)) return false;
                     // teleport(pos, dim, rotation) —— 保留实体当前朝向。
                     actor->teleport(
                         Vec3{(float)a, (float)b, (float)c}, DimensionType{dim}, actor->getRotation());

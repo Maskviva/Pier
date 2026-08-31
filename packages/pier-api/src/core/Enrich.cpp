@@ -23,12 +23,15 @@
 
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/deps/nbt/CompoundTag.h"
+#include "mc/deps/nbt/ListTag.h"
+#include "mc/deps/nbt/StringTag.h"
 #include "mc/platform/UUID.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorDamageSource.h"
@@ -128,14 +131,53 @@ namespace pier::bridge
             return live.find(addr) != live.end();
         };
 
+        // V-04：桩解析不出来时**必须留下痕迹**。契约 §5.1：「问不出来」和
+        // 「答案是否」必须是不同的值 —— 缺席的 dim 会被消费方 unwrap_or(0)
+        // 当成主世界，这正是自定义维度土地保护被绕过的事故原型。
+        std::vector<std::string> unresolved;
+
+        // 非玩家 Actor（ActorHurt/MobDie 等的当事人是生物）：只在运行时实体表
+        // 里找得到时才解引用 —— 事件是在引擎调用栈里同步派发的，此刻它一定
+        // 活着；表里没有的指针一律不碰。线性扫描、零分配，只在遇到非玩家桩
+        // 时才做。
+        std::vector<Actor*> actors;
+        bool actorsReady = false;
+        auto liveActor = [&](uintptr_t addr) -> Actor*
+        {
+            if (!actorsReady)
+            {
+                if (auto* level = bridge::levelReady()) actors = level->getRuntimeActorList();
+                actorsReady = true;
+            }
+            for (auto* a : actors)
+            {
+                if (reinterpret_cast<uintptr_t>(a) == addr) return a;
+            }
+            return nullptr;
+        };
+
         for (auto const& stub : stubs)
         {
             if (isActorLike(stub.type))
             {
-                // 只解引用当前在线玩家的指针；别的 Actor 指针不碰
-                //（生物随时可能在这一 tick 内被销毁）。
+                // 只解引用当前在线玩家的指针；别的 Actor 指针只在运行时实体表
+                // 里命中时才碰（生物随时可能在这一 tick 内被销毁）。
                 if (!isLivePlayer(stub.addr))
                 {
+                    if (auto* actor = liveActor(stub.addr))
+                    {
+                        copy["_" + stub.key] = describeActor(*actor);
+                        if (stub.key == "self" && !haveDim)
+                        {
+                            copy["dim"] = CompoundTagVariant(static_cast<int>(actor->getDimensionId()));
+                            haveDim = true;
+                        }
+                        changed = true;
+                    }
+                    else
+                    {
+                        unresolved.push_back(stub.key);
+                    }
                     continue;
                 }
                 auto* player = reinterpret_cast<Player*>(stub.addr);
@@ -263,6 +305,14 @@ namespace pier::bridge
             }
         }
 
+        if (!unresolved.empty())
+        {
+            // 显式标记：消费方据此 fail-closed，而不是把缺席当成主世界。
+            ListTag list;
+            for (auto const& k : unresolved) list.add(std::make_unique<StringTag>(k));
+            copy["_unresolved"] = std::move(list);
+            changed = true;
+        }
         return (changed ? copy : data).toSnbt(SnbtFormat::Minimize);
     }
 } // namespace pier::bridge

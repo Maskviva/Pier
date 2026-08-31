@@ -110,8 +110,10 @@ pub struct PierLaneDesc {
     pub fingerprint: u64,
     pub data: *mut c_void,
     pub vtable: *const c_void,
-    pub retain: PierLaneRefFn,
-    pub release: PierLaneRefFn,
+    /// C 侧允许为 NULL（abi.h：「可为 NULL」）；非 `Option` 的函数指针在 Rust
+    /// 里读到 NULL 是未定义行为（V-41）。`Option<fn>` 与裸指针同布局。
+    pub retain: Option<PierLaneRefFn>,
+    pub release: Option<PierLaneRefFn>,
 }
 
 /// 取到的一条车道。

@@ -63,6 +63,10 @@ namespace pier::api_impl
         struct Subscription
         {
             HostedMod* mod = nullptr; // 只作身份比对；永不盲目解引用
+            /** 订阅时取得的弱引用（V-06）。fireOne 只经它复核存活：从裸指针
+             *  `shared_from_this()` 本身就是一次盲解引用 —— 模组在另一线程
+             *  卸载后那块内存已经不属于任何人（Services.cpp W13 早已如此）。 */
+            std::weak_ptr<HostedMod> owner;
             std::string topic;
             PierBusCb cb = nullptr;
             void* user = nullptr;
@@ -140,19 +144,15 @@ namespace pier::api_impl
             }
             if (!sub.cb || !sub.mod) return false;
 
-            std::weak_ptr<HostedMod> weakMod;
-            try
-            {
-                weakMod = sub.mod->shared_from_this();
-            }
-            catch (...)
-            {
-                return false;
-            }
-            auto mod = weakMod.lock();
+            // 只经订阅时保存的 weak_ptr 复核；模组已析构时 lock() 得空，不碰
+            // 任何已释放的内存。指针相等再比一次：防止新模组恰好落在旧地址。
+            auto mod = sub.owner.lock();
             if (!mod || mod.get() != sub.mod) return false; // dylib 可能已 unmap
             if (!mod->isEnabled()) return false;            // 禁用期间静音
 
+            // 持有 shared_ptr + 回调计数直到回调返回：卸载会被 ModHost 否决
+            //（V-06/V-28），而不是在我们脚下把代码段抽走。
+            CallbackScope scope{mod.get()};
             ran = true;
             return sub.cb(sub.user, ps(topic), ps(payload));
         }
@@ -207,9 +207,10 @@ namespace pier::api_impl
 
                 // 还没被 shared_ptr 接管的模组拒收：没有 weak_ptr 就没法在
                 // 之后重新验证，而不经验证调进 dylib 正是这张表存在要防的。
+                std::weak_ptr<HostedMod> owner;
                 try
                 {
-                    (void)raw->shared_from_this();
+                    owner = raw->shared_from_this();
                 }
                 catch (...)
                 {
@@ -218,7 +219,7 @@ namespace pier::api_impl
 
                 std::lock_guard lock(gBusMutex);
                 uint64_t id = gNextSubId++;
-                gSubs[id] = Subscription{raw, topic, cb, user};
+                gSubs[id] = Subscription{raw, std::move(owner), topic, cb, user};
                 gByTopic[topic].push_back(id);
                 return id;
             PIER_API_GUARD_END

@@ -269,9 +269,9 @@ namespace pier::bridge
             + "\",xuid:\"" + snbtEscape(p.getXuid())
             + "\",uuid:\"" + snbtEscape(p.getUuid().asString())
             + "\",dim:" + snbtNum(static_cast<long long>(static_cast<int>(p.getDimensionId())))
-            + ",x:" + snbtNum(static_cast<double>(pos.x))
-            + ",y:" + snbtNum(static_cast<double>(pos.y))
-            + ",z:" + snbtNum(static_cast<double>(pos.z)) + "d}";
+            + ",x:" + snbtDouble(pos.x)
+            + ",y:" + snbtDouble(pos.y)
+            + ",z:" + snbtDouble(pos.z) + "}";
         return out;
     }
 

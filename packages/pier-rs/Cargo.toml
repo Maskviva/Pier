@@ -22,6 +22,9 @@ path = "src/lib.rs"
 [dependencies]
 # service::exists() 曾经在 JSON 文本里做子串匹配 —— 和契约 §六 禁的是同一类
 # 错误，只是发生在另一侧。改成真解析。
+# service 的类型化调用（call_json / register_json）要 serde 的 trait；
+# derive 是可选的，业务侧自己开。
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pier-sys-rs = { version = "1.0.0", path = "../pier-sys-rs", default-features = false }
 

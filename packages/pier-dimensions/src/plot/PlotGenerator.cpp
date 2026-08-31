@@ -126,8 +126,8 @@ namespace pier::dimensions
 
         buf.volume = mPrototype;
         buf.volume->mHeight = static_cast<uint>(kTotalHeight);
-        buf.volume->mBlocks->mBegin = &*buf.blocks.begin();
-        buf.volume->mBlocks->mEnd = &*buf.blocks.end();
+        buf.volume->mBlocks->mBegin = buf.blocks.data();
+        buf.volume->mBlocks->mEnd = buf.blocks.data() + buf.blocks.size(); // V-40：&*end() 是 UB
     }
 
     void PlotGenerator::loadChunk(LevelChunk& lc, bool)

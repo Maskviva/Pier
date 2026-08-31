@@ -150,7 +150,7 @@ namespace pier::hooks
             return cancelled ? true : origin(owner, other);
         }
 
-        HookEventDef gDef{"PlayerPushEntityEvent", [] { PlayerPushEntityHook::hook(); }};
+        HookEventDef gDef{"PlayerPushEntityEvent", [] { return PlayerPushEntityHook::hook() == 0; }};
         HookEventDef& pushDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

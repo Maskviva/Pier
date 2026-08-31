@@ -83,7 +83,7 @@ namespace pier::hooks
             return origin(ev);
         }
 
-        HookEventDef gDef{"PlayerOpenContainerEvent", [] { PlayerOpenContainerHook::hook(); }};
+        HookEventDef gDef{"PlayerOpenContainerEvent", [] { return PlayerOpenContainerHook::hook() == 0; }};
         HookEventDef& openContainerDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

@@ -4,6 +4,7 @@
  * —— 和原版 /scoreboard 同一个命名空间，结果与游戏内状态对得上。 */
 #ifndef PIER_BUILD_CLIENT
 
+#include <limits>
 #include <string>
 
 #include "mc/world/level/Level.h"
@@ -55,6 +56,8 @@ namespace pier::api_impl
                 auto& board = level->getScoreboard();
                 std::string sa = toString(a);
                 std::string sb = toString(b);
+                // V-29：分数是 int，超出范围静默截断会把 2^32 变成 0。
+                if (n < std::numeric_limits<int>::min() || n > std::numeric_limits<int>::max()) return false;
 
                 switch (op)
                 {

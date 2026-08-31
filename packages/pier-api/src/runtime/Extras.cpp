@@ -21,6 +21,7 @@
  * 行看 git。
   * 双目标编入（与旧构建矩阵一致）。
  */
+#include <cstdint>
 #include <algorithm>
 #include <string>
 
@@ -39,6 +40,7 @@
 #include "pier/api/bridge.h"
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
+#include "pier/support/log.h"
 #include "pier/support/str.h"
 
 namespace pier::api_impl
@@ -66,10 +68,22 @@ namespace pier::api_impl
                 if (minX > maxX) std::swap(minX, maxX);
                 if (minZ > maxZ) std::swap(minZ, maxZ);
 
-                int32_t done = 0;
-                for (int32_t x = minX; x <= maxX; ++x)
+                // V-13：区域无上限时一次调用就能把服务器线程冻住（调用方常把玩家
+                // 的选区直接传进来）；maxX == INT32_MAX 时 `++x` 溢出，循环永不
+                // 终止。用 64 位计数，并对面积设上限。
+                constexpr int64_t kMaxColumns = int64_t{4096} * 4096;
+                int64_t const area = (int64_t{maxX} - minX + 1) * (int64_t{maxZ} - minZ + 1);
+                if (area > kMaxColumns)
                 {
-                    for (int32_t z = minZ; z <= maxZ; ++z)
+                    hostLogger().error(
+                        "level_set_biome：区域 {} 列超过上限 {} —— 请分批调用", area, kMaxColumns);
+                    return -1;
+                }
+
+                int32_t done = 0;
+                for (int64_t x = minX; x <= maxX; ++x)
+                {
+                    for (int64_t z = minZ; z <= maxZ; ++z)
                     {
                         // 逐列拿区块。**没加载的跳过，不强加载** —— 强加载一片
                         // 大区域会让主线程停住几秒，而调用方通常在玩家附近操作，

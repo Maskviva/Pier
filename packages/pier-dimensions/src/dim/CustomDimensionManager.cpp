@@ -12,7 +12,10 @@
  *   4. 配置里 SNBT 坏掉就 `continue` —— id 被丢掉，下次开服重新分配，
  *      玩家存档里的 DimensionId 当场失效；
  *   5. 走原生路径时还去改 `VanillaDimensions::Undefined()` —— 引擎自己在用
- *      这个哨兵做判断，改了它引擎内部的比较全乱。
+ *      这个哨兵做判断，改了它引擎内部的比较全乱；
+ *   6. 原生注册失败后退回 MoreDimensions 式的「假维度」（自分配 id +
+ *      改写 Undefined）—— 26.20 上根本建不出维度，只会留下一个引擎不认的
+ *      id 和一份错误的配置。现在**只走原生路径**：注册失败就是失败。
  *
  * 每一条的修法都写在对应位置。
  */
@@ -258,7 +261,6 @@ namespace pier::dimensions
 
     struct CustomDimensionManager::Impl
     {
-        std::atomic<int> mNewDimensionId{3};
         std::mutex mMapMutex;
 
         struct DimensionInfo
@@ -293,9 +295,8 @@ namespace pier::dimensions
         CustomDimensionConfig::setDimensionConfigPath();
         CustomDimensionConfig::loadConfigFile();
 
-        // id 从「配置里已声明的最大号 + 1」开始分配，**绝不从表的 size 来**。
-        // 一旦有任何一条加载失败，按 size 分配立刻和配置撞号。
-        int highest = 2;
+        // 配置镜像只用于：记住上次的 id/数据、去重、以及引擎表漂移时的告警。
+        // id 本身一律由引擎 DimensionManager 分配（见 addDimension 第 3 步）。
 
         for (auto& [name, info] : CustomDimensionConfig::getConfig().dimensionList)
         {
@@ -314,7 +315,6 @@ namespace pier::dimensions
                 );
                 continue;
             }
-            highest = std::max(highest, info.dimId);
 
             auto nbtTag = CompoundTag::fromSnbt(info.sNbt);
             if (!nbtTag)
@@ -329,7 +329,6 @@ namespace pier::dimensions
             impl->customDimensionMap.emplace(name, Impl::DimensionInfo{DimensionType{info.dimId}, *nbtTag});
         }
 
-        impl->mNewDimensionId.store(highest + 1);
 
         // 26.20 起自定义维度由引擎原生支持，FakeDimensionId 那一整套包改写
         // 已经删除：客户端通过 DimensionDataPacket 真正认识这些维度，区块、
@@ -443,55 +442,42 @@ namespace pier::dimensions
             }
         );
 
-        // ── 3. id 从哪来 ──────────────────────────────────────────────
+        // ── 3. id 从哪来：只走引擎原生注册 ──────────────────────────────
         //
-        // 优先让引擎分配。BDS 26.20 起 DimensionManager 自带 NameIdStore，
-        // id 存进存档、由引擎持久化，`getOrCreateDimension` 也只认它 ——
-        // 这正是之前「注册返回 3、传送却失败」的根因：我们只改了
-        // VanillaDimensions::DimensionMap 和工厂 map，NameIdStore 里没有条目，
-        // 引擎拿 id 3 反查不到名字，建不出维度。
-        //
-        // 原生路径失败才退回旧的手抄分配逻辑，行为不会比现在更差。
+        // BDS 26.20 起 DimensionManager 自带 NameIdStore，id 存进存档、由引擎
+        // 持久化，`getOrCreateDimension` 也只认它。以前原生注册失败会退回
+        // MoreDimensions 式的「假维度」路径：自己分配一个 id、只改
+        // VanillaDimensions::DimensionMap 和工厂 map、再把引擎的 Undefined()
+        // 哨兵改写成一个像真 id 的数字。那条路在 26.20 上建不出维度（函数末尾
+        // 的实例校验会判定失败），还会把引擎内部依赖 Undefined() 的比较全部
+        // 弄乱。现在**没有回退**：原生注册失败就是注册失败，直接抛出，
+        // Slots.cpp 的 GUARD 把它翻成 -1。
 
         auto const nativeId =
             native::registerCustomDimension(dimName, kWorldMinY, kWorldMaxY, readGeneratorType(info.nbt));
 
-        bool const usedNative = nativeId.has_value();
-
-        if (usedNative)
+        if (!nativeId)
         {
-            if (knownLocally && info.id.value() != *nativeId)
-            {
-                // 引擎给的 id 跟配置里记的不一样：以引擎为准，并把配置改过来。
-                // 旧 id 只可能出现在上一版手抄逻辑写下的配置里，那些 id 从来
-                // 就没在引擎侧生效过，所以没有存档兼容性问题。
-                hostLogger().warn(
-                    "维度 '{}'：配置里记的 id 是 {}，引擎分配的是 {}，以引擎为准",
-                    dimName, info.id.value(), *nativeId
-                );
-            }
-            info.id = DimensionType{*nativeId};
-            impl->usedIds.insert(*nativeId);
-        }
-        else if (!knownLocally && info.id.value() < 3)
-        {
-            int candidate = impl->mNewDimensionId.fetch_add(1);
-            while (!impl->usedIds.insert(candidate).second)
-            {
-                candidate = impl->mNewDimensionId.fetch_add(1);
-            }
-            info.id = DimensionType{candidate};
             hostLogger().error(
-                "维度 '{}' 无法走引擎原生注册，退回旧路径分配 id {} —— "
-                "26.20 上这条路径不足以让 getOrCreateDimension 建出维度，"
-                "函数末尾的实例校验大概率会直接判定注册失败并抛出",
-                dimName, candidate
+                "维度 '{}' 无法经引擎 DimensionManager 原生注册 —— 判定注册失败，不再退回假维度路径。"
+                "检查上方 registerCustomDimension 的日志（Level 是否就绪、DimensionDefinitionGroup 是否接受定义）。",
+                dimName
+            );
+            throw std::runtime_error("维度 '" + dimName + "' 原生注册失败");
+        }
+
+        if (knownLocally && info.id.value() != *nativeId)
+        {
+            // 引擎给的 id 跟配置里记的不一样：以引擎为准，并把配置改过来。
+            // 旧 id 只可能出现在上一版手抄逻辑写下的配置里，那些 id 从来
+            // 就没在引擎侧生效过，所以没有存档兼容性问题。
+            hostLogger().warn(
+                "维度 '{}'：配置里记的 id 是 {}，引擎分配的是 {}，以引擎为准",
+                dimName, info.id.value(), *nativeId
             );
         }
-        else
-        {
-            hostLogger().warn("维度 '{}' 无法走引擎原生注册，沿用已有 id {}", dimName, info.id.value());
-        }
+        info.id = DimensionType{*nativeId};
+        impl->usedIds.insert(*nativeId);
 
         // 回填。闭包里读的是这一份，所以必须在任何维度被真正创建之前更新。
         shared->id = info.id;
@@ -512,22 +498,8 @@ namespace pier::dimensions
             dimMap.insert_or_assign(dimName, info.id);
         });
 
-        // Undefined() 只有走旧路径时才需要顶上去：那套逻辑靠「Undefined 永远
-        // 大于所有已分配 id」来判断一个 id 是不是自定义维度。
-        //
-        // 走原生路径时**不能**动它。26.20 的引擎自己在用这个哨兵值做判断，
-        // 把它改成一个看起来像真实维度的数字，引擎内部的比较就全乱了。上游
-        // MoreDimensions 那个改写是针对没有原生支持的旧版本的补偿手段，在这
-        // 一版属于有害无益。
-        int const nextFree = std::max(impl->mNewDimensionId.load(), info.id.value() + 1);
-        impl->mNewDimensionId.store(nextFree);
-        if (!usedNative)
-        {
-            ll::memory::modify(VanillaDimensions::Undefined(), [&](DimensionType& uid)
-            {
-                uid = DimensionType{nextFree};
-            });
-        }
+        // Undefined() 是引擎自己在用的哨兵值，**永远不改写**（MoreDimensions 那个
+        // 改写是给没有原生支持的旧版本的补偿手段，这里只走原生路径，用不上）。
 
         impl->registeredDimension.emplace(dimName);
 

@@ -7,9 +7,11 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "ll/api/data/KeyValueDB.h"
 #include "ll/api/utils/ErrorUtils.h"
@@ -48,12 +50,26 @@ namespace pier::api_impl
         {
             if (rel.empty()) return {};
             std::filesystem::path p{std::u8string{rel.begin(), rel.end()}};
-            if (p.is_absolute()) return {};
+            // V-09：只拒 is_absolute() 在 Windows 上不够 —— `\evil`（有根目录无
+            // 盘符）和 `D:evil`（有盘符无根目录）都不算绝对路径，而 operator/
+            // 对前者丢弃左侧根目录之后的一切、对后者整体替换：dataDir / "\\evil"
+            // 得到 C:\evil。任何带根名或根目录的相对路径一律拒绝。
+            if (p.is_absolute() || p.has_root_name() || p.has_root_directory()) return {};
             for (auto const& part : p)
             {
                 if (part == "..") return {};
             }
-            return mod->getDataDir() / p;
+            // 再做一次前缀校验兜底：规范化后必须仍在数据目录之内。
+            auto const base = mod->getDataDir().lexically_normal();
+            auto const full = (mod->getDataDir() / p).lexically_normal();
+            auto const baseStr = base.generic_u8string();
+            auto const fullStr = full.generic_u8string();
+            if (fullStr.size() <= baseStr.size() || fullStr.compare(0, baseStr.size(), baseStr) != 0)
+            {
+                return {};
+            }
+            if (fullStr[baseStr.size()] != u8'/' && !baseStr.empty() && baseStr.back() != u8'/') return {};
+            return full;
         }
 
         PierKvDbHandle api_kvdb_open(PierModHandle modHandle, PierStr path, bool createIfMissing)
@@ -91,8 +107,15 @@ namespace pier::api_impl
         void api_kvdb_close(PierKvDbHandle h)
         {
             PIER_API_GUARD_BEGIN
-                std::lock_guard lock(gKvMutex);
-                gKvDbs.erase(reinterpret_cast<uint64_t>(h));
+                // 把库对象挪到锁外销毁：LevelDB 关闭可能耗时，不该拿着注册表锁。
+                std::unique_ptr<ll::data::KeyValueDB> dying;
+                {
+                    std::lock_guard lock(gKvMutex);
+                    auto it = gKvDbs.find(reinterpret_cast<uint64_t>(h));
+                    if (it == gKvDbs.end()) return;
+                    dying = std::move(it->second.db);
+                    gKvDbs.erase(it);
+                }
             PIER_API_GUARD_END_VOID
         }
 
@@ -100,10 +123,15 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!sink) return false;
-                std::lock_guard lock(gKvMutex);
-                auto* e = entryOf(h);
-                if (!e) return false;
-                auto value = e->db->get(sv(key));
+                // V-10：先在锁内把值拷出来，锁放掉再调 sink —— sink 是模组代码，
+                // 它完全可能再调任何 kvdb_*（非递归 mutex 会当场自死锁）。
+                std::optional<std::string> value;
+                {
+                    std::lock_guard lock(gKvMutex);
+                    auto* e = entryOf(h);
+                    if (!e) return false;
+                    value = e->db->get(sv(key));
+                }
                 if (!value) return false;
                 sink(ctx, ps(*value));
                 return true;
@@ -154,10 +182,19 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!sink) return;
-                std::lock_guard lock(gKvMutex);
-                auto* e = entryOf(h);
-                if (!e) return;
-                for (auto&& [key, value] : e->db->iter())
+                // V-10：先快照再回调（理由同 kvdb_get）。快照的代价是一次全库拷贝
+                // —— 这是「遍历并清理过期键」这类模组代码能安全存在的前提。
+                std::vector<std::pair<std::string, std::string>> snapshot;
+                {
+                    std::lock_guard lock(gKvMutex);
+                    auto* e = entryOf(h);
+                    if (!e) return;
+                    for (auto&& [key, value] : e->db->iter())
+                    {
+                        snapshot.emplace_back(std::string{key}, std::string{value});
+                    }
+                }
+                for (auto const& [key, value] : snapshot)
                 {
                     sink(ctx, ps(key), ps(value));
                 }

@@ -44,10 +44,20 @@
 
 pub use levilamina_sys as sys;
 
+pub mod event;
 mod host;
+pub mod nbt;
+pub mod packet;
 mod rt;
+mod sel;
+pub mod service;
 
+pub use event::{Event, EventPriority, EventRef, Listener, PlayerIdentity, Priority, Wiring};
 pub use host::{GamingStatus, Host};
+pub use nbt::{NbtError, NbtResult, NbtValue};
+pub use sel::PlayerSel;
+pub use service::CallError;
+pub use packet::{ConnectionState, Direction, Directions, Packet, PacketHook, Packets, Verdict};
 pub use rt::error::{Error, Result};
 pub use rt::logger::{LogLevel, Logger};
 pub use rt::registration::{LeviMod, ModSlot, __init_runtime, __lifecycle, __load};
@@ -73,7 +83,9 @@ pub mod __rt {
 pub mod prelude {
     //! 一行 `use levilamina::prelude::*;` 拿到写模组最常用的那些东西。
     pub use crate::{
-        register_mod, Error, GamingStatus, Host, LeviMod, LogLevel, Logger, ModContext, Result,
-        TaskId,
+        register_mod, ConnectionState, Direction, Directions, Error, Event, EventRef,
+        GamingStatus, Host, LeviMod, Listener, LogLevel, Logger, ModContext, NbtValue, Packet,
+        PacketHook, Packets, PlayerIdentity, PlayerSel, Priority, Result, TaskId, Verdict, Wiring,
     };
+    pub use crate::{event::names, service};
 }

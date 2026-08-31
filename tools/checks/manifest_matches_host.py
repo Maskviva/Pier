@@ -45,13 +45,21 @@ def run():
     host = m.group(1)
     r.note("宿主注册的模组类型名 = %r" % host)
 
+    # 允许对**别的仓库**跑：Pier 的消费方（模组）同受这条判等约束，
+    # 而它们那边没有 hosted_mod.h —— 宿主名从这个仓库读，manifest 从那边扫。
+    scan_root = sys.argv[1] if len(sys.argv) > 1 else ROOT
+
     found = 0
-    for dp, dirs, fs in os.walk(ROOT):
+    for dp, dirs, fs in os.walk(scan_root):
         dirs[:] = [d for d in dirs if d not in (".git", "target", "node_modules")]
         if "manifest.json" not in fs:
             continue
         p = os.path.join(dp, "manifest.json")
-        rel = os.path.relpath(p, ROOT)
+        rel = os.path.relpath(p, scan_root)
+        # V-44：仓库根目录的 manifest.json 是 pier 宿主自己的 LeviLamina 清单
+        #（type "native"），不是 pier 模组；扫进来必然误报 FAIL。
+        if os.path.abspath(dp) == os.path.abspath(scan_root):
+            continue
         found += 1
         try:
             with open(p, encoding="utf-8") as f:

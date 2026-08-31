@@ -146,6 +146,7 @@ namespace pier::hooks
                         "强制只在进入世界的那一刻生效**，玩家进去之后自己 /gamemode 就能绕过，"
                         "而且不会有任何拦截日志。请用服务器实际运行的版本重新编译本宿主。");
                 }
+                return r == 0;
             }
         };
         HookEventDef& gameModeDef() { return gDef; }

@@ -67,7 +67,7 @@ namespace pier::hooks
             return origin(player, std::move(changeRequest));
         }
 
-        HookEventDef gDef{"PlayerChangeDimensionEvent", [] { PlayerChangeDimensionHook::hook(); }};
+        HookEventDef gDef{"PlayerChangeDimensionEvent", [] { return PlayerChangeDimensionHook::hook() == 0; }};
         HookEventDef& changeDimDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

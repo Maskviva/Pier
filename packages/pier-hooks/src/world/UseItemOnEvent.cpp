@@ -117,7 +117,7 @@ namespace pier::hooks
             return origin(item, at, face, hit, targetBlock, isFirstEvent);
         }
 
-        HookEventDef gDef{"PlayerUseItemOnEvent", [] { PlayerUseItemOnHook::hook(); }};
+        HookEventDef gDef{"PlayerUseItemOnEvent", [] { return PlayerUseItemOnHook::hook() == 0; }};
         HookEventDef& useItemOnDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

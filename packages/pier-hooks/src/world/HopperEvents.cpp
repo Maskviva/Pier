@@ -107,7 +107,7 @@ namespace pier::hooks
             dispatchHookEvent(def, snbt);
         }
 
-        HookEventDef gDef{"HopperTransferEvent", [] { HopperSetItemHook::hook(); }};
+        HookEventDef gDef{"HopperTransferEvent", [] { return HopperSetItemHook::hook() == 0; }};
         HookEventDef& hopperDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

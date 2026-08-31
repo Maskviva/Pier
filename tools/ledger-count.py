@@ -5,6 +5,14 @@
 为什么要有这个脚本：那一行统计曾经写着 `✔75`，而表体逐行数出来是 70，
 交付说明只好附一句「以表体为准」。一个需要附注解释才能读的数字是坏数字。
 
+**它还按区域拆 ⬜。** 这一条是被一次真实的错话逼出来的：交付说明连续三轮
+写「C++ 侧全量完成」，而台账里 `packages/pier-host/src/MemoryOperators.cpp`
+一直挂着 ⬜ —— 那是个**装载阻断级**的文件，没有它 LeviLamina 直接拒绝
+装载。数据一直在表里，只是没人把它按区域汇总，所以那句错话三轮都没被拦下。
+
+一个只报总数的清点，挡不住「某个区域已经完成」这种**分区断言**。
+现在每次跑都打一张分区表，写交付说明时照抄它，不许凭印象。
+
 统计行是**导出量**，不是事实。事实只有表体那一行行状态。所以这里：
 
     python3 tools/ledger-count.py         # 只报，对不上就非零退出
@@ -65,6 +73,35 @@ def main():
         for name, st in bad[:8]:
             print("      %s → %r" % (name, st))
         return 1
+
+    # ── 按区域拆 ⬜ ──────────────────────────────────────────────
+    areas = {}
+    for line in body.splitlines():
+        m = ROW.match(line)
+        if not m or not m.group(3).strip().startswith("⬜"):
+            continue
+        path = m.group(1)
+        parts = path.split("/")
+        if path.startswith("packages/"):
+            area = "/".join(parts[:2])
+        elif "/" in path:
+            area = parts[0] + "/"
+        else:
+            area = "(根目录)"
+        areas[area] = areas.get(area, 0) + 1
+    if areas:
+        print("  ⬜ 按区域：")
+        for area, k in sorted(areas.items(), key=lambda kv: -kv[1]):
+            print("      %-28s %d" % (area, k))
+        cpp = [a for a in areas if a.startswith("packages/pier-")
+               and not a.endswith(("-rs", "-sys-rs"))]
+        if cpp:
+            print("      ⚠ C++ 侧仍有 ⬜：%s —— 交付说明里不许写「C++ 侧全量完成」"
+                  % "、".join(sorted(cpp)))
+        else:
+            print("      C++ 侧（八个包）零 ⬜")
+    else:
+        print("  零 ⬜。")
 
     want = "**统计**：✔ %d ｜ ✂ %d ｜ ⬜ %d（共 %d 个旧文件）" % (done, cut, todo, total)
     m = SUMMARY.search(text)

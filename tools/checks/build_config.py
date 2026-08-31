@@ -16,9 +16,17 @@
    `add_packages("levilamina-client")` —— 那个包不存在，配置阶段直接失败。
    包名不随构建配置改，客户端/服务端的差别在 `add_requires` 的 configs 里。
 
-3. **用到某个外部库的头，就必须声明那个包。** 包的 includedirs 靠
-   `add_packages` 继承。`pier-hooks` 满篇 `ll/api/memory/Hook.h` 却一个
-   `add_packages` 都没有 —— 一个 TU 都编不过。
+3. **用到某个外部库的头，就必须声明那个包 —— 按 include 的传递闭包算。**
+   包的 includedirs 靠 `add_packages` 继承。
+
+   「按闭包算」是被真机编译逼出来的。第一版只看**直接** include，于是
+   `pier-lane` 判成「不需要任何外部包」：`Lane.cpp` 自己确实只 include 了
+   标准库和 `pier/`。但 `pier/host/hosted_mod.h` 里有
+   `ll/api/event/ListenerBase.h` —— 编译器展开的是闭包，不是第一层。
+   结果是 `fatal error C1083: 无法打开包括文件`。
+
+   这条判据的形状和 `include-surrogate` 的第二类是同一个：**能不能编过，
+   取决于闭包里有什么，不取决于这个文件自己写了什么。**
 
 第 3 条只查 include 前缀能对上的部分。像 `bedrockdata` 那样**只在链接期**
 起作用、不提供头文件的包，这条查不到，也不该由它来查。
@@ -99,7 +107,64 @@ def run():
                        "xmake 配置阶段就会失败" % (label, pk))
     r.note("根 add_requires 提供 %d 个外部包，所有 add_packages 都能对上" % len(required))
 
-    # ── 3. 用了谁的头就要声明谁 ────────────────────────────────────
+    # ── 3b. 有中文源文件就必须给 MSVC 加 /utf-8 ────────────────────
+    #
+    # 这个仓库的注释是中文的（那是它的一部分：每条注释都写「为什么」）。
+    # 不加 /utf-8 的话，MSVC 在非 UTF-8 代码页下每个文件报一条 C4819，
+    # 一次全量构建上百条，把真正的警告淹掉；加了 /WX 就是硬错。
+    has_cjk = False
+    for dp, _, names in os.walk(PKGS):
+        if has_cjk:
+            break
+        for fn in names:
+            if not fn.endswith((".cpp", ".h", ".hpp")):
+                continue
+            if any("\u4e00" <= ch <= "\u9fff" for ch in _read(os.path.join(dp, fn))[:4000]):
+                has_cjk = True
+                break
+    # 判据必须落在**代码**上，不能是「文件里出现过这个串」——
+    # 上面那段解释 /utf-8 的注释里就写着 `/utf-8`，按全文匹配的话，
+    # 把那行 add_cxflags 删掉这条检查照样绿。
+    # 这是本工程里同一类错误的第四次（前三次都是「在剥掉 X 的文本里找 X」）。
+    # 统一的形状是：**判据看的东西和它想断言的东西不是同一个东西。**
+    root_code = re.sub(r"--\[\[.*?\]\]", "", root_text, flags=re.S)
+    root_code = re.sub(r"^\s*--[^\n]*", "", root_code, flags=re.M)
+    has_flag = re.search(r'add_cxflags\s*\(\s*"[^"]*(/utf-8|/source-charset)', root_code) is not None
+    if has_cjk and not has_flag:
+        r.fail("源文件里有中文，但根 xmake 的**代码**里没有 "
+               "`add_cxflags(\"/utf-8\", ...)` —— MSVC 会对每个文件报 C4819，"
+               "把真正的警告淹掉；加了 /WX 就是硬错")
+    elif has_cjk:
+        r.note("源文件含中文，已给 MSVC 加 /utf-8")
+
+    # ── 3. 用了谁的头就要声明谁（按 include 的传递闭包） ─────────────
+    incdirs = [
+        os.path.join(PKGS, p, "include")
+        for p in pkgs
+        if os.path.isdir(os.path.join(PKGS, p, "include"))
+    ]
+
+    def _external_closure(path, seen=None, ext=None, depth=0):
+        """一个 TU 展开后会碰到的**外部**头。内部头照 include 递归进去。"""
+        if seen is None:
+            seen, ext = set(), set()
+        if depth > 6 or path in seen or not os.path.exists(path):
+            return ext
+        seen.add(path)
+        text = re.sub(r"/\*.*?\*/", "", _read(path), flags=re.S)
+        text = re.sub(r"//[^\n]*", "", text)
+        for m in re.finditer(r'#\s*include\s*[<"]([^>"]+)[>"]', text):
+            inc = m.group(1)
+            if inc.startswith(("pier/", "sdk/")):
+                for d in incdirs:
+                    cand = os.path.join(d, inc)
+                    if os.path.exists(cand):
+                        _external_closure(cand, seen, ext, depth + 1)
+                        break
+            else:
+                ext.add(inc)
+        return ext
+
     for pkg in pkgs:
         declared = _toks(pkg_texts[pkg], "add_packages")
         needed = set()
@@ -107,16 +172,15 @@ def run():
             for fn in names:
                 if not fn.endswith((".cpp", ".h", ".hpp")):
                     continue
-                for line in _read(os.path.join(dp, fn)).splitlines():
-                    m = re.match(r'\s*#\s*include\s*[<"]([^>"]+)[>"]', line)
-                    if not m:
-                        continue
+                for inc in _external_closure(os.path.join(dp, fn)):
                     for prefix, owner in HEADER_OWNER.items():
-                        if m.group(1).startswith(prefix):
+                        if inc.startswith(prefix):
                             needed.add(owner)
         for miss in sorted(needed - declared):
-            r.fail("%s 用了 %s 的头，但没有 add_packages(%r) —— includedirs 继承不到，"
-                   "一个 TU 都编不过" % (pkg, miss, miss))
+            r.fail("%s 的 include 闭包里有 %s 的头，但没有 add_packages(%r) —— "
+                   "includedirs 继承不到，编译器会报「无法打开包括文件」。"
+                   "注意闭包：这个包自己可能一行 %s 的 include 都没写，"
+                   "是经 pier/ 的头带进来的" % (pkg, miss, miss, miss))
         for extra in sorted(declared - needed - LINK_ONLY):
             r.note("%s 声明了 %r 但没有对应的 include —— 若它只在链接期起作用，"
                    "把它加进本检查的 LINK_ONLY" % (pkg, extra))

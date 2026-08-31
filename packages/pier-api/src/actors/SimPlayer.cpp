@@ -86,6 +86,11 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!bridge::levelReady()) return false;
+                // V-15：目标维度必须能经维度桥建出（同 player_teleport）。
+                if (!bridge::blockSourceOf(dimension)) return false;
+                // V-30：不允许和在线玩家同名 —— 所有按名字寻址的槽都会在两者之间
+                // 随机命中，`chat` 动词还能以真人的名字发言。
+                if (bridge::resolvePlayer(PierPlayerSel{0, name}) != nullptr) return false;
                 auto sp = SimulatedPlayer::create(
                     toString(name),
                     Vec3{(float)x, (float)y, (float)z},

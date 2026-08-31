@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -7,6 +8,8 @@
 #include "ll/api/Expected.h"
 #include "ll/api/mod/Manifest.h"
 #include "ll/api/mod/ModManager.h"
+
+#include "pier/host/hosted_mod.h"
 
 namespace pier
 {
@@ -58,5 +61,11 @@ namespace pier
 
         /** 本管理器当前装着的全部模组名。 */
         [[nodiscard]] std::vector<std::string> loadedNames() const;
+
+        /** 当前装着的全部模组（强引用快照）。给需要「按回调地址反查归属」的
+         *  能力包用（Money/Scheduler 的无主旧槽）：ll::mod::Mod 不是多态类型，
+         *  对 ModManagerRegistry::mods() 的 Mod& 做 dynamic_cast 不合法，而本
+         *  管理器表里的每一个都一定是 HostedMod。 */
+        [[nodiscard]] std::vector<std::shared_ptr<HostedMod>> hostedMods() const;
     };
 } // namespace pier

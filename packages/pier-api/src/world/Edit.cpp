@@ -234,8 +234,8 @@ namespace pier::api_impl
                 out += ",block:[" + snbtNum(hr.mBlock.x) + "," + snbtNum(hr.mBlock.y) + ","
                     + snbtNum(hr.mBlock.z) + "]";
                 out += ",facing:" + snbtNum(static_cast<int>(hr.mFacing));
-                out += ",pos:[" + snbtNum(hr.mPos.x) + "," + snbtNum(hr.mPos.y) + ","
-                    + snbtNum(hr.mPos.z) + "]";
+                out += ",pos:[" + snbtDouble(hr.mPos.x) + "," + snbtDouble(hr.mPos.y) + ","
+                    + snbtDouble(hr.mPos.z) + "]";
 
                 int64_t entityId = 0;
                 if (hr.mType == HitResultType::Entity)

@@ -162,7 +162,18 @@ namespace pier::api_impl
                 {
                     return false;
                 }
-                return bridge::runConsoleCommand("gamerule " + rule + " " + toString(value));
+                // V-25：value 会拼进控制台命令 —— 只接受 true/false 或（可带负号的）
+                // 整数，其余一律拒绝，别把调用方的任意文本送进命令解析器。
+                std::string const val = toString(value);
+                bool const isBool = (val == "true" || val == "false");
+                bool isInt = !val.empty() && val.size() <= 11;
+                for (size_t i = 0; i < val.size() && isInt; ++i)
+                {
+                    char const c = val[i];
+                    if (!((c >= '0' && c <= '9') || (i == 0 && c == '-' && val.size() > 1))) isInt = false;
+                }
+                if (!isBool && !isInt) return false;
+                return bridge::runConsoleCommand("gamerule " + rule + " " + val);
             PIER_API_GUARD_END
         }
 

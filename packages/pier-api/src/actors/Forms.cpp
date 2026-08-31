@@ -77,6 +77,30 @@ namespace pier::api_impl
         /** 选择型控件（dropdown / step_slider）的 name → options 台账。 */
         using ChoiceTable = std::unordered_map<std::string, std::vector<std::string>>;
 
+        /** V-01：滑块的 name → {min,max,step} 台账。回传值来自客户端，LL 的
+         *  Slider::parseResult 是裸 get<double>()，不做任何范围检查；宿主既然
+         *  在发送侧归一化了规格，就必须在回传侧按同一规格钳制。 */
+        struct SliderSpec
+        {
+            double min, max, step;
+        };
+        using SliderTable = std::unordered_map<std::string, SliderSpec>;
+
+        /** 按规格钳制回传值：越界回到边界、有步进则对齐到最近步进点。
+         *  返回是否改动过（改动即意味着客户端送来了不合法的值）。 */
+        bool clampSliderValue(SliderSpec const& spec, double& v)
+        {
+            double const before = v;
+            if (!(v == v)) v = spec.min; // NaN
+            v = std::clamp(v, spec.min, spec.max);
+            if (spec.step > 0.0)
+            {
+                double k = std::round((v - spec.min) / spec.step);
+                v = std::clamp(spec.min + k * spec.step, spec.min, spec.max);
+            }
+            return std::abs(before - v) > 1e-9 || !(before == before);
+        }
+
         /** PIER_TRACE_FORM=1 打开表单追踪。只读一次。 */
         bool formTrace()
         {
@@ -114,6 +138,7 @@ namespace pier::api_impl
             auto mod = weakMod.lock();
             if (!mod || mod.get() != pending.mod) return; // 模组没了
             if (!mod->isEnabled()) return;                // 禁用期间静音
+            CallbackScope scope{mod.get()};               // V-06/V-28
             if (pending.cb) pending.cb(pending.user, ps(resultSnbt));
         }
 
@@ -263,11 +288,22 @@ namespace pier::api_impl
             {
                 hostLogger().info("[form] simple ticket={} 按钮 {} 个", ticket, buttons);
             }
-            form->sendTo(p, [form, weakMod, ticket](Player&, int button, ll::form::FormCancelReason reason)
+            form->sendTo(p, [form, weakMod, ticket, buttons](Player& who, int button, ll::form::FormCancelReason reason)
             {
                 if (button < 0)
                 {
                     completeTicket(weakMod, ticket, cancelledSnbt(reason));
+                }
+                else if (button >= buttons)
+                {
+                    // V-01：LL 把客户端回传的下标原样交给我们，不做范围检查。
+                    // 改装客户端可以对 3 个按钮的表单回传 999 —— 交给模组就是
+                    // 越界索引（Rust panic → abort / C 越界读）。按取消处理，
+                    // 并留下这个玩家的名字。
+                    hostLogger().warn(
+                        "[form] 玩家 {} 回传的按钮下标 {} 越界（共 {} 个），按取消处理",
+                        who.getRealName(), button, buttons);
+                    completeTicket(weakMod, ticket, "{cancelled:1b,reason:-2,invalid:1b}");
                 }
                 else
                 {
@@ -327,6 +363,7 @@ namespace pier::api_impl
         {
             auto form = std::make_shared<ll::form::CustomForm>(strField(spec, "title"));
             auto choices = std::make_shared<ChoiceTable>();
+            auto sliders = std::make_shared<SliderTable>();
             std::unordered_set<std::string> seenNames;
 
             if (spec.contains("submit")) form->setSubmitButton(strField(spec, "submit"));
@@ -433,6 +470,7 @@ namespace pier::api_impl
                         double step = numField(e, "step", 0.0);
                         double def = numField(e, "default", mn);
                         normalizeSlider(mn, mx, step, def, name);
+                        if (!name.empty()) (*sliders)[name] = SliderSpec{mn, mx, step};
                         form->appendSlider(
                             name, strField(e, "text"), mn, mx, step, def, strField(e, "tooltip"));
                     }
@@ -453,8 +491,8 @@ namespace pier::api_impl
 
             form->sendTo(
                 p,
-                [form, choices, weakMod, ticket](
-                    Player&, ll::form::CustomFormResult const& result, ll::form::FormCancelReason reason)
+                [form, choices, sliders, weakMod, ticket](
+                    Player& who, ll::form::CustomFormResult const& result, ll::form::FormCancelReason reason)
                 {
                     if (!result)
                     {
@@ -525,7 +563,20 @@ namespace pier::api_impl
                         }
                         else if (std::holds_alternative<double>(value))
                         {
-                            values.put(key, snbtNum(std::get<double>(value)) + "d");
+                            double d = std::get<double>(value);
+                            if (auto sl = sliders->find(key); sl != sliders->end())
+                            {
+                                // V-01：按发送时的规格钳制；越界说明客户端送来了
+                                // 表单里根本选不出的值。
+                                if (clampSliderValue(sl->second, d))
+                                {
+                                    hostLogger().warn(
+                                        "[form] 玩家 {} 的滑块 \"{}\" 回传 {} 不在 [{}, {}] 步进 {} 内，已钳制为 {}",
+                                        who.getRealName(), key, std::get<double>(value),
+                                        sl->second.min, sl->second.max, sl->second.step, d);
+                                }
+                            }
+                            values.put(key, snbtNum(d) + "d");
                         }
                         else if (std::holds_alternative<std::string>(value))
                         {

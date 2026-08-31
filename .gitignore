@@ -1,5 +1,6 @@
 # 构建产物
 /build/
+/bin/
 /target/
 /.xmake/
 Cargo.lock
@@ -7,8 +8,8 @@ Cargo.lock
 # 工具运行时
 __pycache__/
 *.pyc
+compile_commands.json
 
 # 编辑器
 .vscode/
 .idea/
-compile_commands.json

@@ -56,6 +56,7 @@ namespace pier
         auto main = mod->lib.getAddress<PierMainFn>(PIER_MAIN_SYMBOL);
         if (!main)
         {
+            // pier_main 尚未被调用：模组一行代码都没跑，没有任何登记可拆。
             (void)mod->lib.free();
             return ll::makeStringError(
                 "'" + mod->getName() + "' 没有导出 " PIER_MAIN_SYMBOL
@@ -64,10 +65,37 @@ namespace pier
         }
 
         mod->vtable = PierModVTable{};
+
+        /* ── 拒绝路径的统一出口（V-05） ──────────────────────────────────
+         * pier_main 一旦被调用，模组就可能已经订阅了事件、注册了总线/服务/
+         * 数据包钩子、排了任务。此后任何一条拒绝路径都必须先把这些登记全部
+         * 拆掉再 FreeLibrary —— 否则 EventBus 和各注册表里留着指向已 unmap
+         * 代码段的回调，下一次事件触发就是 use-after-free。
+         * SDK 侧（pier-rs）虽然在 on_load 之前自检版本/flag，但 ABI 面向任意
+         * 语言，宿主不能依赖对方的自觉；而且 on_load 部分注册后返回失败是
+         * 契约 §5.3 自己讨论过的正常场景。 */
+        auto abandon = [&](std::string why) -> ll::Expected<>
+        {
+            auto& bus = ll::event::EventBus::getInstance();
+            for (auto& slot : mod->listeners)
+            {
+                if (slot.listener && !bus.removeListener(slot.listener))
+                {
+                    mod->getLogger().error(
+                        "'{}' 装载失败后退订监听器 #{} 失败 —— 这条监听器可能残留在 EventBus 里",
+                        mod->getName(), slot.id
+                    );
+                }
+            }
+            mod->listeners.clear();
+            spi::runTeardown(mod.get());
+            (void)mod->lib.free();
+            return ll::makeStringError(std::move(why));
+        };
+
         if (!main(bridgeApi(), static_cast<PierModHandle>(mod.get()), &mod->vtable))
         {
-            (void)mod->lib.free();
-            return ll::makeStringError("'" + mod->getName() + "' 的 " PIER_MAIN_SYMBOL " 返回 false");
+            return abandon("'" + mod->getName() + "' 的 " PIER_MAIN_SYMBOL " 返回 false");
         }
 
         /* ── v1 握手：先看长度，再看版本，再看目标 ──────────────────────
@@ -77,8 +105,7 @@ namespace pier
         auto const& vt = mod->vtable;
         if (vt.struct_size < sizeof(PierModVTable))
         {
-            (void)mod->lib.free();
-            return ll::makeStringError(
+            return abandon(
                 "'" + mod->getName() + "' 填回的 vtable 只有 " + std::to_string(vt.struct_size)
                 + " 字节，宿主需要至少 " + std::to_string(sizeof(PierModVTable))
                 + " —— 它的 SDK 没有填 struct_size，或早于 ABI v1"
@@ -98,16 +125,14 @@ namespace pier
         //（require_slot!），宿主不用管。
         if (vt.abi_version > PIER_ABI_VERSION)
         {
-            (void)mod->lib.free();
-            return ll::makeStringError(
+            return abandon(
                 "'" + mod->getName() + "' 按 Pier ABI v" + std::to_string(vt.abi_version)
                 + " 编译，而本宿主最高只到 v" + std::to_string(PIER_ABI_VERSION) + " —— 升级 pier 宿主"
             );
         }
         if (vt.abi_version < PIER_ABI_MIN_SUPPORTED)
         {
-            (void)mod->lib.free();
-            return ll::makeStringError(
+            return abandon(
                 "'" + mod->getName() + "' 按 Pier ABI v" + std::to_string(vt.abi_version)
                 + " 编译，低于本宿主支持的下限 v" + std::to_string(PIER_ABI_MIN_SUPPORTED)
                 + " —— 用当前的 pier SDK 重新编译该模组"
@@ -121,9 +146,8 @@ namespace pier
         uint32_t const hostFlags = bridgeApi()->host_flags;
         if ((vt.mod_flags ^ hostFlags) & PIER_FLAG_CLIENT)
         {
-            (void)mod->lib.free();
             bool const modIsClient = (vt.mod_flags & PIER_FLAG_CLIENT) != 0;
-            return ll::makeStringError(
+            return abandon(
                 "'" + mod->getName() + "' 是按" + (modIsClient ? "客户端" : "服务端")
                 + "目标编译的，而这个宿主是" + (modIsClient ? "服务端" : "客户端")
                 + "构建 —— 用匹配的目标重新编译该模组"
@@ -133,8 +157,7 @@ namespace pier
         // 位就没法再用 —— 老模组里会躺着随机脏值。
         if ((vt.mod_flags & ~PIER_FLAG_CLIENT) != 0 || vt._reserved0 != 0)
         {
-            (void)mod->lib.free();
-            return ll::makeStringError(
+            return abandon(
                 "'" + mod->getName() + "' 的 vtable 里保留位非零（mod_flags=0x"
                 + ll::string_utils::intToHexStr(vt.mod_flags) + "）—— SDK 有 bug，或按未来的 ABI 编译"
             );
@@ -192,6 +215,20 @@ namespace pier
             return ll::makeStringError(
                 "'" + std::string(name) + "' 现在不能卸载 —— " + std::string(veto->who)
                 + " 否决：" + veto->reason
+            );
+        }
+
+        // 通用否决（V-06/V-28）：这个模组的某个回调正在执行 —— 要么是当前调用
+        // 链自己（回调里 execute_command("pier unload <self>")），要么是另一
+        // 线程正在派发它的总线/数据包回调。两种情况下 FreeLibrary 都会把正在
+        // 执行的代码段 unmap 掉。lane 的 busy 只覆盖车道；这个计数覆盖宿主的
+        // 全部派发点。
+        if (int const depth = mod->inCallback.load(std::memory_order_acquire); depth > 0)
+        {
+            return ll::makeStringError(
+                "'" + std::string(name) + "' 现在不能卸载 —— 它有 " + std::to_string(depth)
+                + " 个回调正在执行（回调里卸载自己，或另一线程正在派发它的回调）。"
+                  "请在回调返回后重试。"
             );
         }
 
@@ -285,6 +322,16 @@ namespace pier
         for (auto& mod : mods())
         {
             out.push_back(mod.getName());
+        }
+        return out;
+    }
+
+    std::vector<std::shared_ptr<HostedMod>> ModHost::hostedMods() const
+    {
+        std::vector<std::shared_ptr<HostedMod>> out;
+        for (auto const& name : loadedNames())
+        {
+            if (auto m = std::static_pointer_cast<HostedMod>(getMod(name))) out.push_back(std::move(m));
         }
         return out;
     }

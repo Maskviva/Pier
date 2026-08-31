@@ -258,7 +258,11 @@ typedef bool (*PierBusCb)(void* user, PierStr topic, PierStr payload);
  * loader never looks inside either.
  *
  * Runs synchronously on the CALLING thread, inside `service_call`. Never called
- * after the providing mod is unloaded or while it is disabled.
+ * after the providing mod is unloaded. It IS still called while the provider is
+ * merely disabled: `service_call` deliberately does not consult isEnabled()
+ * (see Services.cpp) because LeviLamina enables mods only after every on_load
+ * has run, and a service that is unreachable during that window breaks every
+ * consumer that resolves it in its own on_load.
  */
 typedef bool (*PierServiceCb)(
     void* user, PierStr name, PierStr request, void* ctx, PierStrSink reply);
@@ -328,8 +332,10 @@ typedef bool (*PierServiceCb)(
 /**
  * 引用计数钩子，在**提供方自己的 dylib 里**执行。
  *
- * 由 loader 在 `lane_acquire` / `lane_release` 里调用，以及在提供方卸载时替
- * 所有未归还的租约补调 `release`。
+ * 由 loader 在 `lane_acquire` / `lane_release` 里调用，以及在提供方卸载或
+ * `lane_unpublish` 时替所有未归还的租约补调 `release`。**发布本身不占引用
+ * 计数**：loader 从不为 `lane_publish` 交出的那份 `data` 调用 `release`，
+ * 提供方在撤销之后自行回收它。
  *
  * 不许回调进 loader（`lane_*` 的任何一个），会自死锁。典型实现是对提供方
  * 自己的引用计数做一次原子加/减 —— 两行都不碰锁。
@@ -569,9 +575,9 @@ enum PierPlayerAction
     PIER_PACT_CAN_USE_ABILITY = 1, /* a=AbilitiesIndex → out "0"/"1" Player::canUseAbility */
     PIER_PACT_SET_SELECTED_SLOT = 2, /* a=slot                          Player::setSelectedSlot */
     PIER_PACT_GIVE_ITEM = 3, /* sarg=item SNBT                  ItemStack::fromTag + Player::addAndRefresh */
-    PIER_PACT_SET_SPAWN_POINT = 4, /* a,b,c=pos, sarg=dim ("0".."2")  via /spawnpoint */
-    PIER_PACT_CLEAR_TITLE = 5, /* via /title clear */
-    PIER_PACT_SET_TITLE = 6, /* sarg=text, a=slot(0 title,1 subtitle,2 actionbar) via /title */
+    PIER_PACT_SET_SPAWN_POINT = 4, /* a,b,c=pos, sarg=dim id (any registered dim); native Player::setRespawnPosition */
+    PIER_PACT_CLEAR_TITLE = 5, /* native SetTitlePacket(Clear) */
+    PIER_PACT_SET_TITLE = 6, /* sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket, text sent verbatim */
     /* ── 追加 ── */
     PIER_PACT_ADD_EXPERIENCE = 7, /* a=xp                  Player::addExperience */
     PIER_PACT_ADD_LEVELS = 8, /* a=levels              Player::addLevels */
@@ -930,7 +936,23 @@ typedef enum PierMoneyEvent
     PIER_MONEY_TRANS = 3
 } PierMoneyEvent;
 
-/** legacymoney 事件回调。返回 false 否决这次金额变动。 */
+/**
+ * legacymoney 事件回调。返回 false 否决这次金额变动（仅 before 回调有效；
+ * after 的返回值被忽略）。
+ *
+ * **`from` / `to` 的含义不像名字那样直白**，这是 LegacyMoney 自己的形状，
+ * 照实转发而不做「修正」：
+ *
+ *   - `PIER_MONEY_TRANS`：`from` 付款方、`to` 收款方，两者都非空。
+ *   - `PIER_MONEY_ADD` / `PIER_MONEY_REDUCE` / `PIER_MONEY_SET`：`from`
+ *     **恒为空串**，`to` 是被操作的那个 xuid —— 即使是 REDUCE（钱是从 `to`
+ *     身上扣走的）。想知道「谁的余额变了」一律读 `to`。
+ *
+ * `value` 对 ADD/REDUCE/TRANS 是变动额，对 SET 是**目标余额**（不是差额）。
+ *
+ * 每个模组的回调都会被调到，不因为前一个否决了就跳过后面的（判定不依赖
+ * 注册顺序）。只要有任意一个返回 false，这次变动就被否决。
+ */
 typedef bool (*PierMoneyCb)(PierMoneyEvent type, PierStr from, PierStr to, int64_t value);
 
 typedef struct PierApi
@@ -1084,13 +1106,15 @@ typedef struct PierApi
 
     /** Read one block: sink called once with (x,y,z, type name, full SNBT). */
     bool (*get_block)(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierBlockSink sink);
-    /** Place a block via /setblock (version-stable path). block_spec = id or id [states]. */
+    /** Place a block natively (BlockSource::setBlock, DEFAULT update flags).
+     *  block_spec = "minecraft:stone" / "stone" (default state) or a full
+     *  {name,states,...} SNBT. Unknown names fail instead of placing a placeholder. */
     bool (*set_block)(int32_t dim, int32_t x, int32_t y, int32_t z, PierStr block_spec);
     /** World time (Level::getTime). */
     bool (*get_time)(int64_t* out);
-    /** Set world time via /time set. */
+    /** Set world time natively (Level::setTime). */
     bool (*set_time)(int64_t t);
-    /** 0=clear 1=rain 2=thunder, via /weather. */
+    /** 0=clear 1=rain 2=thunder, native (Level::updateWeather). */
     bool (*set_weather)(int32_t weather);
 
     /* ── §B player management ── */
@@ -1103,9 +1127,11 @@ typedef struct PierApi
     bool (*player_disconnect)(PierPlayerSel sel, PierStr reason);
     /** sendMessage to every online player. */
     void (*broadcast_message)(PierStr msg);
-    /** 0=survival 1=creative 2=adventure 6=spectator, via /gamemode. */
+    /** 0=survival 1=creative 2=adventure 6=spectator, native (Player::setPlayerGameType). */
     bool (*player_set_gamemode)(PierPlayerSel sel, int32_t mode);
-    /** Teleport via /execute in <dim> run tp. */
+    /** Teleport natively (Actor::teleport). Custom dimensions (id >= 3) are allowed;
+     *  the dimension bridge must produce an engine instance whose id matches, or the
+     *  call fails instead of sending the player into a mismatched dimension. */
     bool (*player_teleport)(PierPlayerSel sel, int32_t dim, double x, double y, double z);
     bool (*player_get_num)(PierPlayerSel sel, int32_t prop, double* out);
     bool (*player_get_str)(PierPlayerSel sel, int32_t prop, void* ctx, PierStrSink sink);
@@ -1260,7 +1286,7 @@ typedef struct PierApi
 
     /* Server / world-level settings. */
     bool (*get_difficulty)(int32_t* out); /* Level::getDifficulty */
-    bool (*set_difficulty)(int32_t d); /* /difficulty */
+    bool (*set_difficulty)(int32_t d); /* native Level::setDifficulty */
     bool (*get_seed)(int64_t* out); /* Level::getLevelSeed64 */
     /** out sink receives SNBT {type:"bool"|"int"|"float", value:…}; false if unknown rule. */
     bool (*game_rule_get)(PierStr name, void* ctx, PierStrSink sink);
@@ -1378,15 +1404,38 @@ typedef struct PierApi
      */
     bool (*player_send_message_typed)(PierPlayerSel sel, PierStr msg, int32_t type);
 
-    /* —— Money (追加) —— */
+    /* —— Money (追加) ——
+     *
+     * 背靠 LegacyMoney（延迟加载）。整族在后端缺席/被禁用时不崩，返回各自的
+     * 失败值；下面这些语义是对着 LegacyMoney 的源码定的，不是猜的：
+     *
+     *   - 金额一律非负。`val < 0` 由后端直接拒绝（`LLMoney_Trans` 的第一道
+     *     检查），负数的 `set_money` 也会因「余额不足以扣到目标值」而失败。
+     *   - `trans_money` 拒绝 `from == to`，并按后端配置的 pay_tax 抽成：
+     *     收款方拿到的是 `val - val * pay_tax`，**不是** `val`。要「不打折
+     *     地给出去」用 add/reduce 各做一次。
+     *   - `set_money` 的 `money` 是目标余额；后端内部换算成一次转账。
+     */
+
+    /** 余额。**失败返回 -1**（xuid 为空、数据库出错、或后端缺席）；正常余额
+     *  永不为负，所以 `< 0` 就是「问不出来」。注意它对没见过的 xuid 会按配置
+     *  的默认值**建账**，不是无副作用的只读查询。 */
     int64_t (*get_money)(PierStr xuid);
+    /** 设成 `money`（目标余额，非差额）。 */
     bool (*set_money)(PierStr xuid, int64_t money);
     bool (*add_money)(PierStr xuid, int64_t money);
     bool (*reduce_money)(PierStr xuid, int64_t money);
+    /** `from`/`to` 任一为空表示「凭空产生 / 凭空销毁」。收款方到账会被 pay_tax
+     *  抽成（见上）。`from == to` 直接失败。 */
     bool (*trans_money)(PierStr from, PierStr to, int64_t val, PierStr note);
     void (*money_get_hist)(PierStr xuid, int32_t timediff, void* ctx, PierStrSink sink);
     void (*money_clear_hist)(int32_t difftime);
+    /** 注册一个 before 回调（可否决）。多个模组可以各注册一个，互不覆盖；
+     *  同一个函数指针重复注册是幂等的。loader 按回调所在模块记账，模组卸载
+     *  时自动摘除 —— LegacyMoney 本身没有任何反注册接口，这层记账是 loader
+     *  补的。注册不要求后端此刻已就绪：loader 会在后端可用后补装转发。 */
     void (*money_listen_before_event)(PierMoneyCb callback);
+    /** 同上，但在变动**已经发生**之后调用，返回值被忽略。 */
     void (*money_listen_after_event)(PierMoneyCb callback);
     void (*money_ranking)(uint16_t num, void* ctx, PierStrSink sink);
 
@@ -1636,10 +1685,11 @@ typedef struct PierApi
      * loader can drop still-pending tasks when that mod goes away — the same
      * weak_ptr + ticket discipline the form callbacks already use.
      *
-     * The old slots remain (ABI is additive) and still work, but they cannot
-     * be made unload-safe: they carry no owner. Mods that want to survive
-     * /pier unload or /pier reload must be rebuilt against the current pier SDK
-     * that routes through the slots below. */
+     * The old slots remain (ABI is additive) and still work. The loader now
+     * attributes them by the callback's module (address → DLL) and drops
+     * pending tasks at unload; mods should still prefer the owned slots below
+     * (which pier-rs uses since the V-03 fix) because attribution by address
+     * cannot see a callback that lives in a different module. */
 
     /** Run `cb(user)` on the server (or client) thread ASAP, owned by `mod`.
      *  Thread-safe. Returns a task id (>0), or 0 if the task was rejected.

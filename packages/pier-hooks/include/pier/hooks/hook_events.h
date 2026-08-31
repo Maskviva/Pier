@@ -75,8 +75,9 @@ namespace pier::hooks
     struct HookEventDef
     {
         std::string_view name;
-        /** 装原生 detour；只在第一个订阅者出现时调一次。 */
-        void (*install)();
+        /** 装原生 detour；只在第一个订阅者出现时调一次。返回是否**全部**主钩点
+         *  安装成功 —— 失败时订阅被拒绝（V-16），而不是发一个永不触发的句柄。 */
+        bool (*install)();
         bool installed = false;
         std::vector<std::unique_ptr<HookSub>> subs;
 

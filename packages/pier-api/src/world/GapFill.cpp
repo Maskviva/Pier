@@ -18,6 +18,7 @@
 #include "mc/network/NetworkIdentifier.h"
 #include "mc/network/NetworkPeer.h"
 #include "mc/world/actor/Actor.h"
+#include "mc/world/actor/ActorFlags.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/effect/MobEffectInstance.h"
 #include "mc/world/item/ItemStack.h"
@@ -40,6 +41,7 @@
 #include "pier/api/bridge.h"
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
+#include "pier/support/log.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -268,6 +270,8 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a) return false;
+                // V-23：越界下标会让引擎的位集读写落到别的数据项上。
+                if (flag_index < 0 || flag_index >= static_cast<int32_t>(ActorFlags::Count)) return false;
                 return a->getStatusFlag(static_cast<ActorFlags>(flag_index));
             PIER_API_GUARD_END
         }
@@ -277,6 +281,7 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a) return false;
+                if (flag_index < 0 || flag_index >= static_cast<int32_t>(ActorFlags::Count)) return false;
                 a->setStatusFlag(static_cast<ActorFlags>(flag_index), value);
                 return true;
             PIER_API_GUARD_END
@@ -296,8 +301,8 @@ namespace pier::api_impl
                 // 会选错格。
                 auto hr = a->traceRay(max_dist, include_actors, include_blocks);
                 std::string out = "{type:" + snbtNum(static_cast<int>(hr.mType));
-                out += ",pos:[" + snbtNum(hr.mPos.x) + "," + snbtNum(hr.mPos.y)
-                    + "," + snbtNum(hr.mPos.z) + "]";
+                out += ",pos:[" + snbtDouble(hr.mPos.x) + "," + snbtDouble(hr.mPos.y)
+                    + "," + snbtDouble(hr.mPos.z) + "]";
                 out += "}";
                 sink(ctx, ps(out));
                 return true;
@@ -324,9 +329,9 @@ namespace pier::api_impl
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !sink) return false;
                 auto aabb = a->getAABB();
-                std::string snbt = "{min:[" + snbtNum(aabb.min.x) + "," + snbtNum(aabb.min.y) + ","
-                    + snbtNum(aabb.min.z) + "],max:[" + snbtNum(aabb.max.x) + ","
-                    + snbtNum(aabb.max.y) + "," + snbtNum(aabb.max.z) + "]}";
+                std::string snbt = "{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y) + ","
+                    + snbtDouble(aabb.min.z) + "],max:[" + snbtDouble(aabb.max.x) + ","
+                    + snbtDouble(aabb.max.y) + "," + snbtDouble(aabb.max.z) + "]}";
                 sink(ctx, ps(snbt));
                 return true;
             PIER_API_GUARD_END
@@ -337,6 +342,9 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !out) return false;
+                // V-15：与 player_teleport 同一道闸 —— 目标维度必须能经维度桥建出
+                // 且 id 一致，否则引擎会在区块线程抛未捕获异常直接 fastfail。
+                if (!bridge::blockSourceOf(dim)) return false;
                 // Actor::clone(Vec3 const& pos, optional<DimensionType>) 返回
                 // optional_ref<Actor>。克隆体继承 NBT 状态（血量、装备、名字
                 // 等）；落点由调用方定。
@@ -426,9 +434,9 @@ namespace pier::api_impl
                     sink(ctx, ps(std::string_view{"[]"}));
                     return true;
                 }
-                std::string out = "[{min:[" + snbtNum(aabb.min.x) + "," + snbtNum(aabb.min.y)
-                    + "," + snbtNum(aabb.min.z) + "],max:[" + snbtNum(aabb.max.x) + ","
-                    + snbtNum(aabb.max.y) + "," + snbtNum(aabb.max.z) + "]}]";
+                std::string out = "[{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y)
+                    + "," + snbtDouble(aabb.min.z) + "],max:[" + snbtDouble(aabb.max.x) + ","
+                    + snbtDouble(aabb.max.y) + "," + snbtDouble(aabb.max.z) + "]}]";
                 sink(ctx, ps(out));
                 return true;
             PIER_API_GUARD_END
@@ -616,6 +624,29 @@ namespace pier::api_impl
          * 和长度、不做任何拷贝也不看 0 结尾 —— 这条流水线上没有任何字符串在
          * C++ 侧被拥有。它只在这次回调里有效，另一侧负责拷走。
          */
+        /**
+         * V-12/V-22：区块键的布局是
+         *   `<x:i32 LE><z:i32 LE>[<dim:i32 LE>]<tag:u8>[<subY:u8>]`
+         * 主世界没有 dim 段（长 9 或 10），其余维度有（长 13 或 14）。
+         *
+         * 这直接决定了前缀匹配的陷阱：主世界 (x,z) 的 8 字节前缀是**所有**维度
+         * 同坐标区块键的公共前缀 —— 只按前缀列出再逐键删，会把下界/末地/自定义
+         * 维度同坐标的区块一起抹掉。所以列表结果必须按长度 + 维度段过滤，删除
+         * 也只接受符合布局的键。
+         */
+        bool isChunkKeyFor(std::string_view key, int32_t dim, std::string_view prefix)
+        {
+            if (key.size() < prefix.size() || key.compare(0, prefix.size(), prefix) != 0) return false;
+            size_t const expectMin = (dim == 0) ? 9 : 13;
+            return key.size() == expectMin || key.size() == expectMin + 1;
+        }
+
+        /** 只看布局（不解释内容）：长度 9/10 或 13/14 才可能是区块键。 */
+        bool looksLikeChunkKey(std::string_view key)
+        {
+            return key.size() == 9 || key.size() == 10 || key.size() == 13 || key.size() == 14;
+        }
+
         int32_t api_level_chunk_keys(
             int32_t dim, int32_t chunk_x, int32_t chunk_z, void* ctx, PierStrSink sink)
         {
@@ -628,8 +659,10 @@ namespace pier::api_impl
                 int32_t n = 0;
                 storage.forEachKeyWithPrefix(
                     prefix, ::DBHelpers::Category::Chunk,
-                    [ctx, sink, &n](std::string_view k, std::string_view)
+                    [ctx, sink, &n, dim, &prefix](std::string_view k, std::string_view)
                     {
+                        // 过滤掉同前缀但属于其他维度（或 tag 字节恰好撞上维度号）的键。
+                        if (!isChunkKeyFor(k, dim, prefix)) return;
                         sink(ctx, ps(k));
                         ++n;
                     }
@@ -650,6 +683,16 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level || !level->hasLevelStorage() || key.len == 0) return false;
+                // V-22：这个槽以前「传什么删什么」—— 存档里任何键（player_*、
+                // scoreboard、portals、LevelChunkMetaDataDictionary…）都能被一次
+                // 误调用抹掉。只接受符合区块键布局的键。
+                if (!looksLikeChunkKey(sv(key)))
+                {
+                    hostLogger().error(
+                        "level_delete_key：键长 {} 不符合区块键布局（9/10/13/14 字节），拒绝删除",
+                        key.len);
+                    return false;
+                }
                 // `deleteData` 收 `std::string const&`。这个临时对象活到本语句
                 // 结束，而删除是同步提交进写批的 —— 上一版的问题不在这里，在那
                 // 个 vector。

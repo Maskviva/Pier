@@ -10,6 +10,19 @@
 
 ## 构建
 
+**先满足前置条件。** `levibuildscript` 的 modpacker 在打包阶段读 git 拿版本号，
+所以工作目录必须是一个**有提交**的 git 仓库：
+
+```bash
+git init && git add -A && git commit -m "pier v1"
+git tag v1.0.0                           # 可选，否则版本号退化成提交哈希
+python3 tools/build-prereqs.py           # 一秒确认
+```
+
+不做这一步的后果不是「构建失败」而是「**编完 98 个 TU、链好 pier.dll 之后**
+在 90% 处失败」，报 `fatal: Not a valid object name HEAD` —— 一条看起来
+完全不像构建错误的错误。
+
 ```bash
 xmake f --target_type=server && xmake   # 产物 pier.dll（宿主本体）
 cargo build --release                    # SDK 与示例
@@ -29,7 +42,7 @@ python3 tools/run-checks.py     # 契约 §九 的十三条，任一条红就非
 不许把「静态必要条件通过」写成「这条性质成立」。
 
 ```bash
-python3 tools/run-surrogates.py  # 六个 surrogate，**不是**契约检查
+python3 tools/run-surrogates.py  # 七个 surrogate，**不是**契约检查
 ```
 
 surrogate 是没有工具链时的临时替身，每一个都对应一次真机报错：
@@ -41,6 +54,7 @@ surrogate 是没有工具链时的临时替身，每一个都对应一次真机�
 | `rust-surrogate` | `cargo clippy` | `cannot find type` / `never used` |
 | `example-surrogate` | `cargo check` | 示例用了 prelude 没导出的符号 |
 | `typed-storage` | C++ 编译器 | `C2228` / `C2039`（TypedStorage 坍缩规则）|
+| `build-prereqs` | xmake 打包阶段 | `fatal: Not a valid object name HEAD` |
 | `ledger-count` | 人工清点 | （无对应，纯代偿） |
 
 有 MSVC / cargo 之后，前五个是冗余的 —— 但 `typed-storage` 仍有用：编译器
@@ -89,5 +103,9 @@ manifest 写法（`mods/<名字>/manifest.json`）：
 
 ## 当前进度
 
-C++ 侧（宿主本体）**全量完成**；Rust 侧完成契约层与运行时地基，域封装未完。
-逐文件状态见 `MIGRATION.md`，别信这一段的印象。
+C++ 侧（宿主本体）**全量完成并在 MSVC 2022 上编译通过** —— 98 个 TU 全过，
+prelink 与链接也过了。Rust 侧完成契约层与运行时地基，域封装未完。
+
+逐文件状态见 `MIGRATION.md`，别信这一段的印象。台账现在是**双向**的：
+`ledger-count` 管「台账 → 计数」，`ledger-covers-tree` 管「工作区 → 台账」，
+后者加上之后一次逮到 31 个从来没被清点过的文件。

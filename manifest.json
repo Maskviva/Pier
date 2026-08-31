@@ -1,0 +1,14 @@
+{
+    "name": "Pier",
+    "entry": "pier.dll",
+    "type": "native",
+    "platform": "server",
+    "version": "26.20.1",
+    "author": "Maskviva",
+    "description": "Loads LeviLamina mods written in Rust.",
+    "minecraft": {
+        "bds_version": "1.26.20",
+        "levilamina_version": "26.20.4",
+        "abi_version": 1
+    }
+}

@@ -2,6 +2,7 @@
 // SNBT 组装的最小助手。所有跨边界的复合载荷（事件数据、玩家摘要）都是
 // SNBT 文本 —— 助手只此一份，两处转义规则不一致就是一处注入口。
 #include <format>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -32,5 +33,29 @@ namespace pier
     }
 
     /** 带引号的完整字符串字面量："..."（内容已转义）。 */
+    /**
+     * V-21：浮点值**永远**带 `d` 后缀。`snbtNum(100.0)` 给的是 `100`——SNBT 会把它
+     * 读成 Int，消费方按 double 取就失败；所有把坐标/AABB/比例交出去的地方
+     * 都该用这个。非有限值（NaN/Inf）SNBT 无法表示，落成 0d 并由调用方自行
+     * 决定是否先行拒绝。
+     */
+    template <class T>
+    [[nodiscard]] std::string snbtDouble(T v)
+    {
+        static_assert(std::is_arithmetic_v<T>, "snbtDouble 只收数值");
+        double d = static_cast<double>(v);
+        if (!(d == d) || d == std::numeric_limits<double>::infinity()
+            || d == -std::numeric_limits<double>::infinity())
+        {
+            d = 0.0;
+        }
+        std::string out = std::format("{}", d);
+        // 确保它长得像浮点：`100` → `100.0d`，`1e+21` 这类科学计数法 SNBT 不认，
+        // 改用定点输出。
+        if (out.find_first_of("e.") == std::string::npos) out += ".0";
+        else if (out.find('e') != std::string::npos) out = std::format("{:.1f}", d);
+        return out + "d";
+    }
+
     [[nodiscard]] std::string snbtStr(std::string_view s);
 } // namespace pier

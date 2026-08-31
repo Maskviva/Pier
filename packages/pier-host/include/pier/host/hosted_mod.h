@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -50,6 +51,36 @@ namespace pier
 
         /** 禁用后置真：已注册的命令回调全部变 no-op（命令没法真注销）。 */
         bool commandsMuted = false;
+
+        /**
+         * 正在执行本模组回调的栈帧数（跨线程累计）。
+         *
+         * 用途：ModHost::unload 在它非零时拒绝卸载 —— 否则 FreeLibrary 会发生在
+         * 模组自己的栈帧之下（回调里 execute_command("pier unload <self>")），
+         * 或另一线程正在派发它的总线/数据包回调时把代码段抽走。
+         * 各派发点用 CallbackScope 维护它；忘记包的派发点只是失去这层保护，
+         * 不会引入新错误。
+         */
+        std::atomic<int> inCallback{0};
+    };
+
+    /** 派发模组回调时的 RAII 计数：构造 +1，析构 -1。mod 为空时什么都不做。 */
+    class CallbackScope
+    {
+    public:
+        explicit CallbackScope(HostedMod* mod) noexcept : mMod(mod)
+        {
+            if (mMod) mMod->inCallback.fetch_add(1, std::memory_order_acq_rel);
+        }
+        ~CallbackScope()
+        {
+            if (mMod) mMod->inCallback.fetch_sub(1, std::memory_order_acq_rel);
+        }
+        CallbackScope(CallbackScope const&) = delete;
+        CallbackScope& operator=(CallbackScope const&) = delete;
+
+    private:
+        HostedMod* mMod;
     };
 
     /** PierModHandle ↔ HostedMod*。句柄就是指针本身 —— 生命周期由

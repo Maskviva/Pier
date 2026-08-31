@@ -113,7 +113,7 @@ namespace pier::hooks
             return origin(actor, location);
         }
 
-        HookEventDef gDef{"PlayerInteractEntityEvent", [] { PlayerInteractEntityHook::hook(); }};
+        HookEventDef gDef{"PlayerInteractEntityEvent", [] { return PlayerInteractEntityHook::hook() == 0; }};
         HookEventDef& interactEntityDef() { return gDef; }
 
         HookEventRegistrar gReg{gDef};

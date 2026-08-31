@@ -207,6 +207,7 @@ namespace pier::hooks
                         "最常见原因是本宿主链接的 BDS/LeviLamina 版本与服务器"
                         "实际运行的版本不一致，导致 $playerTouch 的符号地址解析错误。");
                 }
+                return ra == 0 && rt == 0;
             }
         };
 

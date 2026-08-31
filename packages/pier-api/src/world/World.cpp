@@ -3,6 +3,7 @@
  *
  *  方块「句柄」是（维度, 坐标），每次调用对着活的 BlockSource 重新解析。
  */
+#include <cstdint>
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -28,6 +29,7 @@
 #include "pier/api/bridge.h"
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
+#include "pier/support/log.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -89,22 +91,35 @@ namespace pier::api_impl
                 int minY = std::min(y1, y2), maxY = std::max(y1, y2);
                 int minZ = std::min(z1, z2), maxZ = std::max(z1, z2);
 
+                // V-13：体积上限 + 64 位循环变量（INT32_MAX 边界不再死循环）。
+                constexpr int64_t kMaxVolume = int64_t{1} << 24; // 16M 格，约 256×256×256
+                int64_t const volume = (int64_t{maxX} - minX + 1) * (int64_t{maxY} - minY + 1)
+                    * (int64_t{maxZ} - minZ + 1);
+                if (blocksSink && volume > kMaxVolume)
+                {
+                    hostLogger().error(
+                        "scan_region：区域 {} 格超过上限 {} —— 请分块扫描", volume, kMaxVolume);
+                    return false;
+                }
+
                 // 方块：逐格走完整个盒子（先自下而上，再 x，再 z）。
                 if (blocksSink)
                 {
-                    for (int y = minY; y <= maxY; ++y)
+                    for (int64_t y = minY; y <= maxY; ++y)
                     {
-                        for (int x = minX; x <= maxX; ++x)
+                        for (int64_t x = minX; x <= maxX; ++x)
                         {
-                            for (int z = minZ; z <= maxZ; ++z)
+                            for (int64_t z = minZ; z <= maxZ; ++z)
                             {
-                                auto const& block = bs->getBlock(BlockPos{x, y, z});
+                                auto const& block = bs->getBlock(
+                                    BlockPos{static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)});
                                 // 这个 LL 版本没有 getSerializationId() 访问器；直
                                 // 接读公开成员 mSerializationId（同一个标签：
                                 // {name, states, version}）。
                                 std::string snbt =
                                     block.mSerializationId.get().toSnbt(SnbtFormat::Minimize);
-                                blocksSink(ctx, x, y, z, ps(block.getTypeName()), ps(snbt));
+                                blocksSink(ctx, static_cast<int>(x), static_cast<int>(y), static_cast<int>(z),
+                                           ps(block.getTypeName()), ps(snbt));
                             }
                         }
                     }
@@ -364,9 +379,9 @@ namespace pier::api_impl
                     AABB aabb;
                     bool has = block->getCollisionShape(aabb, *bs, BlockPos{x, y, z}, nullptr);
                     std::string out = has
-                        ? ("[{min:[" + snbtNum(aabb.min.x) + "," + snbtNum(aabb.min.y)
-                           + "," + snbtNum(aabb.min.z) + "],max:[" + snbtNum(aabb.max.x)
-                           + "," + snbtNum(aabb.max.y) + "," + snbtNum(aabb.max.z) + "]}]")
+                        ? ("[{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y)
+                           + "," + snbtDouble(aabb.min.z) + "],max:[" + snbtDouble(aabb.max.x)
+                           + "," + snbtDouble(aabb.max.y) + "," + snbtDouble(aabb.max.z) + "]}]")
                         : "[]";
                     sink(ctx, ps(out));
                     return true;
@@ -378,9 +393,9 @@ namespace pier::api_impl
                     // 依然成立）。
                     AABB buffer;
                     auto const& aabb = block->getOutline(*bs, BlockPos{x, y, z}, buffer);
-                    std::string out = "[{min:[" + snbtNum(aabb.min.x) + "," + snbtNum(aabb.min.y)
-                        + "," + snbtNum(aabb.min.z) + "],max:[" + snbtNum(aabb.max.x) + ","
-                        + snbtNum(aabb.max.y) + "," + snbtNum(aabb.max.z) + "]}]";
+                    std::string out = "[{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y)
+                        + "," + snbtDouble(aabb.min.z) + "],max:[" + snbtDouble(aabb.max.x) + ","
+                        + snbtDouble(aabb.max.y) + "," + snbtDouble(aabb.max.z) + "]}]";
                     sink(ctx, ps(out));
                     return true;
                 }
@@ -486,6 +501,9 @@ namespace pier::api_impl
                 auto* level = bridge::levelReady();
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!level || !bs) return false;
+                // V-13：半径无上限等于一次调用炸掉整片加载区块并冻住线程。原版
+                // 最大的爆炸（凋灵/末影水晶）半径不超过 8；这里放宽到 64。
+                if (!(radius >= 0.0f) || radius > 64.0f) return false;
                 Actor* src = (source != 0) ? bridge::resolveActor(source) : nullptr;
                 return level->explode(
                     *bs,

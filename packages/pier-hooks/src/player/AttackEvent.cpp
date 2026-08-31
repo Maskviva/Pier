@@ -242,6 +242,7 @@ namespace pier::hooks
                         "在地皮上分不开，pvp 旗标拦不住人。最常见原因是本宿主链接的 "
                         "BDS/LeviLamina 版本和服务器实际跑的不一致。");
                 }
+                return r2 == 0 || r3 == 0;
             }
         };
         HookEventDef& attackDef() { return gDef; }

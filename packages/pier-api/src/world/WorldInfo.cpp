@@ -16,6 +16,7 @@
  */
 #ifndef PIER_BUILD_CLIENT
 
+#include <cstdint>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -89,12 +90,12 @@ namespace pier::api_impl
                     Vec3 c = v.getCenter();
 
                     std::string snbt = "{\"uuid\":\"" + snbtEscape(v.getUniqueID().asString())
-                        + "\",\"center\":[" + snbtNum(c.x) + "," + snbtNum(c.y)
-                        + "," + snbtNum(c.z) + "]"
-                        + ",\"bounds\":{\"min\":[" + snbtNum(b.min.x) + ","
-                        + snbtNum(b.min.y) + "," + snbtNum(b.min.z)
-                        + "],\"max\":[" + snbtNum(b.max.x) + ","
-                        + snbtNum(b.max.y) + "," + snbtNum(b.max.z) + "]}"
+                        + "\",\"center\":[" + snbtDouble(c.x) + "," + snbtDouble(c.y)
+                        + "," + snbtDouble(c.z) + "]"
+                        + ",\"bounds\":{\"min\":[" + snbtDouble(b.min.x) + ","
+                        + snbtDouble(b.min.y) + "," + snbtDouble(b.min.z)
+                        + "],\"max\":[" + snbtDouble(b.max.x) + ","
+                        + snbtDouble(b.max.y) + "," + snbtDouble(b.max.z) + "]}"
                         + ",\"poi_count\":" + snbtNum(v.getPOICount()) + "}";
                     snbtSink(ctx, ps(snbt));
                 }
@@ -109,6 +110,9 @@ namespace pier::api_impl
                 auto* level = bridge::levelReady();
                 if (!level || !snbtSink) return;
                 if (radius < 0) return;
+                // V-13：半径上限（1024 格 = 129×129 个区块）；`x ± radius` 用 64 位算，
+                // 防止 int 溢出把方阵翻成负数区间。
+                if (radius > 1024) return;
                 auto dim = level->getDimension(DimensionType{dimension}).lock();
                 if (!dim) return;
 
@@ -117,8 +121,10 @@ namespace pier::api_impl
                 // HSA 按 LevelChunk 存。走覆盖半径的区块方阵（16 格一区块）；
                 // 只有已加载的区块产出数据 —— 这是诚实的上限（读未加载的区块
                 // 就得生成它，而一个只读查询绝不能这么干）。
-                int cxMin = (x - radius) >> 4, cxMax = (x + radius) >> 4;
-                int czMin = (z - radius) >> 4, czMax = (z + radius) >> 4;
+                int cxMin = static_cast<int>((int64_t{x} - radius) >> 4);
+                int cxMax = static_cast<int>((int64_t{x} + radius) >> 4);
+                int czMin = static_cast<int>((int64_t{z} - radius) >> 4);
+                int czMax = static_cast<int>((int64_t{z} + radius) >> 4);
                 (void)y; // HSA 按区块全高存在；选取用不到 y
 
                 for (int cx = cxMin; cx <= cxMax; ++cx)

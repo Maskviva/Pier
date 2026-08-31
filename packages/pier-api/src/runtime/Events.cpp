@@ -215,16 +215,25 @@ namespace pier::api_impl
                 }
 
                 std::string idName = resolved->name;
+                std::weak_ptr<HostedMod> weakMod = mod->shared_from_this();
                 auto listener = ll::event::DynamicListener::create(
-                    [cb, user, idName](CompoundTag& data)
+                    [cb, user, idName, weakMod](CompoundTag& data)
                     {
+                        // 复核 + 回调计数（V-06）：模组已卸载则监听器本该已被
+                        // 摘掉，这里是最后一道闸；在世则把卸载挡在回调返回之后。
+                        auto owner = weakMod.lock();
+                        if (!owner) return;
+                        CallbackScope scope{owner.get()};
+
                         std::string snbt = bridge::enrichEventData(data);
 
                         struct WriteCtx
                         {
                             CompoundTag* data;
                             std::string const* snapshot; // 正是交给 cb 的那一份
-                        } wctx{&data, &snbt};
+                            HostedMod* mod;
+                            std::string const* eventId;
+                        } wctx{&data, &snbt, owner.get(), &idName};
 
                         cb(
                             user,
@@ -235,7 +244,18 @@ namespace pier::api_impl
                             {
                                 auto* w = static_cast<WriteCtx*>(c);
                                 auto edited = CompoundTag::fromSnbt(sv(newSnbt));
-                                if (!edited) return;
+                                if (!edited)
+                                {
+                                    // V-02：绝不静默。模组以为它取消/改写了事件，
+                                    // 而什么都没发生 —— 这正是「报告已拦、实际
+                                    // 未拦」的来源。把解析错误连同事件名打出来。
+                                    w->mod->getLogger().error(
+                                        "事件 '{}' 的写回 SNBT 解析失败，本次编辑被忽略：{}",
+                                        *w->eventId,
+                                        edited.error().message()
+                                    );
+                                    return;
+                                }
 
                                 // 只写这个调用方相对**它自己拿到的那份快照**
                                 // 真正改动过的字段。
@@ -272,11 +292,12 @@ namespace pier::api_impl
                                         w->data->mTags[key] = value;
                                     }
                                 }
-                                for (auto const& [key, value] : base->mTags)
-                                {
-                                    (void)value;
-                                    if (!edited->mTags.contains(key)) w->data->erase(key);
-                                }
+                                // V-02：快照里有、写回里没有的键一律视为「未改」，
+                                // **不再删除**。LL 的 Event::deserialize 用
+                                // CompoundTag::operator[] const 读键，缺键即抛
+                                // std::out_of_range，整次反序列化中止 —— 只写回
+                                // {cancelled:1b} 这种部分 SNBT 的模组会因此连取消
+                                // 位都丢掉。删除键从来不是事件编辑的合法操作。
                             }
                         );
                     },

@@ -81,11 +81,21 @@ namespace pier::hooks
          * 定无关。解析失败按「未取消」处理 —— 一个连自己应答都拼不对的订阅
          * 者不该拿到否决权。
          */
-        bool replyCancelled(std::string const& reply)
+        bool replyCancelled(std::string const& reply, std::string_view eventId)
         {
             if (reply.empty()) return false;
             auto tag = CompoundTag::fromSnbt(reply);
-            if (!tag || !tag->contains("cancelled")) return false;
+            if (!tag)
+            {
+                // V-02：解析不了的应答不能静默当成「不取消」—— 那是最危险的
+                // 那个方向（保护判定报告已拦、实际放行）。
+                hostLogger().error(
+                    "合成事件 '{}' 的写回 SNBT 解析失败，按未取消处理：{}", eventId,
+                    tag.error().message()
+                );
+                return false;
+            }
+            if (!tag->contains("cancelled")) return false;
             auto const& v = tag->at("cancelled");
             if (v.is_number()) return static_cast<double>(v) != 0.0;
             return false;
@@ -93,11 +103,18 @@ namespace pier::hooks
 
         /** 派发前的订阅快照（回调可在派发中途改 def.subs，直接迭代是 UB）。
          *  subs 本身按优先级保持有序（见 subscribe），快照顺序即派发顺序。 */
-        std::vector<std::pair<PierEventCb, void*>> snapshot(HookEventDef& def)
+        struct SnapEntry
         {
-            std::vector<std::pair<PierEventCb, void*>> snap;
+            PierEventCb cb;
+            void* user;
+            HostedMod* mod;
+        };
+
+        std::vector<SnapEntry> snapshot(HookEventDef& def)
+        {
+            std::vector<SnapEntry> snap;
             snap.reserve(def.subs.size());
-            for (auto& sub : def.subs) snap.emplace_back(sub->cb, sub->user);
+            for (auto& sub : def.subs) snap.push_back({sub->cb, sub->user, sub->mod});
             return snap;
         }
     } // namespace
@@ -118,8 +135,9 @@ namespace pier::hooks
         struct WCtx
         {
         } w; // 只观察：写回是 no-op
-        for (auto& [cb, user] : snap)
+        for (auto& [cb, user, mod] : snap)
         {
+            CallbackScope scope{mod}; // V-06/V-28：回调期间否决卸载
             callOne(cb, user, id, snbt, &w, [](void*, PierStr) {});
         }
     }
@@ -131,14 +149,15 @@ namespace pier::hooks
         auto snap = snapshot(def);
         std::string id{def.name};
         bool cancelled = false;
-        for (auto& [cb, user] : snap)
+        for (auto& [cb, user, mod] : snap)
         {
+            CallbackScope scope{mod};
             std::string reply;
             callOne(cb, user, id, snbt, &reply, [](void* ctx, PierStr v)
             {
                 if (ctx) *static_cast<std::string*>(ctx) = toString(v);
             });
-            if (replyCancelled(reply))
+            if (replyCancelled(reply, id))
             {
                 cancelled = true;
                 // 继续走：每个订阅者都得看到事件。提前停会让「我被调到了吗」
@@ -172,7 +191,16 @@ namespace pier::hooks
             if (!def || !cb) return nullptr;
             if (!def->installed)
             {
-                def->install();
+                // V-16：detour 装不上就拒绝订阅（fail-closed）。以前是打一行
+                // error 然后照样发句柄 —— 模组以为保护已就位，实际一次都不会触发。
+                if (!def->install())
+                {
+                    hostLogger().error(
+                        "合成事件 '{}'：原生 detour 安装失败，拒绝订阅 —— 模组不应假设它已生效",
+                        def->name
+                    );
+                    return nullptr;
+                }
                 def->installed = true;
             }
             std::uint64_t id = spi::nextListenerId();
