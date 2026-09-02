@@ -2040,6 +2040,10 @@ typedef struct PierApi
      * world gives {layout:{…},seed:N}, a simple world {generatorType:Flat,
      * seed:N}) for the caller to interpret.
      *
+     * The sink is invoked ONCE PER DIMENSION, each with one JSON object -- not
+     * once with an array. Contrast lane_list above, which hands over a single
+     * JSON array. Both shapes exist in this table; each slot says which.
+     *
      * The callback is not invoked at all when md_is_available() is false.
      */
     void (*md_list_dimensions)(void* ctx, PierStrSink sink);

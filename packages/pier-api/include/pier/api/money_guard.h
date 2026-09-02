@@ -2,8 +2,8 @@
  * pier/api/money_guard.h —— 把 LLMoney 后端做成可选。
  *
  * 经济 API 背靠 LegacyMoney 导出的 LLMoney_* 函数，它们住在延迟加载的
- * LegacyMoney.dll 里（见 xmake 的 /DELAYLOAD:LegacyMoney.dll）：没装时宿主照常启
- * 动，符号到第一次使用才解析。
+ * LegacyMoney.dll 里：没装时宿主照常启动，符号到第一次使用才解析。两半缺一
+ * 不可（契约 §2.1）：这里的守卫，加上 xmake 的 /DELAYLOAD。
  *
  * moneyBackendReady() 在任何经济调用派发之前做契约要求的双重校验。一是模组表：
  * ll::mod::ModManagerRegistry 里有名为 "LegacyMoney" 的模组且处于 Enabled；装了但

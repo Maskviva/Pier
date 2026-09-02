@@ -80,43 +80,6 @@ pub(crate) fn rt() -> &'static Runtime {
     unsafe { &*p }
 }
 
-/// 交给模组生命周期回调的上下文。
-///
-/// 它本身不带状态（真正的状态在 `RUNTIME` 里），存在的意义是给各个门面
-/// 一个统一的入口，顺便让 `on_load(ctx)` 这样的签名读起来像回事。
-pub struct ModContext(());
-
-impl ModContext {
-    pub(crate) fn new() -> ModContext {
-        ModContext(())
-    }
-
-    pub fn logger(&self) -> crate::Logger {
-        crate::Logger::get()
-    }
-
-    // 这里**刻意没有** `ctx.host()` / `ctx.packets()`。
-    //
-    // `rt` 是地基:二十几个域模块建在它上面。它反过来认识 `host` 和 `packet`
-    // 就成了环，而这两个访问器只省下 `Host::get()` 里的几个字符。
-    // 地基不认识建在它上面的东西，这条比少打几个字重要。
-
-    /// 宿主是按客户端目标编的吗。
-    ///
-    /// 一般用不到 —— 装错目标的模组在握手阶段就被宿主拒绝了。留着是为了让
-    /// 同一份代码能在两个目标上做细微的行为区分，而不必靠编译期 feature。
-    pub fn host_is_client(&self) -> bool {
-        rt().api.is_client_host()
-    }
-
-    /// 宿主的 ABI 版本与表长度。诊断用：报「这个功能你的 pier 太老」时，
-    /// 带上这两个数才能让人知道该升到多少。
-    pub fn host_abi(&self) -> (u32, usize) {
-        let r = rt();
-        (r.api.abi_version, r.host_struct_size)
-    }
-}
-
 /// 一个已排期任务的票据。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(pub(crate) u64);

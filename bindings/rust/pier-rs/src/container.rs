@@ -120,8 +120,13 @@ impl Container {
     /// 某个槽位里的东西。空槽给的是空气那件物品的 SNBT，不是错误。
     pub fn item(&self, slot: i32) -> Result<ItemStack> {
         let f = crate::require_slot!(container_get_item, "读取容器槽位");
-        let snbt = call_out_str(|ctx, sink| unsafe { f(self.raw(), slot, ctx, sink) })
-            .ok_or_else(|| Error(format!("读不出容器 {self} 的第 {slot} 槽（槽位越界，或容器解析不到）")))?;
+        let snbt = call_out_str(|ctx, sink| unsafe { f(self.raw(), slot, ctx, sink) }).ok_or_else(
+            || {
+                Error(format!(
+                    "读不出容器 {self} 的第 {slot} 槽（槽位越界，或容器解析不到）"
+                ))
+            },
+        )?;
         Ok(ItemStack::from_snbt(snbt))
     }
 
@@ -173,7 +178,9 @@ impl Container {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("移除不了容器 {self} 第 {slot} 槽的 {count} 个")))
+            Err(Error(format!(
+                "移除不了容器 {self} 第 {slot} 槽的 {count} 个"
+            )))
         }
     }
 
@@ -210,7 +217,9 @@ impl Container {
 impl std::fmt::Display for Container {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.kind {
-            ContainerKind::Block => write!(f, "block[{},{},{},{}]", self.dim, self.x, self.y, self.z),
+            ContainerKind::Block => {
+                write!(f, "block[{},{},{},{}]", self.dim, self.x, self.y, self.z)
+            }
             other => write!(f, "{:?}({})", other, self.owner),
         }
     }

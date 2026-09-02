@@ -86,7 +86,10 @@ impl Entity {
         if ok {
             Ok(Entity(out))
         } else {
-            Err(Error(format!("复制不了实体 {}（实体不在了，或目标维度不可用）", self.0)))
+            Err(Error(format!(
+                "复制不了实体 {}（实体不在了，或目标维度不可用）",
+                self.0
+            )))
         }
     }
 
@@ -117,7 +120,8 @@ impl Entity {
         let f = crate::require_slot!(actor_get_effects, "读取实体状态效果");
         let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) })
             .ok_or_else(|| Error(format!("读不出实体 {} 的状态效果", self.0)))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("状态效果 SNBT 解析失败：{e}")))?;
+        let v =
+            NbtValue::parse(&text).map_err(|e| Error(format!("状态效果 SNBT 解析失败：{e}")))?;
         let Some(items) = v.as_list() else {
             return Err(Error(format!("状态效果不是列表，而是 {}", v.type_name())));
         };

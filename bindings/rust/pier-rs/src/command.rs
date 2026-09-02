@@ -163,7 +163,12 @@ impl Invocation<'_> {
             Ok(v) => CommandOrigin {
                 name: v.opt_str("name").unwrap_or_default().to_owned(),
                 kind: v.opt_i32("type").unwrap_or(-1),
-                at: match (v.opt_i32("dim"), v.opt_f64("x"), v.opt_f64("y"), v.opt_f64("z")) {
+                at: match (
+                    v.opt_i32("dim"),
+                    v.opt_f64("x"),
+                    v.opt_f64("y"),
+                    v.opt_f64("z"),
+                ) {
                     (Some(d), Some(x), Some(y), Some(z)) => Some((d, x, y, z)),
                     _ => None,
                 },
@@ -211,7 +216,10 @@ impl Invocation<'_> {
             match NbtValue::parse(self.raw) {
                 Ok(v) => self.parsed = Some(v),
                 Err(e) => {
-                    Logger::get().warn(&format!("命令参数 SNBT 解析失败：{e}（原文：{}）", self.raw));
+                    Logger::get().warn(&format!(
+                        "命令参数 SNBT 解析失败：{e}（原文：{}）",
+                        self.raw
+                    ));
                     return None;
                 }
             }
@@ -343,10 +351,7 @@ impl CommandBuilder {
 
     /// 注册。至少要有一条 overload —— 一条都没有的话宿主直接拒绝，
     /// 所以这里提前挡下并说明，省得对着「注册失败」猜原因。
-    pub fn register(
-        self,
-        handler: impl FnMut(&mut Invocation<'_>) + Send + 'static,
-    ) -> Result<()> {
+    pub fn register(self, handler: impl FnMut(&mut Invocation<'_>) + Send + 'static) -> Result<()> {
         let f = crate::require_slot!(register_command_ex, "注册带参数的命令");
         if self.overloads.is_empty() {
             return Err(Error(format!(
@@ -382,14 +387,18 @@ impl CommandBuilder {
 /// 注册一个静态枚举，供 [`ParamType::Enum`] 参数引用。
 pub fn register_enum(name: &str, values: &[(&str, u64)]) -> Result<()> {
     let f = crate::require_slot!(register_command_enum, "注册命令枚举");
-    let list = NbtValue::list(values.iter().map(|(k, v)| {
-        NbtValue::list([NbtValue::from(*k), NbtValue::Long(*v as i64)])
-    }));
+    let list = NbtValue::list(
+        values
+            .iter()
+            .map(|(k, v)| NbtValue::list([NbtValue::from(*k), NbtValue::Long(*v as i64)])),
+    );
     let spec = NbtValue::obj([("values", list)]).to_snbt();
     if unsafe { f(s(name), s(&spec)) } {
         Ok(())
     } else {
-        Err(Error(format!("注册命令枚举 {name} 失败（名字非法或已存在）")))
+        Err(Error(format!(
+            "注册命令枚举 {name} 失败（名字非法或已存在）"
+        )))
     }
 }
 
@@ -400,7 +409,9 @@ pub fn register_soft_enum(name: &str, values: &[&str]) -> Result<()> {
     if unsafe { f(s(name), s(&spec)) } {
         Ok(())
     } else {
-        Err(Error(format!("注册命令软枚举 {name} 失败（名字非法或已存在）")))
+        Err(Error(format!(
+            "注册命令软枚举 {name} 失败（名字非法或已存在）"
+        )))
     }
 }
 
@@ -418,7 +429,9 @@ pub fn update_soft_enum(name: &str, op: SoftEnumOp, values: &[&str]) -> Result<(
     if unsafe { f(s(name), op as i32, s(&spec)) } {
         Ok(())
     } else {
-        Err(Error(format!("更新命令软枚举 {name} 失败（这个名字没注册过）")))
+        Err(Error(format!(
+            "更新命令软枚举 {name} 失败（这个名字没注册过）"
+        )))
     }
 }
 

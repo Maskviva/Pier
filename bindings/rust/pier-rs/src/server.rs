@@ -43,9 +43,7 @@ impl Server {
         if unsafe { f(n) } {
             Ok(())
         } else {
-            Err(Error(format!(
-                "步进 {n} 帧失败（现在没有冻结，或 n 是 0）"
-            )))
+            Err(Error(format!("步进 {n} 帧失败（现在没有冻结，或 n 是 0）")))
         }
     }
 
@@ -55,7 +53,9 @@ impl Server {
         if unsafe { f(factor) } {
             Ok(())
         } else {
-            Err(Error(format!("设不了 tick 倍速 {factor}（取值必须在 0 到 100 之间）")))
+            Err(Error(format!(
+                "设不了 tick 倍速 {factor}（取值必须在 0 到 100 之间）"
+            )))
         }
     }
 
@@ -81,7 +81,8 @@ impl Server {
         let Some(text) = call_out_str(|ctx, sink| unsafe { f(ctx, sink) }) else {
             return Ok(None);
         };
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("采样报告 SNBT 解析失败：{e}")))?;
+        let v =
+            NbtValue::parse(&text).map_err(|e| Error(format!("采样报告 SNBT 解析失败：{e}")))?;
         Ok(Some(v))
     }
 

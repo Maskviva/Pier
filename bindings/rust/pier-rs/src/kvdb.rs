@@ -45,7 +45,11 @@ impl KvDb {
         if handle.is_null() {
             return Err(Error(format!(
                 "打开不了键值库 {path}（路径越出了模组数据目录、含 `..`，{}）",
-                if create { "或磁盘不可写" } else { "或它还不存在" }
+                if create {
+                    "或磁盘不可写"
+                } else {
+                    "或它还不存在"
+                }
             )));
         }
         Ok(KvDb {

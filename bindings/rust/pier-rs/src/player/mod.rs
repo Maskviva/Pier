@@ -154,7 +154,10 @@ impl Player {
         if ok {
             Ok(out)
         } else {
-            Err(Error(format!("玩家 {} 不在线（或选择器解析不到）", self.sel)))
+            Err(Error(format!(
+                "玩家 {} 不在线（或选择器解析不到）",
+                self.sel
+            )))
         }
     }
 
@@ -205,7 +208,6 @@ impl Player {
         self.num(prop).map(|v| v as i32)
     }
 
-
     /// 上一次死亡的位置。没死过时是 `Ok(None)`（宿主给空串）。
     pub fn last_death_pos(&self) -> Result<Option<(PositionF64, i32)>> {
         let text = self.text(sys::PIER_PSTR_LAST_DEATH_POS)?;
@@ -253,7 +255,9 @@ impl Player {
     /// 而三次属性调用之间玩家可能已经动了。
     pub fn position(&self) -> Result<(PositionF64, i32)> {
         let f = crate::require_slot!(get_player_position, "读取玩家位置");
-        let name = self.real_name().unwrap_or_else(|_| self.sel.value().to_owned());
+        let name = self
+            .real_name()
+            .unwrap_or_else(|_| self.sel.value().to_owned());
         let p = unsafe { f(s(&name)) };
         if p.found {
             Ok(((p.x, p.y, p.z), p.dimension))
@@ -267,7 +271,8 @@ impl Player {
         let f = crate::require_slot!(player_get_network_status, "读取玩家网络状况");
         let text = call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), ctx, sink) })
             .ok_or_else(|| Error(format!("读不出玩家 {} 的网络状况", self.sel)))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("网络状况 SNBT 解析失败：{e}")))?;
+        let v =
+            NbtValue::parse(&text).map_err(|e| Error(format!("网络状况 SNBT 解析失败：{e}")))?;
         Ok(NetworkStatus {
             ping: v.opt_i32("ping").unwrap_or(-1),
             avg_ping: v.opt_i32("avg_ping").unwrap_or(-1),
@@ -289,7 +294,6 @@ impl Player {
             Ok(id)
         }
     }
-
 }
 
 impl std::fmt::Display for Player {

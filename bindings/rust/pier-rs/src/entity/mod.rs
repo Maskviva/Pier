@@ -121,7 +121,6 @@ impl Entity {
             .ok_or_else(|| Error(format!("读不出实体 {} 的字符串属性 {prop}", self.0)))
     }
 
-
     /// 位置（`Actor::getPosition`）。玩家的脚下坐标见 [`Entity::feet_pos`]。
     pub fn pos(&self) -> Result<PositionF64> {
         Ok((
@@ -171,8 +170,6 @@ impl Entity {
             self.num(sys::PIER_APROP_ROT_YAW)?,
         ))
     }
-
-
 }
 
 impl std::fmt::Display for Entity {

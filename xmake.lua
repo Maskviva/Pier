@@ -1,3 +1,26 @@
+/*
+                   _ooOoo_
+                  o8888888o
+                  88" . "88
+                  (| -_- |)
+                  O\  =  /O
+               ____/`---'\____
+             .'  \\|     |//  `.
+            /  \\|||  :  |||//  \
+           /  _||||| -:- |||||-  \
+           |   | \\\  -  /// |   |
+           | \_|  ''\---/''  |   |
+           \  .-\__  `-`  ___/-. /
+         ___`. .'  /--.--\  `. . __
+      ."" '<  `.___\_<|>_/___.'  >'"".
+     | | :  `- \`.;`\ _ /`;.`/ - ` : | |
+     \  \ `-.   \_ __\ /__ _/   .-` /  /
+======`-.____`-.___\_____/___.-`____.-'======
+                   `=---='
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            佛祖保佑       永无BUG
+*/
+
 -- Pier —— 根构建。只做三件事：全局编译环境、外部依赖、把 object 包粘成产物。
 -- 任何和某个包内部相关的东西都属于那个包自己的 xmake.lua。
 add_rules("mode.debug", "mode.release")
@@ -73,7 +96,7 @@ end
 -- 新树把客户端槽位拆成独立能力包之后，这个表达式会和那个包的 target 重名，
 -- xmake 直接报重复定义。而且名字本来就不该随构建配置漂 —— 服务端和客户端
 -- 是同一个宿主的两个目标，模组、命令、日志里说的都是「pier」（契约 §七）。
-target("pier")
+target("Pier")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
     set_kind("shared")
@@ -81,6 +104,27 @@ target("pier")
     if not is_client then
         add_deps("pier-hooks", "pier-dimensions")
         add_packages("levilamina", "legacymoney", "bedrockdata", "snappy", "magic_enum")
+
+        -- LegacyMoney 是**可选**后端：没装它 pier 也要照常起来，经济那一族
+        -- 降级成「读取返回失败、写入返回失败」（契约 §2.1：能力缺席 = 槽位
+        -- 空，不是另一个构建）。运行期的降级逻辑一直都在
+        -- （`moneyBackendReady()` 查模组表 + 查导出符号），缺的是链接器这一半：
+        -- `add_packages("legacymoney")` 会把导入库直接链进去，产生一条硬性的
+        -- DLL 依赖，于是**加载器在 pier.dll 自己被载入时就失败**，运行期那套
+        -- 检查一行都跑不到，报错是 `0x7E The specified module could not be
+        -- found`，看不出跟经济有任何关系。
+        --
+        -- /DELAYLOAD 让符号推迟到第一次真正调用时才解析。配套的
+        -- delayimp.lib 提供解析桩；没有它链接器会报 __delayLoadHelper2 未定义。
+        --
+        -- **shflags 而不是 ldflags**：xmake 里 `add_ldflags` 只作用于
+        -- `kind("binary")`，共享库的链接走 `add_shflags`。这个 target 是
+        -- `set_kind("shared")`，所以写成 ldflags 会被**静默忽略** —— 构建照样
+        -- 成功，产物照样带一条硬性 DLL 依赖，症状和没加时一模一样。
+        -- 两个都写：将来这个 target 若改成 binary 也不会再踩一次。
+        add_shflags("/DELAYLOAD:LegacyMoney.dll", { force = true })
+        add_ldflags("/DELAYLOAD:LegacyMoney.dll", { force = true })
+        add_syslinks("delayimp")
     else
         add_deps("pier-client")
         add_packages("levilamina")

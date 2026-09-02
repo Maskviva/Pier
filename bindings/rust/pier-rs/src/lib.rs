@@ -20,6 +20,7 @@ pub mod bus;
 pub mod client;
 pub mod command;
 pub mod container;
+mod context;
 pub mod dimensions;
 pub mod entity;
 pub mod event;
@@ -42,7 +43,9 @@ pub mod types;
 pub mod world;
 
 pub use block::{Block, BlockInfo};
+pub use command::{CommandOrigin, CommandPermission, Invocation, ParamType, SoftEnumOp};
 pub use container::{Container, ContainerKind};
+pub use context::ModContext;
 pub use entity::{Aabb, ActorEntry, Effect, Entity};
 pub use event::{Event, EventPriority, EventRef, Listener, PlayerIdentity, Priority, Wiring};
 pub use gui::{CustomForm, FormResponse, FormValue, ModalForm, SimpleForm};
@@ -50,17 +53,17 @@ pub use host::{GamingStatus, Host};
 pub use item::{Enchant, ItemStack};
 pub use kvdb::KvDb;
 pub use nbt::{NbtError, NbtFormat, NbtResult, NbtValue};
+pub use packet::{ConnectionState, Direction, Directions, Packet, PacketHook, Packets, Verdict};
 pub use player::{Player, PlayerInfo};
+pub use rt::error::{Error, Result};
+pub use rt::logger::{LogLevel, Logger};
+pub use rt::registration::{__init_runtime, __lifecycle, __load, LeviMod, ModSlot};
+pub use rt::runtime::TaskId;
 pub use scoreboard::{DisplaySlot, Objective, Scoreboard};
 pub use sel::PlayerSel;
 pub use server::Server;
 pub use service::CallError;
 pub use sim::SimPlayer;
-pub use packet::{ConnectionState, Direction, Directions, Packet, PacketHook, Packets, Verdict};
-pub use rt::error::{Error, Result};
-pub use rt::logger::{LogLevel, Logger};
-pub use rt::registration::{LeviMod, ModSlot, __init_runtime, __lifecycle, __load};
-pub use rt::runtime::{ModContext, TaskId};
 pub use types::{
     Ability, BlockUpdate, Bounds, Difficulty, EquipSlot, GameMode, LocalTime, MessageType,
     PlayerPermission, PositionF64, PositionI32, RayHit, TitleKind, TitleTimes, Weather,
@@ -85,11 +88,11 @@ pub mod __rt {
 
 pub mod prelude {
     //! 一行 `use levilamina::prelude::*;` 拿到写模组最常用的那些东西。
+    pub use crate::{event::names, service};
     pub use crate::{
-        register_mod, Block, Container, ConnectionState, Direction, Directions, Entity, Error,
+        register_mod, Block, ConnectionState, Container, Direction, Directions, Entity, Error,
         Event, EventRef, GameMode, GamingStatus, Host, ItemStack, LeviMod, Listener, LogLevel,
         Logger, ModContext, NbtValue, Packet, PacketHook, Packets, Player, PlayerIdentity,
-        PlayerSel, Priority, Result, Server, TaskId, Verdict, World, Wiring,
+        PlayerSel, Priority, Result, Server, TaskId, Verdict, Wiring, World,
     };
-    pub use crate::{event::names, service};
 }

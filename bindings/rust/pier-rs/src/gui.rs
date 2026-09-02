@@ -132,8 +132,10 @@ impl SimpleForm {
     }
 
     pub fn button(mut self, text: &str) -> SimpleForm {
-        self.elements
-            .push(NbtValue::obj([("kind", "button".into()), ("text", text.into())]));
+        self.elements.push(NbtValue::obj([
+            ("kind", "button".into()),
+            ("text", text.into()),
+        ]));
         self
     }
 
@@ -149,19 +151,24 @@ impl SimpleForm {
     }
 
     pub fn header(mut self, text: &str) -> SimpleForm {
-        self.elements
-            .push(NbtValue::obj([("kind", "header".into()), ("text", text.into())]));
+        self.elements.push(NbtValue::obj([
+            ("kind", "header".into()),
+            ("text", text.into()),
+        ]));
         self
     }
 
     pub fn label(mut self, text: &str) -> SimpleForm {
-        self.elements
-            .push(NbtValue::obj([("kind", "label".into()), ("text", text.into())]));
+        self.elements.push(NbtValue::obj([
+            ("kind", "label".into()),
+            ("text", text.into()),
+        ]));
         self
     }
 
     pub fn divider(mut self) -> SimpleForm {
-        self.elements.push(NbtValue::obj([("kind", "divider".into())]));
+        self.elements
+            .push(NbtValue::obj([("kind", "divider".into())]));
         self
     }
 
@@ -260,19 +267,24 @@ impl CustomForm {
     }
 
     pub fn header(mut self, text: &str) -> CustomForm {
-        self.elements
-            .push(NbtValue::obj([("kind", "header".into()), ("text", text.into())]));
+        self.elements.push(NbtValue::obj([
+            ("kind", "header".into()),
+            ("text", text.into()),
+        ]));
         self
     }
 
     pub fn label(mut self, text: &str) -> CustomForm {
-        self.elements
-            .push(NbtValue::obj([("kind", "label".into()), ("text", text.into())]));
+        self.elements.push(NbtValue::obj([
+            ("kind", "label".into()),
+            ("text", text.into()),
+        ]));
         self
     }
 
     pub fn divider(mut self) -> CustomForm {
-        self.elements.push(NbtValue::obj([("kind", "divider".into())]));
+        self.elements
+            .push(NbtValue::obj([("kind", "divider".into())]));
         self
     }
 
@@ -297,7 +309,13 @@ impl CustomForm {
         self
     }
 
-    pub fn dropdown(mut self, name: &str, text: &str, options: &[&str], default: usize) -> CustomForm {
+    pub fn dropdown(
+        mut self,
+        name: &str,
+        text: &str,
+        options: &[&str],
+        default: usize,
+    ) -> CustomForm {
         self.elements
             .push(choice("dropdown", name, text, options, default));
         self
@@ -421,7 +439,9 @@ unsafe extern "C" fn trampoline(user: *mut c_void, result_snbt: sys::PierStr) {
 /// 解析宿主写回来的结果 SNBT。
 fn parse_response(raw: &str) -> FormResponse {
     let Ok(v) = NbtValue::parse(raw) else {
-        return FormResponse::Unknown { raw: raw.to_owned() };
+        return FormResponse::Unknown {
+            raw: raw.to_owned(),
+        };
     };
     if v.opt_bool("cancelled").unwrap_or(false) {
         return FormResponse::Cancelled {
@@ -459,7 +479,9 @@ fn parse_response(raw: &str) -> FormResponse {
         }
         return FormResponse::Custom { values: out, texts };
     }
-    FormResponse::Unknown { raw: raw.to_owned() }
+    FormResponse::Unknown {
+        raw: raw.to_owned(),
+    }
 }
 
 /// SNBT 的标签类型带着控件语义：整型来自下拉框/步进滑块的下标，浮点来自

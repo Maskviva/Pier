@@ -261,6 +261,9 @@
 | `—` | `bindings/rust/pier-rs/src/block/edit.rs` | ✔ 新建（方块写入与液体层（从扁平的 block.rs 拆出）） |
 | `—` | `bindings/rust/pier-rs/src/entity/relations.rs` | ✔ 新建（实体关系、装备效果、射线（从扁平的 entity.rs 拆出）） |
 | `—` | `bindings/rust/pier-rs/src/player/io.rs` | ✔ 新建（玩家出站通道：消息、标题、粒子、原始包（从扁平的 player.rs 拆出）） |
+| `—` | `bindings/rust/pier-rs/src/context.rs` | ✔ 新建（模组作者的门面，聚合各域入口；从 rt/runtime.rs 搬出来 —— 它不是运行时底座） |
+| `—` | `docs/verify-delayload.md` | ✔ 新建（验证 /DELAYLOAD 是否真的生效的操作手册（dumpbin 导入表 / xmake -v 链接命令行 / 挪走 LegacyMoney 实测）） |
+| `—` | `tools/checks/delayload_matches_claims.py` | ✔ 新建（机检：代码里声称延迟加载的 DLL，链接器那边必须真的有 /DELAYLOAD，且落在对的 flag 通道上） |
 | `xmake.lua` | `xmake.lua` | ✔ 重写（全局宏根作用域；object 包聚合） |
 
 
@@ -321,7 +324,7 @@
 | `packages/pier-support/src/Snbt.cpp` | ✔ 新建 —— SNBT 转义/数字格式化，旧仓散在各处 |
 | `packages/pier-support/xmake.lua` | ✔ 新建 —— pier-support 整包是新架构引入的层（日志入口必须住在比 host 更低的地方，见契约 §一） |
 
-**统计**：✔ 199 ｜ ✂ 12 ｜ ⬜ 45（共 256 个旧文件）
+**统计**：✔ 202 ｜ ✂ 12 ｜ ⬜ 45（共 259 个旧文件）
 
 ---
 

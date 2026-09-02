@@ -15,9 +15,9 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
+use crate::context::ModContext;
 use crate::rt::error::{Error, Result};
 use crate::rt::logger::Logger;
-use crate::rt::runtime::ModContext;
 use crate::sys;
 
 /// 一个 Pier 模组。

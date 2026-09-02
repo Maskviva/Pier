@@ -175,8 +175,8 @@ impl<'a> Event<'a> {
             .unwrap_or_default()
     }
 
-    /// 载荷是否完整（`_unresolved` 为空）。
-    pub fn is_complete(&mut self) -> bool {
+    /// 检查载荷是否完整（`_unresolved` 为空）。
+    pub fn check_complete(&mut self) -> bool {
         self.unresolved().is_empty()
     }
 
@@ -186,7 +186,7 @@ impl<'a> Event<'a> {
     /// 让调用方写 `payload.i32_at("dim").unwrap_or(0)`，于是自定义维度（id ≥ 3）
     /// 的事件全被判成主世界，土地保护「主世界拒绝、别处放行」被绕过且零日志。
     pub fn dim(&mut self) -> Result<i32> {
-        if !self.is_complete() {
+        if !self.check_complete() {
             let miss = self.unresolved().join(", ");
             return Err(Error(format!(
                 "事件 `{}` 的载荷不完整（宿主解不出 {miss}），维度未知 —— 拒绝按主世界处理",
@@ -639,7 +639,6 @@ pub type EventPriority = Priority;
 
 /// 载荷取值失败时的原始错误类型（透出去便于业务侧做精细分支）。
 pub use crate::nbt::NbtError as PayloadError;
-
 
 /// 从一个复合标签直接建 `PlayerIdentity`（给自定义载荷用）。
 impl From<&BTreeMap<String, NbtValue>> for PlayerIdentity {

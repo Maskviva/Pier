@@ -193,8 +193,7 @@ pub type PierCommandCb = unsafe extern "C" fn(
     out_success: PierStrSink,
     out_error: PierStrSink,
 );
-pub type PierCmdOutputSink =
-    unsafe extern "C" fn(ctx: *mut c_void, success: bool, output: PierStr);
+pub type PierCmdOutputSink = unsafe extern "C" fn(ctx: *mut c_void, success: bool, output: PierStr);
 pub type PierBlockSink =
     unsafe extern "C" fn(ctx: *mut c_void, x: i32, y: i32, z: i32, name: PierStr, snbt: PierStr);
 pub type PierEntitySink =
@@ -225,9 +224,5 @@ pub type PierConnCb =
     unsafe extern "C" fn(user: *mut c_void, conn_id: u64, address: PierStr, opened: bool);
 pub type PierKeyCb =
     unsafe extern "C" fn(user: *mut c_void, action: PierKeyAction, impact: PierFocusImpact);
-pub type PierMoneyCb = unsafe extern "C" fn(
-    type_: PierMoneyEvent,
-    from: PierStr,
-    to: PierStr,
-    value: i64,
-) -> bool;
+pub type PierMoneyCb =
+    unsafe extern "C" fn(type_: PierMoneyEvent, from: PierStr, to: PierStr, value: i64) -> bool;

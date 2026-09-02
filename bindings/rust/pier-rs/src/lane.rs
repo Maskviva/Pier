@@ -39,7 +39,11 @@ pub enum LaneError {
     /// 没人发布这个名字（那个模组没装）。
     NotFound { name: String },
     /// 发布了，但指纹不同。**降级走 service，别递指针。**
-    Fingerprint { name: String, theirs: u64, ours: u64 },
+    Fingerprint {
+        name: String,
+        theirs: u64,
+        ours: u64,
+    },
     /// 名字非法、取自己的、提供方被禁用，或协议版本不符。
     Refused { name: String },
     /// 宿主没有提供快车道能力。
@@ -58,7 +62,9 @@ impl LaneError {
                  两个模组不是同一条工具链编出来的。这不是错误，降级走 service::call。"
             ),
             LaneError::Refused { name } => {
-                format!("宿主拒绝取车道 `{name}`：名字非法、取的是自己、提供方被禁用，或协议版本不符。")
+                format!(
+                    "宿主拒绝取车道 `{name}`：名字非法、取的是自己、提供方被禁用，或协议版本不符。"
+                )
             }
             LaneError::Unavailable => "这个宿主没有提供快车道能力。".to_owned(),
         }
@@ -112,7 +118,10 @@ impl<C: LaneContract> Lane<C> {
     ///
     /// 进去之前把 `busy` 加一，出来减一 —— 这段期间宿主会拒绝卸载提供方，
     /// 所以栈上那一帧不会被 `FreeLibrary` 抽走（见模块文档）。
-    pub fn with<R>(&self, f: impl FnOnce(&C::Table, *mut c_void) -> R) -> Option<R> {
+    /// 交给闭包的是 [`LaneData`] 而不是裸 `*mut c_void`：车道表里每个函数的
+    /// 第一个参数都是 `LaneData`（那是对面的 self），交裸指针等于让调用方在
+    /// 每个调用点手动包一次。
+    pub fn with<R>(&self, f: impl FnOnce(&C::Table, LaneData) -> R) -> Option<R> {
         if !self.is_alive() || self.vtable.is_null() {
             return None;
         }
@@ -127,7 +136,9 @@ impl<C: LaneContract> Lane<C> {
         }
         // SAFETY：vtable 非空且 alive 为真，提供方保证它活到车道被撤下。
         let table = unsafe { &*self.vtable };
-        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(table, self.data)));
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f(table, LaneData(self.data))
+        }));
         if let Some(b) = busy {
             b.fetch_sub(1, Ordering::AcqRel);
         }
@@ -206,6 +217,26 @@ pub fn acquire<C: LaneContract>() -> std::result::Result<Lane<C>, LaneError> {
         _ => Err(LaneError::Refused {
             name: C::NAME.to_owned(),
         }),
+    }
+}
+
+/// 在车道回调里就地拦下 panic。
+///
+/// 发布方的表函数都是 `extern "C"`，而 panic 穿过 `extern "C"` 是未定义行为。
+/// 每个表函数的第一行都该是这个 —— 里面跑的是本模组的业务代码，它 panic
+/// 的概率不比别处低，而这里 panic 的后果比别处严重得多:调用方是**另一个
+/// 模组**，栈上还压着它的帧。
+///
+/// panic 时返回 `fallback` 并打日志。`fallback` 必须是这个表函数语义上
+/// 「答不上来」的那个值，不是「否」—— 把 panic 当成一次明确的否定回答，
+/// 就是让一个 bug 去做本该由业务逻辑做的判断。
+pub fn guard<R>(fallback: R, f: impl FnOnce() -> R) -> R {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(_) => {
+            Logger::get().error("车道表函数 panic 了。已就地拦下，本次返回兜底值。");
+            fallback
+        }
     }
 }
 

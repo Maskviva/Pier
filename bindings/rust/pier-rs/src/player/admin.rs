@@ -29,7 +29,10 @@ impl Player {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("设不了玩家 {} 的游戏模式（不在线）", self.sel)))
+            Err(Error(format!(
+                "设不了玩家 {} 的游戏模式（不在线）",
+                self.sel
+            )))
         }
     }
 
@@ -51,15 +54,13 @@ impl Player {
     /// 跑一个 `PIER_PACT_*` 动作，取回它的输出。
     pub fn act(&self, action: i32, sarg: &str, a: f64, b: f64, c: f64) -> Result<String> {
         let f = crate::require_slot!(player_action, "执行玩家动作");
-        call_out_str(|ctx, sink| unsafe {
-            f(self.sel.raw(), action, s(sarg), a, b, c, ctx, sink)
-        })
-        .ok_or_else(|| {
-            Error(format!(
-                "玩家 {} 的动作 {action} 失败（不在线、参数不合法，或宿主不认识这个动作号）",
-                self.sel
-            ))
-        })
+        call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), action, s(sarg), a, b, c, ctx, sink) })
+            .ok_or_else(|| {
+                Error(format!(
+                    "玩家 {} 的动作 {action} 失败（不在线、参数不合法，或宿主不认识这个动作号）",
+                    self.sel
+                ))
+            })
     }
 
     /// 设一个能力位。
@@ -70,7 +71,11 @@ impl Player {
         if ability.is_float() == V::IS_BOOL {
             return Err(Error(format!(
                 "能力位 {ability:?} 要的是{}值，给的是{}值",
-                if ability.is_float() { "浮点" } else { "布尔" },
+                if ability.is_float() {
+                    "浮点"
+                } else {
+                    "布尔"
+                },
                 if V::IS_BOOL { "布尔" } else { "数" }
             )));
         }
@@ -94,7 +99,9 @@ impl Player {
         match out.trim() {
             "1" => Ok(true),
             "0" => Ok(false),
-            other => Err(Error(format!("能力位查询应当回 \"0\"/\"1\"，实际回了 {other:?}"))),
+            other => Err(Error(format!(
+                "能力位查询应当回 \"0\"/\"1\"，实际回了 {other:?}"
+            ))),
         }
     }
 
@@ -140,8 +147,14 @@ impl Player {
             .map(|_| ())
     }
     pub fn set_enchantment_seed(&self, seed: i32) -> Result<()> {
-        self.act(sys::PIER_PACT_SET_ENCHANTMENT_SEED, "", seed as f64, 0.0, 0.0)
-            .map(|_| ())
+        self.act(
+            sys::PIER_PACT_SET_ENCHANTMENT_SEED,
+            "",
+            seed as f64,
+            0.0,
+            0.0,
+        )
+        .map(|_| ())
     }
     pub fn play_emote(&self, piece_id: &str) -> Result<()> {
         self.act(sys::PIER_PACT_PLAY_EMOTE, piece_id, 0.0, 0.0, 0.0)
@@ -156,11 +169,18 @@ impl Player {
             .map(|_| ())
     }
     pub fn start_riding(&self, vehicle: Entity) -> Result<()> {
-        self.act(sys::PIER_PACT_START_RIDING, "", vehicle.id() as f64, 0.0, 0.0)
-            .map(|_| ())
+        self.act(
+            sys::PIER_PACT_START_RIDING,
+            "",
+            vehicle.id() as f64,
+            0.0,
+            0.0,
+        )
+        .map(|_| ())
     }
     pub fn stop_riding(&self) -> Result<()> {
-        self.act(sys::PIER_PACT_STOP_RIDING, "", 0.0, 0.0, 0.0).map(|_| ())
+        self.act(sys::PIER_PACT_STOP_RIDING, "", 0.0, 0.0, 0.0)
+            .map(|_| ())
     }
     pub fn attack(&self, target: Entity) -> Result<()> {
         self.act(sys::PIER_PACT_ATTACK, "", target.id() as f64, 0.0, 0.0)
@@ -200,5 +220,4 @@ impl Player {
         self.act(sys::PIER_PACT_SIDEBAR_CLEAR, objective, 0.0, 0.0, 0.0)
             .map(|_| ())
     }
-
 }

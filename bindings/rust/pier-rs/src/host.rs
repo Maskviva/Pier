@@ -74,20 +74,36 @@ impl Host {
         if id == 0 {
             // 宿主拒收：闭包还没交出去，收回所有权。
             drop(unsafe { Box::from_raw(user) });
-            return Err(Error("宿主拒绝了排期任务（模组尚未被接管，或句柄无效）".to_owned()));
+            return Err(Error(
+                "宿主拒绝了排期任务（模组尚未被接管，或句柄无效）".to_owned(),
+            ));
         }
         Ok(TaskId(id))
     }
 
-    /// 同上，但延迟 `delay_ms` 毫秒。线程安全。
-    pub fn schedule_after(&self, delay_ms: u64, f: impl FnOnce() + Send + 'static) -> Result<TaskId> {
+    /// 同上，但延迟 `delay` 之后再跑。线程安全。
+    ///
+    /// 收 `Duration` 而不是一个裸的毫秒数：`schedule_after(5, …)` 里那个 5
+    /// 是五毫秒还是五秒，只有参数名说得清，而参数名在调用点是看不见的。
+    /// 单位放进类型里，调用点就自带答案。
+    ///
+    /// ABI 那一侧是毫秒，所以这里做一次转换。超过 `u64` 毫秒的时长会被钳到
+    /// 上限而不是绕回一个很小的数 —— 后者会让一个「一年后执行」变成「立刻执行」。
+    pub fn schedule_after(
+        &self,
+        delay: std::time::Duration,
+        f: impl FnOnce() + Send + 'static,
+    ) -> Result<TaskId> {
         let cb = crate::require_slot!(schedule_after_for, "延迟排期任务");
+        let delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
         let boxed: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(f));
         let user = Box::into_raw(boxed);
         let id = unsafe { cb(rt().handle(), task_trampoline, user.cast(), delay_ms) };
         if id == 0 {
             drop(unsafe { Box::from_raw(user) });
-            return Err(Error("宿主拒绝了延迟排期任务（模组尚未被接管，或句柄无效）".to_owned()));
+            return Err(Error(
+                "宿主拒绝了延迟排期任务（模组尚未被接管，或句柄无效）".to_owned(),
+            ));
         }
         Ok(TaskId(id))
     }
@@ -170,9 +186,9 @@ impl Host {
     /// 和「协议版本是 0」必须分开（契约 §5.2）。
     pub fn protocol_version(&self) -> Result<u32> {
         let raw = self.server_info(sys::PIER_SRV_PROTOCOL_VERSION)?;
-        raw.trim().parse::<u32>().map_err(|e| {
-            Error(format!("宿主报的协议版本 {raw:?} 解析不成数字：{e}"))
-        })
+        raw.trim()
+            .parse::<u32>()
+            .map_err(|e| Error(format!("宿主报的协议版本 {raw:?} 解析不成数字：{e}")))
     }
 
     /// BDS 的版本串（`Common::getGameVersionString`）。
@@ -253,15 +269,20 @@ impl Host {
         })
     }
 
-}
+    /// 世界门面。
+    ///
+    /// 这个访问器和 `Host` 之间**不构成环**:`world` 确实要用
+    /// `Host::execute_command` 拼 `/fill`，但两边的入口都只是零大小门面的
+    /// `get()`，不共享状态。分层检查里这条边是显式声明的。
+    pub fn world(&self) -> crate::World {
+        crate::World::get()
+    }
 
-// 这里**刻意没有** `Host::world()` / `Host::server()` 这样的便利访问器。
-//
-// 它们只省下 `World::get()` 里的六个字符，代价却是把 host 拉进一个环:
-// `world` 要用 `Host::execute_command` 拼 `/fill` 和 `/tickingarea`（那是真
-// 依赖，命令只能从宿主走），于是 host→world 和 world→host 同时存在。
-// 一个环意味着这两个模块以后只能一起动，也意味着它们没法分别讲清楚
-// 「谁建在谁上面」。糖是可以不要的那一边，就砍糖。
+    /// 服务器运行时控制（tick 冻结、倍速、性能采样）。
+    pub fn server(&self) -> crate::Server {
+        crate::Server::get()
+    }
+}
 
 // ── 跨 extern "C" 的两个蹦床 ───────────────────────────────────────
 

@@ -21,7 +21,9 @@ impl Block {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("放不了 {spec} 到 {self}（名字不认识，或关卡没就绪）")))
+            Err(Error(format!(
+                "放不了 {spec} 到 {self}（名字不认识，或关卡没就绪）"
+            )))
         }
     }
 
@@ -32,7 +34,9 @@ impl Block {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("按 NBT 放不了方块到 {self}（NBT 形状不对，或名字不认识）")))
+            Err(Error(format!(
+                "按 NBT 放不了方块到 {self}（NBT 形状不对，或名字不认识）"
+            )))
         }
     }
 
@@ -40,12 +44,7 @@ impl Block {
     ///
     /// `states` 传 `None` 表示全默认状态。版本号由宿主从默认状态里取，
     /// 调用方不要自己填 —— 填错的版本号会让方块以另一套状态语义落地。
-    pub fn set_states(
-        self,
-        name: &str,
-        states: Option<&str>,
-        update: BlockUpdate,
-    ) -> Result<()> {
+    pub fn set_states(self, name: &str, states: Option<&str>, update: BlockUpdate) -> Result<()> {
         let f = crate::require_slot!(edit_set_block_states, "按状态放置方块");
         let ok = unsafe {
             f(
@@ -83,7 +82,9 @@ impl Block {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("写不了 {self} 的液体层（{spec} 这个名字不认识）")))
+            Err(Error(format!(
+                "写不了 {self} 的液体层（{spec} 这个名字不认识）"
+            )))
         }
     }
 

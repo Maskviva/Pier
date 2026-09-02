@@ -17,10 +17,8 @@ impl Block {
     /// 读一个方块状态的值。
     pub fn state(&self, name: &str) -> Result<String> {
         let f = crate::require_slot!(block_get_state, "读取方块状态");
-        call_out_str(|ctx, sink| unsafe {
-            f(self.dim, self.x, self.y, self.z, s(name), ctx, sink)
-        })
-        .ok_or_else(|| Error(format!("{self} 没有名为 {name} 的方块状态")))
+        call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, s(name), ctx, sink) })
+            .ok_or_else(|| Error(format!("{self} 没有名为 {name} 的方块状态")))
     }
 
     /// 全部方块状态。
@@ -44,10 +42,9 @@ impl Block {
     /// 碰撞盒。
     pub fn collision_shape(&self) -> Result<Vec<Bounds>> {
         let f = crate::require_slot!(block_get_collision_shape, "读取方块碰撞盒");
-        let text = call_out_str(|ctx, sink| unsafe {
-            f(self.dim, self.x, self.y, self.z, ctx, sink)
-        })
-        .ok_or_else(|| Error(format!("读不出 {self} 的碰撞盒")))?;
+        let text =
+            call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, ctx, sink) })
+                .ok_or_else(|| Error(format!("读不出 {self} 的碰撞盒")))?;
         parse_boxes(&text)
     }
 
@@ -56,12 +53,13 @@ impl Block {
     /// 方块实体的 NBT。这一格上没有方块实体时是 `Ok(None)`。
     pub fn block_entity(&self) -> Result<Option<NbtValue>> {
         let f = crate::require_slot!(block_entity_snbt, "读取方块实体");
-        let Some(text) = call_out_str(|ctx, sink| unsafe {
-            f(self.dim, self.x, self.y, self.z, ctx, sink)
-        }) else {
+        let Some(text) =
+            call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, ctx, sink) })
+        else {
             return Ok(None);
         };
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("方块实体 SNBT 解析失败：{e}")))?;
+        let v =
+            NbtValue::parse(&text).map_err(|e| Error(format!("方块实体 SNBT 解析失败：{e}")))?;
         Ok(Some(v))
     }
 
@@ -78,5 +76,4 @@ impl Block {
             )))
         }
     }
-
 }

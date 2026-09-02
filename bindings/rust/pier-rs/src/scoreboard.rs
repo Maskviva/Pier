@@ -4,9 +4,9 @@
 //! 包成一个具名方法，顺带把「读不到分数」和「分数是 0」分开 ——
 //! 裸槽两种情况都是一个空输出（契约 §5.2）。
 
+use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, s};
-use crate::nbt::NbtValue;
 use crate::sys;
 
 /// 计分板显示位置。
@@ -47,17 +47,22 @@ impl Scoreboard {
     /// 跑一个 `PIER_SB_*` 操作。
     fn op(&self, op: i32, a: &str, b: &str, n: i64) -> Result<String> {
         let f = crate::require_slot!(scoreboard_op, "计分板操作");
-        call_out_str(|ctx, sink| unsafe { f(op, s(a), s(b), n, ctx, sink) })
-            .ok_or_else(|| Error(format!("计分板操作 {op} 失败（记分项不存在，或参数不合法）")))
+        call_out_str(|ctx, sink| unsafe { f(op, s(a), s(b), n, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "计分板操作 {op} 失败（记分项不存在，或参数不合法）"
+            ))
+        })
     }
 
     /// 建一个 dummy 记分项。同名已存在时失败。
     pub fn add_objective(&self, name: &str, display_name: &str) -> Result<()> {
-        self.op(sys::PIER_SB_ADD_OBJECTIVE, name, display_name, 0).map(|_| ())
+        self.op(sys::PIER_SB_ADD_OBJECTIVE, name, display_name, 0)
+            .map(|_| ())
     }
 
     pub fn remove_objective(&self, name: &str) -> Result<()> {
-        self.op(sys::PIER_SB_REMOVE_OBJECTIVE, name, "", 0).map(|_| ())
+        self.op(sys::PIER_SB_REMOVE_OBJECTIVE, name, "", 0)
+            .map(|_| ())
     }
 
     pub fn objectives(&self) -> Result<Vec<Objective>> {
@@ -117,14 +122,17 @@ impl Scoreboard {
 
     /// 抹掉这个人在这个记分项上的分数（不是设成 0）。
     pub fn reset_score(&self, objective: &str, who: &str) -> Result<()> {
-        self.op(sys::PIER_SB_RESET_SCORE, objective, who, 0).map(|_| ())
+        self.op(sys::PIER_SB_RESET_SCORE, objective, who, 0)
+            .map(|_| ())
     }
 
     pub fn set_display(&self, slot: DisplaySlot, objective: &str) -> Result<()> {
-        self.op(sys::PIER_SB_SET_DISPLAY, slot.as_str(), objective, 0).map(|_| ())
+        self.op(sys::PIER_SB_SET_DISPLAY, slot.as_str(), objective, 0)
+            .map(|_| ())
     }
 
     pub fn clear_display(&self, slot: DisplaySlot) -> Result<()> {
-        self.op(sys::PIER_SB_CLEAR_DISPLAY, slot.as_str(), "", 0).map(|_| ())
+        self.op(sys::PIER_SB_CLEAR_DISPLAY, slot.as_str(), "", 0)
+            .map(|_| ())
     }
 }

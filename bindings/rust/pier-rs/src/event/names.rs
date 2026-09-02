@@ -3,7 +3,7 @@
 //! 事件 id 是**字符串**，拼错的代价是「订阅静默成功、回调一次都不触发」。
 //! 宿主会在解析不到时报错并列出相近 id（§5.3），常量把它提前到编译期。
 //!
-//! 两类：**注册表事件**（`ll::event::…`，LeviLamina 自己发的）一律给全名 ——
+//! 两类：**注册表事件**一律给全名 `ll::event::<类名>` —— 中间**没有**分类段。
 //! 宿主也接受唯一后缀，但后缀在上游新增同名事件时会变歧义；**合成事件**
 //! （裸名字）是 Pier 用原生 detour 造的，补的是 LL 覆盖不到的点。
 //!
@@ -13,82 +13,82 @@
 /* ═══════════════ LeviLamina 注册表事件 ═══════════════ */
 
 /// **可取消**（`Cancellable<ServerPlayerEvent>`）—— 取消 = 拒绝这次进服。
-pub const PLAYER_JOIN: &str = "ll::event::player::PlayerJoinEvent";
+pub const PLAYER_JOIN: &str = "ll::event::PlayerJoinEvent";
 /// **可取消。**
-pub const PLAYER_CONNECT: &str = "ll::event::player::PlayerConnectEvent";
+pub const PLAYER_CONNECT: &str = "ll::event::PlayerConnectEvent";
 /// 只观察（玩家已经在走了，拦不住）。
-pub const PLAYER_DISCONNECT: &str = "ll::event::player::PlayerDisconnectEvent";
+pub const PLAYER_DISCONNECT: &str = "ll::event::PlayerDisconnectEvent";
 /// 只观察。
-pub const PLAYER_DIE: &str = "ll::event::player::PlayerDieEvent";
+pub const PLAYER_DIE: &str = "ll::event::PlayerDieEvent";
 /// 只观察。
-pub const PLAYER_RESPAWN: &str = "ll::event::player::PlayerRespawnEvent";
+pub const PLAYER_RESPAWN: &str = "ll::event::PlayerRespawnEvent";
 
 /// 可取消。载荷含 `message`，改它即可改写发言。
-pub const PLAYER_CHAT: &str = "ll::event::player::PlayerChatEvent";
+pub const PLAYER_CHAT: &str = "ll::event::PlayerChatEvent";
 
 /// 可取消。玩家挖掉一个方块。
-pub const PLAYER_DESTROY_BLOCK: &str = "ll::event::player::PlayerDestroyBlockEvent";
+pub const PLAYER_DESTROY_BLOCK: &str = "ll::event::PlayerDestroyBlockEvent";
 /// 可取消（`PlayerPlacingBlockEvent` 是「正要放」，`Placed` 是既成事实）。
-pub const PLAYER_PLACING_BLOCK: &str = "ll::event::player::PlayerPlacingBlockEvent";
+pub const PLAYER_PLACING_BLOCK: &str = "ll::event::PlayerPlacingBlockEvent";
 /// 只观察（既成事实）。要拦请用 [`PLAYER_PLACING_BLOCK`]。
-pub const PLAYER_PLACED_BLOCK: &str = "ll::event::player::PlayerPlacedBlockEvent";
+pub const PLAYER_PLACED_BLOCK: &str = "ll::event::PlayerPlacedBlockEvent";
 /// 可取消。右键方块（开箱子、按按钮、用工具）。
-pub const PLAYER_INTERACT_BLOCK: &str = "ll::event::player::PlayerInteractBlockEvent";
+pub const PLAYER_INTERACT_BLOCK: &str = "ll::event::PlayerInteractBlockEvent";
 /// **可取消。** 想禁某类食物/药水就拦这里（而不是 [`PLAYER_USE_ITEM_COMPLETE`]）。
-pub const PLAYER_USE_ITEM: &str = "ll::event::player::PlayerUseItemEvent";
+pub const PLAYER_USE_ITEM: &str = "ll::event::PlayerUseItemEvent";
 /// **可取消。**
-pub const PLAYER_PICK_UP_ITEM: &str = "ll::event::player::PlayerPickUpItemEvent";
+pub const PLAYER_PICK_UP_ITEM: &str = "ll::event::PlayerPickUpItemEvent";
 /// **可取消。** 注意它分不开「打玩家」和「打生物」——那个要用
 /// [`PLAYER_ATTACK_TARGET`]（合成事件，载荷带 `targetIsPlayer`）。
-pub const PLAYER_ATTACK: &str = "ll::event::player::PlayerAttackEvent";
+pub const PLAYER_ATTACK: &str = "ll::event::PlayerAttackEvent";
 /// 只观察。
-pub const PLAYER_SWING: &str = "ll::event::player::PlayerSwingEvent";
+pub const PLAYER_SWING: &str = "ll::event::PlayerSwingEvent";
 /// 只观察。
-pub const PLAYER_JUMP: &str = "ll::event::player::PlayerJumpEvent";
+pub const PLAYER_JUMP: &str = "ll::event::PlayerJumpEvent";
 /// **可取消**（基类 `PlayerSneakEvent` 就是 `Cancellable<>`）。
-pub const PLAYER_SNEAKING: &str = "ll::event::player::PlayerSneakingEvent";
+pub const PLAYER_SNEAKING: &str = "ll::event::PlayerSneakingEvent";
 /// **可取消**（同上）。
-pub const PLAYER_SNEAKED: &str = "ll::event::player::PlayerSneakedEvent";
+pub const PLAYER_SNEAKED: &str = "ll::event::PlayerSneakedEvent";
 /// 只观察（`PlayerSprintEvent` 不是 Cancellable —— 和 Sneak 不一样，别想当然）。
-pub const PLAYER_SPRINTING: &str = "ll::event::player::PlayerSprintingEvent";
+pub const PLAYER_SPRINTING: &str = "ll::event::PlayerSprintingEvent";
 /// 只观察（同上）。
-pub const PLAYER_SPRINTED: &str = "ll::event::player::PlayerSprintedEvent";
+pub const PLAYER_SPRINTED: &str = "ll::event::PlayerSprintedEvent";
 /// **可取消。**
-pub const PLAYER_ADD_EXPERIENCE: &str = "ll::event::player::PlayerAddExperienceEvent";
+pub const PLAYER_ADD_EXPERIENCE: &str = "ll::event::PlayerAddExperienceEvent";
 /// **可取消。**
-pub const PLAYER_CHANGE_PERM: &str = "ll::event::player::PlayerChangePermEvent";
+pub const PLAYER_CHANGE_PERM: &str = "ll::event::PlayerChangePermEvent";
 /// 只观察（它是 `PlayerAttackEvent`/`PlayerDestroyBlockEvent` 的**基类**，
 /// 想拦具体动作请订那两个）。
-pub const PLAYER_LEFT_CLICK: &str = "ll::event::player::PlayerLeftClickEvent";
+pub const PLAYER_LEFT_CLICK: &str = "ll::event::PlayerLeftClickEvent";
 /// 只观察（基类，同上）。
-pub const PLAYER_RIGHT_CLICK: &str = "ll::event::player::PlayerRightClickEvent";
+pub const PLAYER_RIGHT_CLICK: &str = "ll::event::PlayerRightClickEvent";
 
 /// **可取消。**
-pub const ACTOR_HURT: &str = "ll::event::entity::ActorHurtEvent";
+pub const ACTOR_HURT: &str = "ll::event::ActorHurtEvent";
 /// 只观察（`MobEvent` 不是 Cancellable）。
-pub const MOB_DIE: &str = "ll::event::entity::MobDieEvent";
+pub const MOB_DIE: &str = "ll::event::MobDieEvent";
 /// **可取消。**
-pub const SPAWNING_MOB: &str = "ll::event::entity::SpawningMobEvent";
+pub const SPAWNING_MOB: &str = "ll::event::SpawningMobEvent";
 /// 只观察（既成事实）。
-pub const SPAWNED_MOB: &str = "ll::event::entity::SpawnedMobEvent";
+pub const SPAWNED_MOB: &str = "ll::event::SpawnedMobEvent";
 
 /// 只观察。要拦方块变化用 [`PLAYER_PLACING_BLOCK`] / [`PLAYER_DESTROY_BLOCK`] /
 /// [`BLOCK_DESTROY`]（后者覆盖非玩家来源）。
-pub const BLOCK_CHANGED: &str = "ll::event::world::BlockChangedEvent";
+pub const BLOCK_CHANGED: &str = "ll::event::BlockChangedEvent";
 /// **可取消。**
-pub const FIRE_SPREAD: &str = "ll::event::world::FireSpreadEvent";
+pub const FIRE_SPREAD: &str = "ll::event::FireSpreadEvent";
 
 /// 只观察。
-pub const SERVER_STARTED: &str = "ll::event::server::ServerStartedEvent";
+pub const SERVER_STARTED: &str = "ll::event::ServerStartedEvent";
 /// 只观察。
-pub const SERVER_STOPPING: &str = "ll::event::server::ServerStoppingEvent";
+pub const SERVER_STOPPING: &str = "ll::event::ServerStoppingEvent";
 /// 只观察。**每 tick 一次** —— 判据要便宜，或者干脆用 `Host::schedule`。
-pub const SERVER_LEVEL_TICK: &str = "ll::event::server::ServerLevelTickEvent";
+pub const SERVER_LEVEL_TICK: &str = "ll::event::ServerLevelTickEvent";
 
 /// **可取消。** 命令白名单/审计拦这里。
-pub const EXECUTING_COMMAND: &str = "ll::event::command::ExecutingCommandEvent";
+pub const EXECUTING_COMMAND: &str = "ll::event::ExecutingCommandEvent";
 /// 只观察（既成事实）。
-pub const EXECUTED_COMMAND: &str = "ll::event::command::ExecutedCommandEvent";
+pub const EXECUTED_COMMAND: &str = "ll::event::ExecutedCommandEvent";
 
 /* ═══════════════ Pier 合成事件（LeviLamina 没有） ═══════════════ */
 
@@ -207,7 +207,6 @@ pub const HOPPER_TRANSFER: &str = "HopperTransferEvent";
 /// **可取消。** 玩家对着方块用物品（放置、右键使用）。
 pub const PLAYER_USE_ITEM_ON: &str = "PlayerUseItemOnEvent";
 
-
 /* ═══════════════ 可取消性查表 ═══════════════ */
 
 /// 已知**可取消**的事件（LL 侧继承自 `Cancellable<>`；合成侧走
@@ -323,7 +322,10 @@ pub fn is_cancellable(id: &str) -> Option<bool> {
 /// 只观察的事件为什么不能取消、以及该去拦哪个。
 pub fn why_not_cancellable(id: &str) -> Option<&'static str> {
     let s = short(id);
-    OBSERVE_ONLY.iter().find(|(n, _)| *n == s).map(|(_, why)| *why)
+    OBSERVE_ONLY
+        .iter()
+        .find(|(n, _)| *n == s)
+        .map(|(_, why)| *why)
 }
 
 /// 全部合成事件的 id —— 启动时拿它和 [`super::list()`] 对一遍，

@@ -72,20 +72,15 @@ impl World {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("扫描维度 {dim} 失败（关卡没就绪，或维度不可用）")))
+            Err(Error(format!(
+                "扫描维度 {dim} 失败（关卡没就绪，或维度不可用）"
+            )))
         }
     }
 
     // ── 实体与效果 ────────────────────────────────────────────
 
-    pub fn spawn_mob(
-        &self,
-        dim: i32,
-        type_name: &str,
-        x: f64,
-        y: f64,
-        z: f64,
-    ) -> Result<Entity> {
+    pub fn spawn_mob(&self, dim: i32, type_name: &str, x: f64, y: f64, z: f64) -> Result<Entity> {
         let f = crate::require_slot!(spawn_mob, "生成生物");
         let mut out: sys::PierActorId = 0;
         let ok = unsafe { f(dim, s(type_name), x, y, z, &mut out) };
@@ -118,7 +113,9 @@ impl World {
         if ok {
             Ok(Entity::from_id(out))
         } else {
-            Err(Error("按 NBT 生成不了实体（NBT 形状不对，或维度不可用）".to_owned()))
+            Err(Error(
+                "按 NBT 生成不了实体（NBT 形状不对，或维度不可用）".to_owned(),
+            ))
         }
     }
 
@@ -155,7 +152,9 @@ impl World {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("在维度 {dim} 引爆失败（关卡没就绪，或维度不可用）")))
+            Err(Error(format!(
+                "在维度 {dim} 引爆失败（关卡没就绪，或维度不可用）"
+            )))
         }
     }
 
@@ -177,7 +176,6 @@ impl World {
             .ok_or_else(|| Error(format!("给 {who} 寻路失败（实体不在了，或它不会走路）")))?;
         NbtValue::parse(&text).map_err(|e| Error(format!("寻路结果 SNBT 解析失败：{e}")))
     }
-
 }
 
 // ── 扫描的两个 sink ───────────────────────────────────────────────
@@ -237,4 +235,3 @@ unsafe extern "C" fn scan_entity_sink(
         c.panicked = true;
     }
 }
-

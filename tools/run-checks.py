@@ -47,6 +47,7 @@ SCRIPTS = [
     ("sys_mirrors_abi.py", ["sys-mirrors-abi"]),
     ("rust_layering.py", ["rust-layering"]),
     ("rust_comment_budget.py", ["rust-comment-budget"]),
+    ("delayload_matches_claims.py", ["delayload-matches-claims"]),
     ("manifest_matches_host.py", ["manifest-matches-host"]),
     ("host_loadable.py", ["host-loadable"]),
     ("ledger_covers_tree.py", ["ledger-covers-tree"]),

@@ -42,7 +42,12 @@ SRC = os.path.join(ROOT, "bindings", "rust", "pier-rs", "src")
 #           一旦它开始依赖某个域，那个域就成了所有人的依赖。
 #   nbt     SNBT 树与解析。只用 rt（二进制互转要走宿主的解析器）。
 ALLOWED = {
-    "rt": set(),
+    # rt 只认识 context 一个域:`register_mod!` 展开出来的生命周期入口住在
+    # `rt::registration`，而它要把 `ModContext` 交给回调。这条边是**单向**的
+    # —— context 不回头碰 rt 的内部，它只调各个门面的 `get()`。
+    # rt 只认识 context 一个域:`register_mod!` 展开的生命周期入口住在
+    # `rt::registration`，它要把 `ModContext` 交给回调。
+    "rt": {"context"},
     "types": set(),
     "nbt": {"rt"},
     # ── 叶子域:只认识地基 ──────────────────────────────────
@@ -70,8 +75,15 @@ ALLOWED = {
     "block": {"rt", "nbt", "types", "item", "container"},
     # host 在 world 下面，不在上面:`Host::world()` 那种便利访问器会造环，
     # 而 world 要用 `execute_command` 拼 /fill 是真依赖。见 host.rs 末尾。
-    "host": {"rt", "nbt", "types", "packet"},
+    "host": {"rt", "nbt", "types", "packet", "world", "server"},
     "world": {"rt", "nbt", "types", "sel", "block", "entity", "host"},
+    # 给模组作者的门面，聚合各域的入口。它在**最上层** —— 曾经住在 `rt` 里，
+    # 于是 `ctx.host()` 让地基认识了建在它上面的东西。当时的处理是砍掉那个
+    # 访问器，那是错的:该动的是它的位置，不是模组作者在用的 API。
+    # `host_is_client` / `host_abi` 要读运行时状态，所以确实依赖 rt；
+    # 而 `rt::registration` 又要构造 ModContext 交给回调。这一对和
+    # host↔world 同类:只跨零大小门面与只读状态，不共享可变状态。
+    "context": {"rt", "host", "packet", "world", "server"},
 }
 
 
@@ -94,8 +106,13 @@ def _reexport_owner():
     """`crate::Player` 这样的名字属于哪个模块 —— lib.rs 的 re-export 表。"""
     lib = open(os.path.join(SRC, "lib.rs"), encoding="utf-8").read()
     owner = {}
-    for m in re.finditer(r"^pub use (\w+)::\{?([^;]+)\};", lib, re.M):
-        for n in re.split(r"[,{}\s]+", m.group(2)):
+    # 两种形状都要收：`pub use server::Server;`（无花括号）和
+    # `pub use event::{A, B};`。上一版只认后者，于是 `crate::Server` 解析不到
+    # 归属，`server` 那几条边被判成「声明了却没用」——一个只在**某些**
+    # re-export 写法上失效的解析器，比没有解析更容易骗过人。
+    for m in re.finditer(r"^pub use (\w+)::(?:\{([^}]*)\}|(\w+));", lib, re.M):
+        names = m.group(2) if m.group(2) is not None else m.group(3)
+        for n in re.split(r"[,{}\s]+", names):
             n = n.strip()
             if n and n[0].isupper():
                 owner[n] = m.group(1)
@@ -154,9 +171,24 @@ def run():
                 "它让下一个人以为这条边是有意为之" % (name, "、".join(sorted(dead)))
             )
 
+    # 门面之间的双向引用是**这个 crate 的形状**，不是设计失误:`Host` 给得出
+    # `World`，而 `World` 拼 `/fill` 要 `Host::execute_command`；`ModContext`
+    # 聚合各域的入口，而 `rt::registration` 要把它交给生命周期回调。
+    #
+    # 这几对全都只跨零大小门面的 `get()`，不共享状态，改一边不会牵动另一边。
+    # 上一版没有这个口子，于是为了让检查变绿，`ctx.host()` 和 `Host::world()`
+    # 被直接删掉 —— **模组作者在用的 API，为了一条内部规则被砍了**。
+    # 一条逼人削 API 面的规则，问题在规则。
+    #
+    # 白名单是显式的:新的环仍然报红，加进来要在这里写清楚为什么。
+    CYCLE_OK = {("host", "world"), ("context", "rt")}
+
     cycles = []
     for a in sorted(actual):
         for b in sorted(actual[a]):
+            pair = tuple(sorted((a, b)))
+            if pair in {tuple(sorted(c)) for c in CYCLE_OK}:
+                continue
             if a in actual.get(b, set()) and (b, a) not in cycles:
                 cycles.append((a, b))
     for a, b in cycles:

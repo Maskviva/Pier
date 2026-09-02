@@ -111,7 +111,9 @@ pub(crate) unsafe extern "C" fn set_string(ctx: *mut c_void, item: sys::PierStr)
 /// 注意 `Some("")` 和 `None` 是**两件事**（契约 §5.2）：前者是「宿主回答了，
 /// 答案是空串」，后者是「宿主说这次调用失败了」。所以成功但没写的情况归成
 /// `Some(String::new())` 而不是 `None`。
-pub(crate) fn call_out_str(f: impl FnOnce(*mut c_void, sys::PierStrSink) -> bool) -> Option<String> {
+pub(crate) fn call_out_str(
+    f: impl FnOnce(*mut c_void, sys::PierStrSink) -> bool,
+) -> Option<String> {
     let mut out: Option<String> = None;
     let ok = f((&mut out as *mut Option<String>).cast(), set_string);
     if ok {
@@ -165,11 +167,7 @@ pub(crate) fn call_out_bytes(
 
 /// # Safety
 /// `ctx` 必须是一个有效的 `*mut Vec<(String, String)>`。
-pub(crate) unsafe extern "C" fn push_kv(
-    ctx: *mut c_void,
-    key: sys::PierStr,
-    value: sys::PierStr,
-) {
+pub(crate) unsafe extern "C" fn push_kv(ctx: *mut c_void, key: sys::PierStr, value: sys::PierStr) {
     (*ctx.cast::<Vec<(String, String)>>()).push((r_owned(key), r_owned(value)));
 }
 

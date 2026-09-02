@@ -98,7 +98,8 @@ impl ItemStack {
     }
 
     pub fn count(&self) -> Result<u8> {
-        self.num(sys::PIER_IPROP_COUNT).map(|v| v.clamp(0.0, 255.0) as u8)
+        self.num(sys::PIER_IPROP_COUNT)
+            .map(|v| v.clamp(0.0, 255.0) as u8)
     }
     pub fn max_stack_size(&self) -> Result<u8> {
         self.num(sys::PIER_IPROP_MAX_STACK_SIZE)
@@ -248,10 +249,11 @@ impl ItemStack {
     /// 写进来比什么都不做更难查。
     pub fn transform(&mut self, op: i32, sarg: &str, narg: f64) -> Result<()> {
         let f = crate::require_slot!(item_transform, "变换物品");
-        let out = call_out_str(|ctx, sink| unsafe {
-            f(s(&self.snbt), op, s(sarg), narg, ctx, sink)
-        })
-        .ok_or_else(|| Error(format!("物品变换 {op} 失败（操作号不认识，或参数不合法）")))?;
+        let out =
+            call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), op, s(sarg), narg, ctx, sink) })
+                .ok_or_else(|| {
+                    Error(format!("物品变换 {op} 失败（操作号不认识，或参数不合法）"))
+                })?;
         self.snbt = out;
         Ok(())
     }
@@ -276,7 +278,11 @@ impl ItemStack {
         self.transform(sys::PIER_IOP_SET_COUNT, "", count as f64)
     }
     pub fn set_unbreakable(&mut self, on: bool) -> Result<()> {
-        self.transform(sys::PIER_IOP_SET_UNBREAKABLE, "", if on { 1.0 } else { 0.0 })
+        self.transform(
+            sys::PIER_IOP_SET_UNBREAKABLE,
+            "",
+            if on { 1.0 } else { 0.0 },
+        )
     }
     pub fn hurt_and_break(&mut self, damage: i32) -> Result<()> {
         self.transform(sys::PIER_IOP_HURT_AND_BREAK, "", damage as f64)

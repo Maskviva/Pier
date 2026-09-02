@@ -12,7 +12,7 @@
 
 use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
-use crate::rt::ffi::{call_out_str, s};
+use crate::rt::ffi::{collect_strs, s};
 
 /// 地形生成器。数值就是引擎的 `GeneratorType`。
 ///
@@ -172,7 +172,9 @@ pub fn add_simple(name: &str, seed: u32, generator: GeneratorType) -> Result<i32
     let f = crate::require_slot!(md_add_simple_dimension, "登记自定义维度");
     let id = unsafe { f(s(name), seed, generator.as_i32()) };
     if id < 0 {
-        Err(Error(format!("登记不了维度 {name}（名字非法，或维度号用尽）")))
+        Err(Error(format!(
+            "登记不了维度 {name}（名字非法，或维度号用尽）"
+        )))
     } else {
         Ok(id)
     }
@@ -184,7 +186,9 @@ pub fn add_plot(name: &str, seed: u32, layout: &PlotLayout) -> Result<i32> {
     let spec = layout.to_snbt();
     let id = unsafe { f(s(name), seed, s(&spec)) };
     if id < 0 {
-        Err(Error(format!("登记不了地皮维度 {name}（名字非法，或布局参数越界）")))
+        Err(Error(format!(
+            "登记不了地皮维度 {name}（名字非法，或布局参数越界）"
+        )))
     } else {
         Ok(id)
     }
@@ -220,30 +224,28 @@ pub fn list() -> Vec<ExistingDimension> {
     let Some(f) = crate::__rt::api().md_list_dimensions else {
         return Vec::new();
     };
-    let Some(text) = call_out_str(|ctx, sink| {
-        unsafe { f(ctx, sink) };
-        true
-    }) else {
-        return Vec::new();
-    };
-    if text.trim().is_empty() {
-        return Vec::new();
-    }
-    match serde_json::from_str::<Vec<ExistingDimensionJson>>(&text) {
-        Ok(items) => items
-            .into_iter()
-            .map(|i| ExistingDimension {
+    // 每个维度 sink 一次，不是一次交出整个数组（对比 `lane_list`，那个是数组）。
+    // 用 `call_out_str` 只留得住最后一条。
+    let raw = collect_strs(|ctx, sink| unsafe { f(ctx, sink) });
+    let mut out = Vec::with_capacity(raw.len());
+    for text in raw {
+        if text.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<ExistingDimensionJson>(&text) {
+            Ok(i) => out.push(ExistingDimension {
                 name: i.name,
                 dim: i.dim,
                 snbt: i.snbt,
-            })
-            .collect(),
-        Err(e) => {
-            crate::Logger::get()
-                .warn(&format!("维度清单解析失败：{e}（原文前 200 字：{}）", text.chars().take(200).collect::<String>()));
-            Vec::new()
+            }),
+            // 坏的那条跳过，不让整批作废 —— `dimension_selector` 依赖这张表。
+            Err(e) => crate::Logger::get().warn(&format!(
+                "维度清单里有一条解析不了，已跳过：{e}（原文：{}）",
+                text.chars().take(200).collect::<String>()
+            )),
         }
     }
+    out
 }
 
 #[derive(serde::Deserialize)]

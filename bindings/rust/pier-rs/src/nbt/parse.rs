@@ -136,7 +136,15 @@ impl<'a> Parser<'a> {
             Some(_) => {
                 let start = self.i;
                 while let Some(c) = self.peek() {
-                    if c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b'+' | b':') {
+                    // 不含 `:` —— 冒号是键值分隔符。放进来的话
+                    // `{layout:{…}}` 的键会被读成 `layout:`，报错落在下一个
+                    // 字符上（「第 8 字节应该是 `:`」，指着那个 `{`）；
+                    // `{generatorType:Void,…}` 更隐蔽，键读成
+                    // `generatorType:Void`，错误落在逗号上。两条报错的位置都
+                    // 对，指的都不是出问题的地方。
+                    //
+                    // 带冒号的键（`minecraft:stone`）在 SNBT 里必须加引号。
+                    if c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b'+') {
                         self.i += 1;
                     } else {
                         break;
@@ -239,7 +247,9 @@ impl<'a> Parser<'a> {
                 break;
             }
             let v = self.value()?;
-            let n = v.as_i64().ok_or_else(|| self.err("类型化数组里只能放整数"))?;
+            let n = v
+                .as_i64()
+                .ok_or_else(|| self.err("类型化数组里只能放整数"))?;
             raw.push(n);
             self.ws();
             if self.eat(b',') {
@@ -285,7 +295,12 @@ impl<'a> Parser<'a> {
 
         // 类型后缀。注意 `L` 只在整数上有意义，`f`/`d` 两种都行。
         let (body, suffix) = match raw.as_bytes().last() {
-            Some(&s) if matches!(s, b'b' | b'B' | b's' | b'S' | b'l' | b'L' | b'f' | b'F' | b'd' | b'D') => {
+            Some(&s)
+                if matches!(
+                    s,
+                    b'b' | b'B' | b's' | b'S' | b'l' | b'L' | b'f' | b'F' | b'd' | b'D'
+                ) =>
+            {
                 (&raw[..raw.len() - 1], Some(s.to_ascii_lowercase()))
             }
             _ => (raw.as_str(), None),

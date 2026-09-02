@@ -122,12 +122,10 @@ impl Block {
             .ok_or_else(|| Error(format!("读不出 {self} 的字符串属性 {prop}")))
     }
 
-
     /// 方块标签。
     pub fn tags(&self) -> Result<Vec<String>> {
         crate::item::parse_str_list(&self.text(sys::PIER_BSTR_TAGS)?, "方块标签")
     }
-
 
     /// 跑一个 `PIER_BACT_*` 动作。
     pub fn act(&self, action: i32, sarg: &str) -> Result<String> {
@@ -152,9 +150,9 @@ impl Block {
 
     /// 在这一格掉落一件物品。
     pub fn pop_resource(&self, item: &crate::item::ItemStack) -> Result<()> {
-        self.act(sys::PIER_BACT_POP_RESOURCE, item.snbt()).map(|_| ())
+        self.act(sys::PIER_BACT_POP_RESOURCE, item.snbt())
+            .map(|_| ())
     }
-
 }
 
 impl std::fmt::Display for Block {
@@ -204,5 +202,3 @@ fn parse_boxes(text: &str) -> Result<Vec<Bounds>> {
         })
         .collect())
 }
-
-

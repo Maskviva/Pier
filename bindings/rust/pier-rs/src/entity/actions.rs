@@ -56,13 +56,16 @@ impl Entity {
     }
 
     pub fn heal(&self, amount: f64) -> Result<()> {
-        self.act(sys::PIER_AACT_HEAL, "", amount, 0.0, 0.0).map(|_| ())
+        self.act(sys::PIER_AACT_HEAL, "", amount, 0.0, 0.0)
+            .map(|_| ())
     }
     pub fn hurt(&self, amount: f64) -> Result<()> {
-        self.act(sys::PIER_AACT_HURT, "", amount, 0.0, 0.0).map(|_| ())
+        self.act(sys::PIER_AACT_HURT, "", amount, 0.0, 0.0)
+            .map(|_| ())
     }
     pub fn burn(&self, damage: f64) -> Result<()> {
-        self.act(sys::PIER_AACT_BURN, "", damage, 0.0, 0.0).map(|_| ())
+        self.act(sys::PIER_AACT_BURN, "", damage, 0.0, 0.0)
+            .map(|_| ())
     }
     pub fn set_on_fire(&self, seconds: i32) -> Result<()> {
         self.act(sys::PIER_AACT_SET_ON_FIRE, "", seconds as f64, 0.0, 0.0)
@@ -86,10 +89,12 @@ impl Entity {
             .map(|_| ())
     }
     pub fn set_velocity(&self, x: f64, y: f64, z: f64) -> Result<()> {
-        self.act(sys::PIER_AACT_SET_VELOCITY, "", x, y, z).map(|_| ())
+        self.act(sys::PIER_AACT_SET_VELOCITY, "", x, y, z)
+            .map(|_| ())
     }
     pub fn apply_impulse(&self, x: f64, y: f64, z: f64) -> Result<()> {
-        self.act(sys::PIER_AACT_APPLY_IMPULSE, "", x, y, z).map(|_| ())
+        self.act(sys::PIER_AACT_APPLY_IMPULSE, "", x, y, z)
+            .map(|_| ())
     }
 
     pub fn set_name_tag(&self, name: &str) -> Result<()> {
@@ -122,7 +127,13 @@ impl Entity {
     }
 
     /// 加一条状态效果。
-    pub fn add_effect(&self, effect: &str, ticks: i32, amplifier: i32, visible: bool) -> Result<()> {
+    pub fn add_effect(
+        &self,
+        effect: &str,
+        ticks: i32,
+        amplifier: i32,
+        visible: bool,
+    ) -> Result<()> {
         self.act(
             sys::PIER_AACT_ADD_EFFECT,
             effect,
@@ -194,12 +205,17 @@ impl Entity {
             .map(|_| ())
     }
     pub fn set_leash_holder(&self, holder: Entity) -> Result<()> {
-        self.act(sys::PIER_AACT_SET_LEASH_HOLDER, "", holder.0 as f64, 0.0, 0.0)
-            .map(|_| ())
+        self.act(
+            sys::PIER_AACT_SET_LEASH_HOLDER,
+            "",
+            holder.0 as f64,
+            0.0,
+            0.0,
+        )
+        .map(|_| ())
     }
     pub fn execute_event(&self, event: &str) -> Result<()> {
         self.act(sys::PIER_AACT_EXECUTE_EVENT, event, 0.0, 0.0, 0.0)
             .map(|_| ())
     }
-
 }

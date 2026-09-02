@@ -205,7 +205,10 @@ impl TitleKind {
 
     /// Clear / Reset / Times 三种的 `text` 参数宿主不读。
     pub fn uses_text(self) -> bool {
-        matches!(self, TitleKind::Title | TitleKind::Subtitle | TitleKind::Actionbar)
+        matches!(
+            self,
+            TitleKind::Title | TitleKind::Subtitle | TitleKind::Actionbar
+        )
     }
 }
 
@@ -370,10 +373,7 @@ impl_numeric_ability_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64);
 #[derive(Debug, Clone, PartialEq)]
 pub enum RayHit {
     /// 打到实体。
-    Entity {
-        id: i64,
-        pos: PositionF64,
-    },
+    Entity { id: i64, pos: PositionF64 },
     /// 打到方块。`facing` 是命中面，`block` 是方块格坐标。
     Block {
         block: PositionI32,

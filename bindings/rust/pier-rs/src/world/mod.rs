@@ -177,7 +177,8 @@ impl World {
         let f = crate::require_slot!(game_rule_get, "读取游戏规则");
         let text = call_out_str(|ctx, sink| unsafe { f(s(name), ctx, sink) })
             .ok_or_else(|| Error(format!("没有名为 {name} 的游戏规则")))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("游戏规则 SNBT 解析失败：{e}")))?;
+        let v =
+            NbtValue::parse(&text).map_err(|e| Error(format!("游戏规则 SNBT 解析失败：{e}")))?;
         let kind = v.get_str("type")?.to_owned();
         match kind.as_str() {
             "bool" => Ok(GameRuleValue::Bool(v.get_bool("value")?)),
@@ -192,7 +193,9 @@ impl World {
         if unsafe { f(s(name), s(value)) } {
             Ok(())
         } else {
-            Err(Error(format!("设不了游戏规则 {name}={value}（规则名或值不合法）")))
+            Err(Error(format!(
+                "设不了游戏规则 {name}={value}（规则名或值不合法）"
+            )))
         }
     }
 
@@ -229,7 +232,8 @@ impl World {
         let f = crate::require_slot!(level_get_sleep_status, "读取睡眠状态");
         let text = call_out_str(|ctx, sink| unsafe { f(ctx, sink) })
             .ok_or_else(|| Error("关卡没就绪，读不出睡眠状态".to_owned()))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("睡眠状态 SNBT 解析失败：{e}")))?;
+        let v =
+            NbtValue::parse(&text).map_err(|e| Error(format!("睡眠状态 SNBT 解析失败：{e}")))?;
         Ok(SleepStatus {
             sleeping: v.opt_bool("sleeping").unwrap_or(false),
             total_players: v.opt_i32("total_players").unwrap_or(0),
@@ -250,7 +254,13 @@ impl World {
     /// 不收 y：`setBiome3d` 是逐 y 的，但基岩版按列存生物群系，给一个 y
     /// 会让调用方以为能分层设。返回**成功设置的列数**；0 意味着一列都没设成
     /// （区块没加载，或群系名不认识），而不是「设了但什么都没变」。
-    pub fn set_biome(&self, dim: i32, from: (i32, i32), to: (i32, i32), biome: &str) -> Result<i32> {
+    pub fn set_biome(
+        &self,
+        dim: i32,
+        from: (i32, i32),
+        to: (i32, i32),
+        biome: &str,
+    ) -> Result<i32> {
         let f = crate::require_slot!(level_set_biome, "设置生物群系");
         let (min_x, max_x) = (from.0.min(to.0), from.0.max(to.0));
         let (min_z, max_z) = (from.1.min(to.1), from.1.max(to.1));
@@ -269,14 +279,18 @@ impl World {
         let Some(f) = crate::__rt::api().villages else {
             return Vec::new();
         };
-        parse_each(collect_strs(|ctx, sink| unsafe { f(dim, ctx, sink) }), "村庄", |v| {
-            Some(VillageInfo {
-                uuid: v.opt_str("uuid").unwrap_or_default().to_owned(),
-                center: v.get_block_pos("center").ok()?,
-                bounds: parse_bounds(v)?,
-                poi_count: v.opt_i32("poi_count").unwrap_or(0),
-            })
-        })
+        parse_each(
+            collect_strs(|ctx, sink| unsafe { f(dim, ctx, sink) }),
+            "村庄",
+            |v| {
+                Some(VillageInfo {
+                    uuid: v.opt_str("uuid").unwrap_or_default().to_owned(),
+                    center: v.get_block_pos("center").ok()?,
+                    bounds: parse_bounds(v)?,
+                    poi_count: v.opt_i32("poi_count").unwrap_or(0),
+                })
+            },
+        )
     }
 
     /// 半径内**已加载**区块里的硬编码生成区。
@@ -381,14 +395,19 @@ impl World {
 ///
 /// 整批作废是不对的：一个村庄的条目坏了不该让「这个世界有哪些村庄」变成
 /// 无法回答的问题。跳过时打日志，否则就成了契约 §5.1 禁的静默回退。
-fn parse_each<T>(raw: Vec<String>, what: &str, mut build: impl FnMut(&NbtValue) -> Option<T>) -> Vec<T> {
+fn parse_each<T>(
+    raw: Vec<String>,
+    what: &str,
+    mut build: impl FnMut(&NbtValue) -> Option<T>,
+) -> Vec<T> {
     let mut out = Vec::with_capacity(raw.len());
     for text in raw {
         match NbtValue::parse(&text) {
             Ok(v) => match build(&v) {
                 Some(item) => out.push(item),
-                None => crate::Logger::get()
-                    .warn(&format!("{what}条目缺了必需的字段，已跳过：{text}")),
+                None => {
+                    crate::Logger::get().warn(&format!("{what}条目缺了必需的字段，已跳过：{text}"))
+                }
             },
             Err(e) => crate::Logger::get().warn(&format!("{what}条目 SNBT 解析失败，已跳过：{e}")),
         }
@@ -404,4 +423,3 @@ fn parse_bounds(v: &NbtValue) -> Option<Bounds> {
         max: b.get_block_pos("max").ok()?,
     })
 }
-

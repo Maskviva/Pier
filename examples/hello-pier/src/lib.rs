@@ -27,7 +27,11 @@ impl LeviMod for HelloPier {
         ctx.logger().info(&format!(
             "装载成功。宿主 ABI v{abi}，函数表 {table_len} 字节，\
              目标={}。",
-            if ctx.host_is_client() { "客户端" } else { "服务端" }
+            if ctx.host_is_client() {
+                "客户端"
+            } else {
+                "服务端"
+            }
         ));
 
         // 契约 §十 第 4 步的演示：非核心槽调用前查两道闸。
@@ -53,8 +57,10 @@ impl LeviMod for HelloPier {
             "启用（第 {} 次）。服务器阶段={:?}，在线 {} 人，tick {}。",
             self.enabled_times,
             host.gaming_status(),
-            host.player_count().map_or("?".to_owned(), |n| n.to_string()),
-            host.current_tick().map_or("?".to_owned(), |t| t.to_string()),
+            host.player_count()
+                .map_or("?".to_owned(), |n| n.to_string()),
+            host.current_tick()
+                .map_or("?".to_owned(), |t| t.to_string()),
         ));
 
         // 契约 §5.3 的演示：订阅/解析失败时，把宿主**认得的** id 列出来，
@@ -69,7 +75,7 @@ impl LeviMod for HelloPier {
         // 返回的是**票据**：这条路走的是带模组句柄的 `schedule_for`，宿主按模组
         // 记账，卸载时会把没跑完的整批丢掉（旧的无主槽做不到这一点，定时器会在
         // 模组卸载后跳进已经 unmap 的代码段）。想提前取消就 `host.cancel(task)`。
-        let task = host.schedule_after(1000, || {
+        let task = host.schedule_after(std::time::Duration::from_secs(1), || {
             Logger::get().info("一秒后的排期任务跑到了。");
         })?;
         ctx.logger().info(&format!(

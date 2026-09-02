@@ -13,7 +13,6 @@
 //! 上，最后一条还悬空成了编译错误（`expected item after doc comment`）——
 //! 那个编译错误是运气，前面那些挂错的没有任何提示。
 
-
 // ── PierActorNumProp ──────────────────────────────────────────
 
 /// (G) Actor::getPosition().x (feet: getFeetPos for players; POS_* uses getPosition)
