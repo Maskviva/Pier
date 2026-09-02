@@ -118,12 +118,13 @@ pub const fn mod_flags() -> u32 {
 pub fn __lifecycle<T: LeviMod>(slot: &'static ModSlot<T>, stage: u8) -> bool {
     let ctx = ModContext::new();
     let run = || -> Result<()> {
-        let mut guard = slot
-            .0
-            .lock()
-            .map_err(|_| Error("the mod state is poisoned, because a previous callback panicked".into()))?;
+        let mut guard = slot.0.lock().map_err(|_| {
+            Error("the mod state is poisoned, because a previous callback panicked".into())
+        })?;
         let Some(instance) = guard.as_mut() else {
-            return Err(Error("there is no mod instance; is this a repeated unload?".into()));
+            return Err(Error(
+                "there is no mod instance; is this a repeated unload?".into(),
+            ));
         };
         match stage {
             1 => instance.on_enable(&ctx),
@@ -141,7 +142,9 @@ pub fn __lifecycle<T: LeviMod>(slot: &'static ModSlot<T>, stage: u8) -> bool {
     match catch_unwind(AssertUnwindSafe(run)) {
         Ok(Ok(())) => true,
         Ok(Err(e)) => {
-            Logger::get().error(&format!("the lifecycle callback at stage {stage} failed: {e}"));
+            Logger::get().error(&format!(
+                "the lifecycle callback at stage {stage} failed: {e}"
+            ));
             false
         }
         Err(_) => {

@@ -106,7 +106,9 @@ impl World {
         if unsafe { f(&mut out) } {
             Ok(out)
         } else {
-            Err(Error("the level is not ready, so the world time cannot be read".to_owned()))
+            Err(Error(
+                "the level is not ready, so the world time cannot be read".to_owned(),
+            ))
         }
     }
 
@@ -115,7 +117,9 @@ impl World {
         if unsafe { f(t) } {
             Ok(())
         } else {
-            Err(Error("the level is not ready, so the world time cannot be set".to_owned()))
+            Err(Error(
+                "the level is not ready, so the world time cannot be set".to_owned(),
+            ))
         }
     }
 
@@ -124,7 +128,9 @@ impl World {
         if unsafe { f(weather.as_i32()) } {
             Ok(())
         } else {
-            Err(Error("the level is not ready, so the weather cannot be set".to_owned()))
+            Err(Error(
+                "the level is not ready, so the weather cannot be set".to_owned(),
+            ))
         }
     }
 
@@ -145,7 +151,9 @@ impl World {
         if ok {
             Ok(())
         } else {
-            Err(Error("the level is not ready, so the weather parameters cannot be updated".to_owned()))
+            Err(Error(
+                "the level is not ready, so the weather parameters cannot be updated".to_owned(),
+            ))
         }
     }
 
@@ -155,9 +163,15 @@ impl World {
         let f = crate::require_slot!(get_difficulty, "reading the difficulty");
         let mut out = 0i32;
         if !unsafe { f(&mut out) } {
-            return Err(Error("the level is not ready, so the difficulty cannot be read".to_owned()));
+            return Err(Error(
+                "the level is not ready, so the difficulty cannot be read".to_owned(),
+            ));
         }
-        Difficulty::from_i32(out).ok_or_else(|| Error(format!("the host reported an unrecognized difficulty {out}")))
+        Difficulty::from_i32(out).ok_or_else(|| {
+            Error(format!(
+                "the host reported an unrecognized difficulty {out}"
+            ))
+        })
     }
 
     pub fn set_difficulty(&self, d: Difficulty) -> Result<()> {
@@ -165,7 +179,9 @@ impl World {
         if unsafe { f(d.as_i32()) } {
             Ok(())
         } else {
-            Err(Error("the level is not ready, so the difficulty cannot be set".to_owned()))
+            Err(Error(
+                "the level is not ready, so the difficulty cannot be set".to_owned(),
+            ))
         }
     }
 
@@ -175,7 +191,9 @@ impl World {
         if unsafe { f(&mut out) } {
             Ok(out)
         } else {
-            Err(Error("the level is not ready, so the world seed cannot be read".to_owned()))
+            Err(Error(
+                "the level is not ready, so the world seed cannot be read".to_owned(),
+            ))
         }
     }
 
@@ -184,14 +202,16 @@ impl World {
         let f = crate::require_slot!(game_rule_get, "reading a game rule");
         let text = call_out_str(|ctx, sink| unsafe { f(s(name), ctx, sink) })
             .ok_or_else(|| Error(format!("there is no game rule named {name}")))?;
-        let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the game rule SNBT failed: {e}")))?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the game rule SNBT failed: {e}")))?;
         let kind = v.get_str("type")?.to_owned();
         match kind.as_str() {
             "bool" => Ok(GameRuleValue::Bool(v.get_bool("value")?)),
             "int" => Ok(GameRuleValue::Int(v.get_i64("value")?)),
             "float" => Ok(GameRuleValue::Float(v.get_f64("value")?)),
-            other => Err(Error(format!("game rule {name} has the unrecognized type {other:?}"))),
+            other => Err(Error(format!(
+                "game rule {name} has the unrecognized type {other:?}"
+            ))),
         }
     }
 
@@ -212,7 +232,9 @@ impl World {
         if unsafe { f(&mut x, &mut y, &mut z) } {
             Ok((x, y, z))
         } else {
-            Err(Error("the level is not ready, so the default spawn point cannot be read".to_owned()))
+            Err(Error(
+                "the level is not ready, so the default spawn point cannot be read".to_owned(),
+            ))
         }
     }
 
@@ -221,7 +243,9 @@ impl World {
         if unsafe { f(x, y, z) } {
             Ok(())
         } else {
-            Err(Error("the level is not ready, so the default spawn point cannot be set".to_owned()))
+            Err(Error(
+                "the level is not ready, so the default spawn point cannot be set".to_owned(),
+            ))
         }
     }
 
@@ -231,16 +255,19 @@ impl World {
         if unsafe { f() } {
             Ok(())
         } else {
-            Err(Error("the level is not ready, so it cannot be saved".to_owned()))
+            Err(Error(
+                "the level is not ready, so it cannot be saved".to_owned(),
+            ))
         }
     }
 
     pub fn sleep_status(&self) -> Result<SleepStatus> {
         let f = crate::require_slot!(level_get_sleep_status, "reading the sleep status");
-        let text = call_out_str(|ctx, sink| unsafe { f(ctx, sink) })
-            .ok_or_else(|| Error("the level is not ready, so the sleep status cannot be read".to_owned()))?;
-        let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the sleep status SNBT failed: {e}")))?;
+        let text = call_out_str(|ctx, sink| unsafe { f(ctx, sink) }).ok_or_else(|| {
+            Error("the level is not ready, so the sleep status cannot be read".to_owned())
+        })?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the sleep status SNBT failed: {e}")))?;
         Ok(SleepStatus {
             sleeping: v.opt_bool("sleeping").unwrap_or(false),
             total_players: v.opt_i32("total_players").unwrap_or(0),
@@ -252,8 +279,11 @@ impl World {
 
     pub fn biome(&self, dim: i32, x: i32, y: i32, z: i32) -> Result<String> {
         let f = crate::require_slot!(level_get_biome, "reading a biome");
-        call_out_str(|ctx, sink| unsafe { f(dim, x, y, z, ctx, sink) })
-            .ok_or_else(|| Error(format!("the biome at ({x},{y},{z}) in dimension {dim} could not be read")))
+        call_out_str(|ctx, sink| unsafe { f(dim, x, y, z, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "the biome at ({x},{y},{z}) in dimension {dim} could not be read"
+            ))
+        })
     }
 
     /// Sets the biome of a region, column by column.
@@ -352,7 +382,9 @@ impl World {
         match unsafe { f(dim, min_x, min_z, max_x, max_z) } {
             1 => Ok(true),
             0 => Ok(false),
-            _ => Err(Error(format!("dimension {dim} is unavailable, so the chunk load state cannot be determined"))),
+            _ => Err(Error(format!(
+                "dimension {dim} is unavailable, so the chunk load state cannot be determined"
+            ))),
         }
     }
 
@@ -369,7 +401,9 @@ impl World {
         let f = crate::require_slot!(level_delete_chunk_keys, "deleting the save keys of a chunk");
         let n = unsafe { f(dim, chunk_x, chunk_z) };
         if n < 0 {
-            Err(Error("the save layer is unavailable, so chunk keys cannot be deleted".to_owned()))
+            Err(Error(
+                "the save layer is unavailable, so chunk keys cannot be deleted".to_owned(),
+            ))
         } else {
             Ok(n)
         }
@@ -386,7 +420,9 @@ impl World {
             n = unsafe { f(dim, chunk_x, chunk_z, ctx, sink) };
         });
         if n < 0 {
-            Err(Error("the save layer is unavailable, so chunk keys cannot be listed".to_owned()))
+            Err(Error(
+                "the save layer is unavailable, so chunk keys cannot be listed".to_owned(),
+            ))
         } else {
             Ok(keys)
         }
@@ -399,7 +435,9 @@ impl World {
         if unsafe { f(s_raw(key)) } {
             Ok(())
         } else {
-            Err(Error("the save layer is unavailable, or this key does not exist".to_owned()))
+            Err(Error(
+                "the save layer is unavailable, or this key does not exist".to_owned(),
+            ))
         }
     }
 }
@@ -421,11 +459,13 @@ fn parse_each<T>(
         match NbtValue::parse(&text) {
             Ok(v) => match build(&v) {
                 Some(item) => out.push(item),
-                None => {
-                    crate::Logger::get().warn(&format!("a {what} entry was missing a required field and was skipped: {text}"))
-                }
+                None => crate::Logger::get().warn(&format!(
+                    "a {what} entry was missing a required field and was skipped: {text}"
+                )),
             },
-            Err(e) => crate::Logger::get().warn(&format!("parsing the SNBT of a {what} entry failed and it was skipped: {e}")),
+            Err(e) => crate::Logger::get().warn(&format!(
+                "parsing the SNBT of a {what} entry failed and it was skipped: {e}"
+            )),
         }
     }
     out

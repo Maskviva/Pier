@@ -134,8 +134,9 @@ impl Player {
                         _ => None,
                     },
                 }),
-                Err(e) => crate::Logger::get()
-                    .warn(&format!("one SNBT entry of list_players could not be parsed and was skipped: {e}")),
+                Err(e) => crate::Logger::get().warn(&format!(
+                    "one SNBT entry of list_players could not be parsed and was skipped: {e}"
+                )),
             }
         }
         out
@@ -207,8 +208,12 @@ impl Player {
     /// Reads a `PIER_PSTR_*` string property.
     pub fn text(&self, prop: i32) -> Result<String> {
         let f = crate::require_slot!(player_get_str, "reading a string player property");
-        call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("string property {prop} of player {} could not be read", self.sel)))
+        call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), prop, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "string property {prop} of player {} could not be read",
+                self.sel
+            ))
+        })
     }
 
     fn num_i32(&self, prop: i32) -> Result<i32> {
@@ -222,7 +227,8 @@ impl Player {
         if text.trim().is_empty() {
             return Ok(None);
         }
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the death coordinate failed: {e}")))?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the death coordinate failed: {e}")))?;
         let dim = self
             .text(sys::PIER_PSTR_LAST_DEATH_DIMENSION)?
             .trim()
@@ -236,11 +242,16 @@ impl Player {
 
     pub fn game_type(&self) -> Result<GameMode> {
         let v = self.num_i32(sys::PIER_PPROP_GAME_TYPE)?;
-        GameMode::from_i32(v).ok_or_else(|| Error(format!("the host reported an unrecognized game mode {v}")))
+        GameMode::from_i32(v)
+            .ok_or_else(|| Error(format!("the host reported an unrecognized game mode {v}")))
     }
     pub fn permission_level(&self) -> Result<PlayerPermission> {
         let v = self.num_i32(sys::PIER_PPROP_PERMISSION_LEVEL)?;
-        PlayerPermission::from_i32(v).ok_or_else(|| Error(format!("the host reported an unrecognized permission level {v}")))
+        PlayerPermission::from_i32(v).ok_or_else(|| {
+            Error(format!(
+                "the host reported an unrecognized permission level {v}"
+            ))
+        })
     }
     pub fn set_level(&self, level: i32) -> Result<()> {
         self.set_num(sys::PIER_PPROP_LEVEL, level as f64)
@@ -271,17 +282,28 @@ impl Player {
         if p.found {
             Ok(((p.x, p.y, p.z), p.dimension))
         } else {
-            Err(Error(format!("player {} is offline, so no position can be read", self.sel)))
+            Err(Error(format!(
+                "player {} is offline, so no position can be read",
+                self.sel
+            )))
         }
     }
 
     /// The network status in detail.
     pub fn network_status(&self) -> Result<NetworkStatus> {
-        let f = crate::require_slot!(player_get_network_status, "reading the network status of a player");
-        let text = call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), ctx, sink) })
-            .ok_or_else(|| Error(format!("the network status of player {} could not be read", self.sel)))?;
-        let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the network status SNBT failed: {e}")))?;
+        let f = crate::require_slot!(
+            player_get_network_status,
+            "reading the network status of a player"
+        );
+        let text =
+            call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), ctx, sink) }).ok_or_else(|| {
+                Error(format!(
+                    "the network status of player {} could not be read",
+                    self.sel
+                ))
+            })?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the network status SNBT failed: {e}")))?;
         Ok(NetworkStatus {
             ping: v.opt_i32("ping").unwrap_or(-1),
             avg_ping: v.opt_i32("avg_ping").unwrap_or(-1),
@@ -298,7 +320,10 @@ impl Player {
         let f = crate::require_slot!(player_conn_id, "reading the connection id of a player");
         let id = unsafe { f(self.sel.raw()) };
         if id == 0 {
-            Err(Error(format!("player {} is offline, or the network identity is unavailable", self.sel)))
+            Err(Error(format!(
+                "player {} is offline, or the network identity is unavailable",
+                self.sel
+            )))
         } else {
             Ok(id)
         }

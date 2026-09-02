@@ -81,7 +81,10 @@ impl KvDb {
         if unsafe { f(self.handle, s(key), s(value)) } {
             Ok(())
         } else {
-            Err(Error(format!("the key {key} could not be written to the key-value store {}", self.path)))
+            Err(Error(format!(
+                "the key {key} could not be written to the key-value store {}",
+                self.path
+            )))
         }
     }
 
@@ -91,7 +94,10 @@ impl KvDb {
         if unsafe { f(self.handle, s(key)) } {
             Ok(())
         } else {
-            Err(Error(format!("the key {key} could not be deleted from the key-value store {}", self.path)))
+            Err(Error(format!(
+                "the key {key} could not be deleted from the key-value store {}",
+                self.path
+            )))
         }
     }
 

@@ -49,7 +49,12 @@ impl Player {
     pub fn item(&self, slot: i32) -> Result<ItemStack> {
         let f = crate::require_slot!(player_get_item, "reading an inventory slot of a player");
         let snbt = call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), slot, ctx, sink) })
-            .ok_or_else(|| Error(format!("inventory slot {slot} of player {} could not be read", self.sel)))?;
+            .ok_or_else(|| {
+                Error(format!(
+                    "inventory slot {slot} of player {} could not be read",
+                    self.sel
+                ))
+            })?;
         Ok(ItemStack::from_snbt(snbt))
     }
 
@@ -69,11 +74,20 @@ impl Player {
     /// The full equipment set. For the `slot` numbering see [`crate::types::EquipSlot`].
     pub fn equipment(&self) -> Result<Vec<(i32, ItemStack)>> {
         let f = crate::require_slot!(player_get_equipment, "reading the equipment of a player");
-        let text = call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), ctx, sink) })
-            .ok_or_else(|| Error(format!("the equipment of player {} could not be read", self.sel)))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the equipment SNBT failed: {e}")))?;
+        let text =
+            call_out_str(|ctx, sink| unsafe { f(self.sel.raw(), ctx, sink) }).ok_or_else(|| {
+                Error(format!(
+                    "the equipment of player {} could not be read",
+                    self.sel
+                ))
+            })?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the equipment SNBT failed: {e}")))?;
         let Some(items) = v.as_list() else {
-            return Err(Error(format!("the equipment is not a list but {}", v.type_name())));
+            return Err(Error(format!(
+                "the equipment is not a list but {}",
+                v.type_name()
+            )));
         };
         Ok(items
             .iter()

@@ -34,7 +34,9 @@ impl Server {
         if unsafe { f(on) } {
             Ok(())
         } else {
-            Err(Error("the tick freeze could not be set: the level is not ready".to_owned()))
+            Err(Error(
+                "the tick freeze could not be set: the level is not ready".to_owned(),
+            ))
         }
     }
 
@@ -44,7 +46,9 @@ impl Server {
         if unsafe { f(n) } {
             Ok(())
         } else {
-            Err(Error(format!("stepping {n} frames failed: nothing is frozen right now, or n is 0")))
+            Err(Error(format!(
+                "stepping {n} frames failed: nothing is frozen right now, or n is 0"
+            )))
         }
     }
 
@@ -83,8 +87,8 @@ impl Server {
         let Some(text) = call_out_str(|ctx, sink| unsafe { f(ctx, sink) }) else {
             return Ok(None);
         };
-        let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the sampling report SNBT failed: {e}")))?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the sampling report SNBT failed: {e}")))?;
         Ok(Some(v))
     }
 
@@ -102,7 +106,9 @@ impl Server {
         let f = crate::require_slot!(get_tick_delta_time, "reading the frame duration");
         let v = unsafe { f() };
         if v < 0.0 {
-            Err(Error("the level is not ready, so the frame duration cannot be read".to_owned()))
+            Err(Error(
+                "the level is not ready, so the frame duration cannot be read".to_owned(),
+            ))
         } else {
             Ok(v)
         }

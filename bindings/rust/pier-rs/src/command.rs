@@ -411,7 +411,10 @@ pub fn register_enum(name: &str, values: &[(&str, u64)]) -> Result<()> {
 /// Registers a soft enum that can change at runtime, for a [`ParamType::SoftEnum`]
 /// parameter to reference.
 pub fn register_soft_enum(name: &str, values: &[&str]) -> Result<()> {
-    let f = crate::require_slot!(register_command_soft_enum, "registering a command soft enum");
+    let f = crate::require_slot!(
+        register_command_soft_enum,
+        "registering a command soft enum"
+    );
     let spec = soft_enum_snbt(values);
     if unsafe { f(s(name), s(&spec)) } {
         Ok(())
@@ -488,6 +491,9 @@ unsafe extern "C" fn trampoline(
         // A panic crossing extern "C" is undefined behavior. It is caught here and the sender
         // is told, otherwise they see a command that answered nothing.
         Logger::get().error("a command handler panicked. It was caught here.");
-        out_error(out_ctx, s("the command handler failed internally; see the server log"));
+        out_error(
+            out_ctx,
+            s("the command handler failed internally; see the server log"),
+        );
     }
 }

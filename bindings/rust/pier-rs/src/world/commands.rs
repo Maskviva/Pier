@@ -108,7 +108,9 @@ impl World {
             from.0, from.1, to.0, to.1
         ))?;
         if out.contains("error") || out.contains("Unknown") {
-            return Err(Error(format!("the ticking area `{name}` could not be created: {out}")));
+            return Err(Error(format!(
+                "the ticking area `{name}` could not be created: {out}"
+            )));
         }
         Ok(())
     }
@@ -118,7 +120,9 @@ impl World {
         let out = crate::Host::get()
             .execute_command(&format!("execute in {sel} run tickingarea remove {name}"))?;
         if out.contains("error") || out.contains("Unknown") {
-            return Err(Error(format!("the ticking area `{name}` could not be removed: {out}")));
+            return Err(Error(format!(
+                "the ticking area `{name}` could not be removed: {out}"
+            )));
         }
         Ok(())
     }

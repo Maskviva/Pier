@@ -94,9 +94,14 @@ impl Entity {
 
     pub fn snapshot(&self) -> Result<NbtValue> {
         let f = crate::require_slot!(actor_snapshot, "reading an actor snapshot");
-        let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) })
-            .ok_or_else(|| Error(format!("actor {} does not resolve, so no snapshot can be taken", self.0)))?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the actor snapshot SNBT failed: {e}")))
+        let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "actor {} does not resolve, so no snapshot can be taken",
+                self.0
+            ))
+        })?;
+        NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the actor snapshot SNBT failed: {e}")))
     }
 
     // Properties
@@ -119,8 +124,12 @@ impl Entity {
     /// Reads a `PIER_ASTR_*` string property.
     pub fn text(&self, prop: i32) -> Result<String> {
         let f = crate::require_slot!(actor_get_str, "reading a string actor property");
-        call_out_str(|ctx, sink| unsafe { f(self.0, prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("string property {prop} of actor {} could not be read", self.0)))
+        call_out_str(|ctx, sink| unsafe { f(self.0, prop, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "string property {prop} of actor {} could not be read",
+                self.0
+            ))
+        })
     }
 
     /// The position, from `Actor::getPosition`. For the feet coordinate of a player see
@@ -196,7 +205,8 @@ unsafe extern "C" fn push_actor(ctx: *mut c_void, id: sys::PierActorId, type_nam
 /// and the other only `pos`, so one parser takes both: a missing field is filled from the
 /// other and only both missing is an error.
 pub(crate) fn parse_ray_hit(text: &str) -> Result<RayHit> {
-    let v = NbtValue::parse(text).map_err(|e| Error(format!("parsing the ray result SNBT failed: {e}")))?;
+    let v = NbtValue::parse(text)
+        .map_err(|e| Error(format!("parsing the ray result SNBT failed: {e}")))?;
     let kind = v.opt_str("type").unwrap_or("none").to_owned();
     let pos = v.get_vec3("pos").unwrap_or((0.0, 0.0, 0.0));
     match kind.as_str() {
@@ -204,7 +214,9 @@ pub(crate) fn parse_ray_hit(text: &str) -> Result<RayHit> {
             let id = v
                 .opt_i64("entity_id")
                 .or_else(|| v.opt_i64("entity"))
-                .ok_or_else(|| Error("the ray reported hitting an actor and gave no actor id".to_owned()))?;
+                .ok_or_else(|| {
+                    Error("the ray reported hitting an actor and gave no actor id".to_owned())
+                })?;
             Ok(RayHit::Entity { id, pos })
         }
         "block" => {
@@ -225,6 +237,8 @@ pub(crate) fn parse_ray_hit(text: &str) -> Result<RayHit> {
             })
         }
         "none" => Ok(RayHit::None),
-        other => Err(Error(format!("the type of the ray result is an unrecognized {other:?}"))),
+        other => Err(Error(format!(
+            "the type of the ray result is an unrecognized {other:?}"
+        ))),
     }
 }

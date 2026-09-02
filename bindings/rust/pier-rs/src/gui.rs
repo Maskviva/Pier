@@ -442,7 +442,8 @@ unsafe extern "C" fn trampoline(user: *mut c_void, result_snbt: sys::PierStr) {
     let response = parse_response(raw);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || (*f)(response)));
     if outcome.is_err() {
-        Logger::get().error("a form callback panicked. It was caught here and this answer was discarded.");
+        Logger::get()
+            .error("a form callback panicked. It was caught here and this answer was discarded.");
     }
 }
 

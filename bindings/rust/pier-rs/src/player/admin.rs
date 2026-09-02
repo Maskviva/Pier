@@ -20,7 +20,10 @@ impl Player {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("player {} is offline and cannot be kicked", self.sel)))
+            Err(Error(format!(
+                "player {} is offline and cannot be kicked",
+                self.sel
+            )))
         }
     }
 

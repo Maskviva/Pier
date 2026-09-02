@@ -75,8 +75,10 @@ impl LeviMod for HelloPier {
         // the ids the host does recognize helps far more than the word "failed". Only
         // the count is printed here; a real subscription would print the near matches.
         let events = host.list_events();
-        ctx.logger()
-            .info(&format!("host currently resolves {} event id(s).", events.len()));
+        ctx.logger().info(&format!(
+            "host currently resolves {} event id(s).",
+            events.len()
+        ));
 
         // Hand a piece of work back to the server thread. The closure is boxed for
         // the host and freed as soon as it has run, and ownership stays on the mod
@@ -107,8 +109,10 @@ impl LeviMod for HelloPier {
         // `&mut self` is still available here, so final cleanup belongs in this
         // callback. The host runs its teardown steps and finally FreeLibrary only
         // after this returns.
-        ctx.logger()
-            .info(&format!("unloaded. enabled {} time(s) this session.", self.enabled_times));
+        ctx.logger().info(&format!(
+            "unloaded. enabled {} time(s) this session.",
+            self.enabled_times
+        ));
         Ok(())
     }
 }

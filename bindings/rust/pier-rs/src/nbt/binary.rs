@@ -57,6 +57,7 @@ impl NbtValue {
     /// Decodes a tree from binary NBT.
     pub fn from_binary(data: &[u8], fmt: NbtFormat) -> Result<NbtValue> {
         let text = from_binary(data, fmt)?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the SNBT the host produced failed: {e}")))
+        NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the SNBT the host produced failed: {e}")))
     }
 }

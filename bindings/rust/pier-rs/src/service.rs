@@ -126,7 +126,10 @@ pub fn call_json<T: DeserializeOwned>(name: &str, request: &str) -> CallResult<T
     let body = call(name, request)?;
     serde_json::from_str(&body).map_err(|e| CallError::Decode {
         name: name.to_owned(),
-        detail: format!("{e} (first 200 characters of the reply: {})", truncate(&body, 200)),
+        detail: format!(
+            "{e} (first 200 characters of the reply: {})",
+            truncate(&body, 200)
+        ),
     })
 }
 
@@ -330,8 +333,8 @@ where
     F: FnMut(Q) -> std::result::Result<R, String> + Send + 'static,
 {
     register(name, move |_name, req| {
-        let parsed: Q =
-            serde_json::from_str(req).map_err(|e| format!("the request is not the JSON shape this service wants: {e}"))?;
+        let parsed: Q = serde_json::from_str(req)
+            .map_err(|e| format!("the request is not the JSON shape this service wants: {e}"))?;
         let out = provider(parsed)?;
         serde_json::to_string(&out).map_err(|e| format!("serializing the reply failed: {e}"))
     })
@@ -367,7 +370,9 @@ unsafe extern "C" fn trampoline(
         }
         Err(_) => {
             let msg = format!("the provider of service `{n}` panicked");
-            Logger::get().error(&format!("{msg}. It was caught here and this call returns a failure."));
+            Logger::get().error(&format!(
+                "{msg}. It was caught here and this call returns a failure."
+            ));
             reply(ctx, s(&msg));
             false
         }

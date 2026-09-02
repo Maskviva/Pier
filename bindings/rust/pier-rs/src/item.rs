@@ -194,8 +194,11 @@ impl ItemStack {
     /// Reads a `PIER_ISTR_*` string property.
     pub fn text(&self, prop: i32) -> Result<String> {
         let f = crate::require_slot!(item_get_str, "reading a string item property");
-        call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("the host could not read string item property {prop}")))
+        call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), prop, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "the host could not read string item property {prop}"
+            ))
+        })
     }
 
     pub fn type_name(&self) -> Result<String> {
@@ -235,15 +238,19 @@ impl ItemStack {
     /// property-number dispatch on the host side.
     pub fn user_data(&self) -> Result<NbtValue> {
         let f = crate::require_slot!(item_get_user_data, "reading the custom NBT of an item");
-        let text = call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) })
-            .ok_or_else(|| Error("the host could not read the custom NBT of this item".to_owned()))?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the custom NBT of the item failed: {e}")))
+        let text =
+            call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) }).ok_or_else(|| {
+                Error("the host could not read the custom NBT of this item".to_owned())
+            })?;
+        NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the custom NBT of the item failed: {e}")))
     }
 
     /// The color as `{r,g,b}`. Only a dyeable item has one.
     pub fn color(&self) -> Result<(i32, i32, i32)> {
         let text = self.text(sys::PIER_ISTR_COLOR)?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the color SNBT failed: {e}")))?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the color SNBT failed: {e}")))?;
         Ok((v.get_i32("r")?, v.get_i32("g")?, v.get_i32("b")?))
     }
 
@@ -322,11 +329,17 @@ impl ItemStack {
 
     pub fn enchants(&self) -> Result<Vec<Enchant>> {
         let f = crate::require_slot!(item_get_enchants, "reading the enchantments of an item");
-        let text = call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) })
-            .ok_or_else(|| Error("the host could not read the enchantments of this item".to_owned()))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the enchantment SNBT failed: {e}")))?;
+        let text =
+            call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) }).ok_or_else(|| {
+                Error("the host could not read the enchantments of this item".to_owned())
+            })?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the enchantment SNBT failed: {e}")))?;
         let Some(items) = v.as_list() else {
-            return Err(Error(format!("the enchantment SNBT is not a list but {}", v.type_name())));
+            return Err(Error(format!(
+                "the enchantment SNBT is not a list but {}",
+                v.type_name()
+            )));
         };
         Ok(items
             .iter()
@@ -405,7 +418,8 @@ pub(crate) fn parse_str_list(text: &str, what: &str) -> Result<Vec<String>> {
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let v = NbtValue::parse(text).map_err(|e| Error(format!("parsing the SNBT of {what} failed: {e}")))?;
+    let v = NbtValue::parse(text)
+        .map_err(|e| Error(format!("parsing the SNBT of {what} failed: {e}")))?;
     let Some(items) = v.as_list() else {
         return Err(Error(format!("{what} is not a list but {}", v.type_name())));
     };

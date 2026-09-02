@@ -158,7 +158,9 @@ impl<C: LaneContract> Lane<C> {
                 // and more importantly the caller would most likely carry it across an extern "C"
                 // boundary.
                 // The count was already decremented above, so the provider can still be unloaded.
-                Logger::get().error("a lane call panicked. It was caught here and the busy count was restored.");
+                Logger::get().error(
+                    "a lane call panicked. It was caught here and the busy count was restored.",
+                );
                 None
             }
         }
@@ -472,7 +474,8 @@ pub fn collect_strings(call: impl FnOnce(*mut c_void, LaneStrSink) -> u32) -> Ve
         let v = &mut *ctx.cast::<Vec<String>>();
         match item.try_as_str() {
             Some(s) => v.push(s.to_owned()),
-            None => Logger::get().warn("a lane returned a string that is not valid UTF-8; it was skipped"),
+            None => Logger::get()
+                .warn("a lane returned a string that is not valid UTF-8; it was skipped"),
         }
     }
     call((&mut out as *mut Vec<String>).cast(), sink);

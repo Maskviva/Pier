@@ -23,7 +23,10 @@ impl Entity {
         Ok(self.related(f))
     }
     pub fn first_passenger(&self) -> Result<Option<Entity>> {
-        let f = crate::require_slot!(actor_get_first_passenger, "querying the first passenger of an actor");
+        let f = crate::require_slot!(
+            actor_get_first_passenger,
+            "querying the first passenger of an actor"
+        );
         Ok(self.related(f))
     }
     pub fn owner(&self) -> Result<Option<Entity>> {
@@ -73,9 +76,14 @@ impl Entity {
     /// The bounding box.
     pub fn aabb(&self) -> Result<Aabb> {
         let f = crate::require_slot!(actor_get_aabb, "reading the bounding box of an actor");
-        let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) })
-            .ok_or_else(|| Error(format!("the bounding box of actor {} could not be read", self.0)))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the bounding box SNBT failed: {e}")))?;
+        let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "the bounding box of actor {} could not be read",
+                self.0
+            ))
+        })?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the bounding box SNBT failed: {e}")))?;
         Ok(Aabb {
             min: v.get_vec3("min")?,
             max: v.get_vec3("max")?,
@@ -102,7 +110,12 @@ impl Entity {
     pub fn equipped_item(&self, slot: EquipSlot) -> Result<ItemStack> {
         let f = crate::require_slot!(actor_get_equipped_item, "reading the equipment of an actor");
         let snbt = call_out_str(|ctx, sink| unsafe { f(self.0, slot.as_i32(), ctx, sink) })
-            .ok_or_else(|| Error(format!("the {slot:?} equipment of actor {} could not be read", self.0)))?;
+            .ok_or_else(|| {
+                Error(format!(
+                    "the {slot:?} equipment of actor {} could not be read",
+                    self.0
+                ))
+            })?;
         Ok(ItemStack::from_snbt(snbt))
     }
 
@@ -122,12 +135,19 @@ impl Entity {
     /// Every status effect on it.
     pub fn effects(&self) -> Result<Vec<Effect>> {
         let f = crate::require_slot!(actor_get_effects, "reading the status effects of an actor");
-        let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) })
-            .ok_or_else(|| Error(format!("the status effects of actor {} could not be read", self.0)))?;
-        let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the status effect SNBT failed: {e}")))?;
+        let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "the status effects of actor {} could not be read",
+                self.0
+            ))
+        })?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the status effect SNBT failed: {e}")))?;
         let Some(items) = v.as_list() else {
-            return Err(Error(format!("the status effects are not a list but {}", v.type_name())));
+            return Err(Error(format!(
+                "the status effects are not a list but {}",
+                v.type_name()
+            )));
         };
         Ok(items
             .iter()

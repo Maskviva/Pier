@@ -217,7 +217,9 @@ impl Container {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("the container {self} could not be resynchronized; the player has most likely left")))
+            Err(Error(format!(
+                "the container {self} could not be resynchronized; the player has most likely left"
+            )))
         }
     }
 }

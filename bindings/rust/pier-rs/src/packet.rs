@@ -264,7 +264,10 @@ impl Packets {
     where
         F: Fn(u64, &str, ConnectionState) + Send + Sync + 'static,
     {
-        let reg = crate::require_slot!(packet_conn_hook_register, "observing connection opens and closes");
+        let reg = crate::require_slot!(
+            packet_conn_hook_register,
+            "observing connection opens and closes"
+        );
         // Neither gate may be skipped (contract §2.2): first whether the table is long
         let unreg = if crate::has_slot!(packet_conn_hook_unregister) {
             rt().api.packet_conn_hook_unregister
@@ -278,7 +281,9 @@ impl Packets {
         let handle = unsafe { reg(rt().handle(), conn_trampoline, user.cast()) };
         if handle.is_null() {
             drop(unsafe { Box::from_raw(user) });
-            return Err(Error("the host refused to register the connection observer".to_owned()));
+            return Err(Error(
+                "the host refused to register the connection observer".to_owned(),
+            ));
         }
         Ok(PacketHook {
             handle: Handle::new(handle),

@@ -170,7 +170,9 @@ impl World {
         if unsafe { f(dim, s(effect), x, y, z) } {
             Ok(())
         } else {
-            Err(Error(format!("spawning a particle in dimension {dim} failed: the level is not ready")))
+            Err(Error(format!(
+                "spawning a particle in dimension {dim} failed: the level is not ready"
+            )))
         }
     }
 
@@ -178,8 +180,13 @@ impl World {
     pub fn find_path(&self, who: Entity, x: i32, y: i32, z: i32) -> Result<NbtValue> {
         let f = crate::require_slot!(level_find_path, "pathfinding");
         let text = call_out_str(|ctx, sink| unsafe { f(who.id(), x, y, z, ctx, sink) })
-            .ok_or_else(|| Error(format!("pathfinding for {who} failed: the actor is gone, or it cannot walk")))?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the pathfinding result SNBT failed: {e}")))
+            .ok_or_else(|| {
+                Error(format!(
+                    "pathfinding for {who} failed: the actor is gone, or it cannot walk"
+                ))
+            })?;
+        NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the pathfinding result SNBT failed: {e}")))
     }
 }
 

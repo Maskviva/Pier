@@ -133,6 +133,41 @@ def _c_slot_signature(decl):
     return name, sig
 
 
+def _split_fields(body):
+    """Splits a struct body on the commas that separate fields.
+
+    A comma inside `<>`, `()` or `[]` belongs to a type and does not end a field, so
+    depth is tracked. Splitting on every comma, or reading the body a line at a time,
+    truncates a wrapped signature to its first line: rustfmt breaks a long function
+    pointer across lines and the field then reads as the single token `Option<`. That
+    parses cleanly, compares unequal against the header, and reports a signature
+    mismatch that does not exist.
+    """
+    parts, buf, depth, i = [], [], 0, 0
+    while i < len(body):
+        ch = body[i]
+        # The `>` of a `->` closes nothing. Counting it as a closing bracket drives the
+        # depth negative on the first return type and merges every field after it into
+        # one.
+        if ch == "-" and body[i : i + 2] == "->":
+            buf.append("->")
+            i += 2
+            continue
+        if ch in "<([":
+            depth += 1
+        elif ch in ">)]":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return parts
+
+
 def _rust_field_types(text, name):
     """Maps a field name to its type text for `pub struct <name>` in the mirror."""
     m = re.search(r"pub\s+struct\s+%s\s*\{(.*?)\n\}" % name, text, re.S)
@@ -141,13 +176,20 @@ def _rust_field_types(text, name):
     body = re.sub(r"//[^\n]*", "", m.group(1))
     body = re.sub(r"/\*.*?\*/", "", body, flags=re.S)
     out = {}
-    for line in body.splitlines():
-        line = line.strip().rstrip(",")
-        if not line:
+    for field in _split_fields(body):
+        field = field.strip()
+        if not field:
             continue
-        mm = re.match(r"(?:pub\s+)?(\w+)\s*:\s*(.+)$", line)
+        mm = re.match(r"(?:pub\s+)?(\w+)\s*:\s*(.+)$", field, re.S)
         if mm:
-            out[mm.group(1)] = " ".join(mm.group(2).split())
+            # Collapse the whitespace rustfmt introduced, and drop the trailing comma
+            # it leaves before a closing angle bracket, so that a wrapped signature and
+            # a single-line one normalize to the same text.
+            ty = " ".join(mm.group(2).split())
+            ty = re.sub(r",\s*([>)\]])", r"\1", ty)
+            ty = re.sub(r"([<(\[])\s+", r"\1", ty)
+            ty = re.sub(r"\s+([>)\]])", r"\1", ty)
+            out[mm.group(1)] = ty
     return out
 
 

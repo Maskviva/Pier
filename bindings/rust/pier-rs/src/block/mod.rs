@@ -91,9 +91,15 @@ impl Block {
             )
         };
         if !ok {
-            return Err(Error(format!("{self} could not be read: the level is not ready, or the dimension is unavailable")));
+            return Err(Error(format!(
+                "{self} could not be read: the level is not ready, or the dimension is unavailable"
+            )));
         }
-        out.ok_or_else(|| Error(format!("the host reported reading {self} as a success and wrote nothing back")))
+        out.ok_or_else(|| {
+            Error(format!(
+                "the host reported reading {self} as a success and wrote nothing back"
+            ))
+        })
     }
 
     /// Parses the full serialization into an NBT tree. Writing it back unchanged uses
@@ -121,7 +127,11 @@ impl Block {
     pub fn text(&self, prop: i32) -> Result<String> {
         let f = crate::require_slot!(block_get_str, "reading a string block property");
         call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("string property {prop} of {self} could not be read")))
+            .ok_or_else(|| {
+                Error(format!(
+                    "string property {prop} of {self} could not be read"
+                ))
+            })
     }
 
     /// The block tags.
@@ -190,9 +200,13 @@ fn parse_boxes(text: &str) -> Result<Vec<Bounds>> {
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let v = NbtValue::parse(text).map_err(|e| Error(format!("parsing the collision box SNBT failed: {e}")))?;
+    let v = NbtValue::parse(text)
+        .map_err(|e| Error(format!("parsing the collision box SNBT failed: {e}")))?;
     let Some(items) = v.as_list() else {
-        return Err(Error(format!("the collision box is not a list but {}", v.type_name())));
+        return Err(Error(format!(
+            "the collision box is not a list but {}",
+            v.type_name()
+        )));
     };
     let floor = |t: (f64, f64, f64)| (t.0.floor() as i32, t.1.floor() as i32, t.2.floor() as i32);
     Ok(items

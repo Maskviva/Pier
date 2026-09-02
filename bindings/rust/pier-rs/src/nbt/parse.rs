@@ -161,7 +161,9 @@ impl<'a> Parser<'a> {
     }
 
     fn quoted(&mut self) -> Result<String, ParseError> {
-        let quote = self.peek().ok_or_else(|| self.err("the string never begins"))?;
+        let quote = self
+            .peek()
+            .ok_or_else(|| self.err("the string never begins"))?;
         self.i += 1;
         let mut out = String::new();
         loop {
@@ -189,10 +191,13 @@ impl<'a> Parser<'a> {
                             if self.i + 4 > self.s.len() {
                                 return Err(self.err("there are fewer than four digits after \\u"));
                             }
-                            let hex = std::str::from_utf8(&self.s[self.i..self.i + 4])
-                                .map_err(|_| self.err("what follows \\u is not valid hexadecimal"))?;
-                            let cp = u32::from_str_radix(hex, 16)
-                                .map_err(|_| self.err("what follows \\u is not valid hexadecimal"))?;
+                            let hex =
+                                std::str::from_utf8(&self.s[self.i..self.i + 4]).map_err(|_| {
+                                    self.err("what follows \\u is not valid hexadecimal")
+                                })?;
+                            let cp = u32::from_str_radix(hex, 16).map_err(|_| {
+                                self.err("what follows \\u is not valid hexadecimal")
+                            })?;
                             self.i += 4;
                             out.push(char::from_u32(cp).unwrap_or('\u{fffd}'));
                         }

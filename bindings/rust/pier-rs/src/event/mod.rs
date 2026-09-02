@@ -680,7 +680,6 @@ pub type EventPriority = Priority;
 /// finely on it.
 pub use crate::nbt::NbtError as PayloadError;
 
-
 /// Builds a `PlayerIdentity` straight from a compound tag, for a custom payload.
 impl From<&BTreeMap<String, NbtValue>> for PlayerIdentity {
     fn from(m: &BTreeMap<String, NbtValue>) -> Self {

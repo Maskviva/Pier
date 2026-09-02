@@ -53,7 +53,10 @@ pub fn is_available() -> bool {
 
 /// Whether the client is currently in a world.
 pub fn is_in_level() -> Result<bool> {
-    let f = crate::require_slot!(client_is_in_level, "querying whether the client is in a world");
+    let f = crate::require_slot!(
+        client_is_in_level,
+        "querying whether the client is in a world"
+    );
     Ok(unsafe { f() })
 }
 
@@ -90,7 +93,12 @@ impl KeyBinding {
     pub fn key_codes(&self) -> Result<Vec<i32>> {
         let f = crate::require_slot!(client_get_key_codes, "reading the key codes of a hotkey");
         let text = call_out_str(|ctx, sink| unsafe { f(self.handle.get(), ctx, sink) })
-            .ok_or_else(|| Error(format!("the key codes of hotkey {} could not be read", self.name)))?;
+            .ok_or_else(|| {
+                Error(format!(
+                    "the key codes of hotkey {} could not be read",
+                    self.name
+                ))
+            })?;
         // The host gives an array literal such as "[1,2,3]".
         Ok(text
             .trim()
@@ -210,6 +218,8 @@ unsafe fn dispatch(user: *mut c_void, action: sys::PierKeyAction, impact: sys::P
         f(KeyAction::from_i32(action), impact)
     }));
     if outcome.is_err() {
-        Logger::get().error("a hotkey callback panicked. It was caught here and this key press was discarded.");
+        Logger::get().error(
+            "a hotkey callback panicked. It was caught here and this key press was discarded.",
+        );
     }
 }

@@ -136,14 +136,20 @@ pub fn ranking(top_n: u16) -> Vec<String> {
 /// the mod unloads. Carrying state means a `static` inside the mod itself, cleared in
 /// `on_unload`.
 pub fn on_before(callback: sys::PierMoneyCb) -> Result<()> {
-    let f = crate::require_slot!(money_listen_before_event, "registering an economy before-callback");
+    let f = crate::require_slot!(
+        money_listen_before_event,
+        "registering an economy before-callback"
+    );
     unsafe { f(callback) };
     Ok(())
 }
 
 /// Registers a callback that runs after the event. The return value is ignored.
 pub fn on_after(callback: sys::PierMoneyCb) -> Result<()> {
-    let f = crate::require_slot!(money_listen_after_event, "registering an economy after-callback");
+    let f = crate::require_slot!(
+        money_listen_after_event,
+        "registering an economy after-callback"
+    );
     unsafe { f(callback) };
     Ok(())
 }

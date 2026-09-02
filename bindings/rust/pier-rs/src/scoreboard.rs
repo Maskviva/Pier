@@ -71,9 +71,13 @@ impl Scoreboard {
         if text.trim().is_empty() {
             return Ok(Vec::new());
         }
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the objective list failed: {e}")))?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the objective list failed: {e}")))?;
         let Some(items) = v.as_list() else {
-            return Err(Error(format!("the objective list is not a list but {}", v.type_name())));
+            return Err(Error(format!(
+                "the objective list is not a list but {}",
+                v.type_name()
+            )));
         };
         Ok(items
             .iter()
@@ -96,17 +100,20 @@ impl Scoreboard {
         if text.trim().is_empty() {
             return Ok(None);
         }
-        text.trim()
-            .parse::<i64>()
-            .map(Some)
-            .map_err(|e| Error(format!("the score {text:?} does not parse as a number: {e}")))
+        text.trim().parse::<i64>().map(Some).map_err(|e| {
+            Error(format!(
+                "the score {text:?} does not parse as a number: {e}"
+            ))
+        })
     }
 
     fn write_score(&self, op: i32, objective: &str, who: &str, value: i64) -> Result<i64> {
         let text = self.op(op, objective, who, value)?;
-        text.trim()
-            .parse::<i64>()
-            .map_err(|e| Error(format!("the new value {text:?} after the write does not parse as a number: {e}")))
+        text.trim().parse::<i64>().map_err(|e| {
+            Error(format!(
+                "the new value {text:?} after the write does not parse as a number: {e}"
+            ))
+        })
     }
 
     /// Sets it to `value` and returns the value after the write.

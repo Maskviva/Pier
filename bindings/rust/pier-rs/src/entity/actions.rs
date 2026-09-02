@@ -155,9 +155,11 @@ impl Entity {
     /// Reads the current value of one attribute, named as `minecraft:health` is.
     pub fn attribute(&self, name: &str) -> Result<f64> {
         let out = self.act(sys::PIER_AACT_ATTRIBUTE_GET, name, 0.0, 0.0, 0.0)?;
-        out.trim()
-            .parse::<f64>()
-            .map_err(|e| Error(format!("the value {out:?} of attribute {name} does not parse as a number: {e}")))
+        out.trim().parse::<f64>().map_err(|e| {
+            Error(format!(
+                "the value {out:?} of attribute {name} does not parse as a number: {e}"
+            ))
+        })
     }
 
     pub fn set_variant(&self, v: i32) -> Result<()> {

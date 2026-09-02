@@ -7,7 +7,7 @@ export default defineConfig({
   title: 'Pier',
   description: 'A LeviLamina mod loader for languages other than C++.',
   lang: 'en-US',
-  base: '/pier/',
+  base: '/',
   cleanUrls: true,
   lastUpdated: true,
 

@@ -152,7 +152,9 @@ impl Host {
         };
         let ok = unsafe { f(s(cmd), (&mut out as *mut CmdOut).cast(), cmd_sink) };
         if !ok {
-            return Err(Error(format!("command `{cmd}` could not be executed; the host refused")));
+            return Err(Error(format!(
+                "command `{cmd}` could not be executed; the host refused"
+            )));
         }
         if !out.success {
             return Err(Error(format!("command `{cmd}` failed: {}", out.text)));
@@ -174,15 +176,21 @@ impl Host {
     /// Information at the operating-system level. `prop` comes from `sys::PIER_SYS_*`.
     pub fn sys_info(&self, prop: i32) -> Result<String> {
         let f = crate::require_slot!(sys_info_str, "reading system information");
-        call_out_str(|ctx, sink| unsafe { f(prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("the host could not read system information item {prop}")))
+        call_out_str(|ctx, sink| unsafe { f(prop, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "the host could not read system information item {prop}"
+            ))
+        })
     }
 
     /// Information at the server level. `prop` comes from `sys::PIER_SRV_*`.
     pub fn server_info(&self, prop: i32) -> Result<String> {
         let f = crate::require_slot!(server_info_str, "reading server information");
-        call_out_str(|ctx, sink| unsafe { f(prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("the host could not read server information item {prop}")))
+        call_out_str(|ctx, sink| unsafe { f(prop, ctx, sink) }).ok_or_else(|| {
+            Error(format!(
+                "the host could not read server information item {prop}"
+            ))
+        })
     }
 
     /// The network protocol version of the server.
@@ -198,9 +206,11 @@ impl Host {
     /// (contract §5.2).
     pub fn protocol_version(&self) -> Result<u32> {
         let raw = self.server_info(sys::PIER_SRV_PROTOCOL_VERSION)?;
-        raw.trim()
-            .parse::<u32>()
-            .map_err(|e| Error(format!("the protocol version {raw:?} the host reported does not parse as a number: {e}")))
+        raw.trim().parse::<u32>().map_err(|e| {
+            Error(format!(
+                "the protocol version {raw:?} the host reported does not parse as a number: {e}"
+            ))
+        })
     }
 
     /// The BDS version string, from `Common::getGameVersionString`.
@@ -236,7 +246,9 @@ impl Host {
         if unsafe { f(s(name), s(value)) } {
             Ok(())
         } else {
-            Err(Error(format!("the environment variable {name} could not be set")))
+            Err(Error(format!(
+                "the environment variable {name} could not be set"
+            )))
         }
     }
 
@@ -311,7 +323,8 @@ unsafe extern "C" fn task_trampoline(user: *mut c_void) {
     // task rather than aborting the whole process without a diagnostic.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || (*f)()));
     if result.is_err() {
-        Logger::get().error("a scheduled task panicked. It was caught here and the task was discarded.");
+        Logger::get()
+            .error("a scheduled task panicked. It was caught here and the task was discarded.");
     }
 }
 

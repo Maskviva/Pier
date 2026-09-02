@@ -25,7 +25,8 @@ impl Block {
     /// Every block state.
     pub fn states(&self) -> Result<NbtValue> {
         let text = self.text(sys::PIER_BSTR_STATE)?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the block state SNBT failed: {e}")))
+        NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the block state SNBT failed: {e}")))
     }
 
     pub fn set_state(&self, name: &str, value: &str) -> Result<()> {
@@ -42,7 +43,10 @@ impl Block {
 
     /// The collision box.
     pub fn collision_shape(&self) -> Result<Vec<Bounds>> {
-        let f = crate::require_slot!(block_get_collision_shape, "reading the collision box of a block");
+        let f = crate::require_slot!(
+            block_get_collision_shape,
+            "reading the collision box of a block"
+        );
         let text =
             call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, ctx, sink) })
                 .ok_or_else(|| Error(format!("the collision box of {self} could not be read")))?;
@@ -59,8 +63,8 @@ impl Block {
         else {
             return Ok(None);
         };
-        let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the block entity SNBT failed: {e}")))?;
+        let v = NbtValue::parse(&text)
+            .map_err(|e| Error(format!("parsing the block entity SNBT failed: {e}")))?;
         Ok(Some(v))
     }
 

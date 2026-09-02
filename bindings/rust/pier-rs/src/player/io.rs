@@ -18,18 +18,27 @@ impl Player {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("player {} is offline and the message did not go out", self.sel)))
+            Err(Error(format!(
+                "player {} is offline and the message did not go out",
+                self.sel
+            )))
         }
     }
 
     /// Sends one with a given `TextPacketType`.
     pub fn tell(&self, msg: &str, kind: MessageType) -> Result<()> {
-        let f = crate::require_slot!(player_send_message_typed, "sending a typed message to a player");
+        let f = crate::require_slot!(
+            player_send_message_typed,
+            "sending a typed message to a player"
+        );
         let ok = unsafe { f(self.sel.raw(), s(msg), kind.as_i32()) };
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("player {} is offline and the message did not go out", self.sel)))
+            Err(Error(format!(
+                "player {} is offline and the message did not go out",
+                self.sel
+            )))
         }
     }
 
@@ -91,7 +100,10 @@ impl Player {
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("player {} is offline and the particle did not go out", self.sel)))
+            Err(Error(format!(
+                "player {} is offline and the particle did not go out",
+                self.sel
+            )))
         }
     }
 

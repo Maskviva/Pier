@@ -4,11 +4,14 @@
 /target/
 /.xmake/
 Cargo.lock
+docs/pnpm-lock.yaml
+docs/.vitepress/dist
 
 # Tool runtime
 __pycache__/
 *.pyc
 compile_commands.json
+docs/node_modules/
 
 # Editors
 .vscode/
