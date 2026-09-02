@@ -1,17 +1,19 @@
-//! 玩家属性、字符串属性与动作码 —— 逐值对着 `sdk/abi.h`。
+//! Player properties, string properties and action codes, value by value against `sdk/abi.h`.
 //!
-//! 全部是 `pub const i32` 而不是 Rust 的 `enum`。理由：ABI 上它们就是整数，
-//! 宿主可能比模组**新**，传回一个这一侧还不认识的值。`enum` 遇到未列出的
-//! 判别值是未定义行为，而常量只是一个没匹配上的数字 —— 后者可以被优雅地
-//! 处理成「这个宿主报了我不认识的属性」，前者是内存不安全。
+//! All are `pub const i32` and not a Rust `enum`. The reason: on the ABI they are integers, and the
+//! host may be newer than the mod and hand back a value this side does not recognize. An `enum`
+//! meeting an unlisted discriminant is undefined behavior, while a constant is only a number that
+//! matched nothing, and the latter can be handled gracefully as the host reporting an unknown
+//! property while the former is memory unsafety.
 //!
-//! 值也是 ABI，只能追加、不能重排（契约 §2.2）。名字与值的一致性由
-//! `sys-mirrors-abi` 机检逐个守着。
+//! The values are ABI too and may only be appended, never reordered (contract §2.2). The agreement
+//! of names and values is guarded one by one by the `sys-mirrors-abi` check.
 //!
-//! 注释的**归属**也要对：`abi.h` 里跨行的尾注属于**上一项**，不是下一项。
-//! 第一版的转换器把它们原地搬了过来，于是每一条跨行尾注都挂到了错误的常量
-//! 上，最后一条还悬空成了编译错误（`expected item after doc comment`）——
-//! 那个编译错误是运气，前面那些挂错的没有任何提示。
+//! Comment ownership has to be right as well: a trailing comment that wraps in `abi.h` belongs to
+//! the item above it and not the one below. A converter moving them in place attaches every wrapped
+//! trailing comment to the wrong constant, and the last one dangles into a compile error, `expected
+//! item after doc comment`. That compile error is luck; the ones attached wrongly before it give no
+//! hint at all.
 
 // ── PierPlayerNumProp ──────────────────────────────────────────
 
@@ -56,8 +58,9 @@ pub const PIER_PPROP_HAS_RESPAWN_POSITION: i32 = 18;
 /// (G) Player::getClientSubId
 pub const PIER_PPROP_CLIENT_SUB_ID: i32 = 19;
 pub const PIER_PPROP_CAN_USE_ABILITY: i32 = 20;
-/// (G) Player::canUseAbility; ability index passed via player_action GET path — see PIER_PACT_CAN_USE_ABILITY
-/// ── 追加：player gap fill ──
+/// (G) Player::canUseAbility; ability index passed via player_action GET path — see
+/// PIER_PACT_CAN_USE_ABILITY
+/// Appended: player gap fill.
 /// (G) Player::getDirection (0=S,1=W,2=N,3=E)
 pub const PIER_PPROP_DIRECTION: i32 = 21;
 /// (G) Player::getChunkRadius
@@ -103,7 +106,7 @@ pub const PIER_PSTR_IP_AND_PORT: i32 = 3;
 pub const PIER_PSTR_LOCALE_CODE: i32 = 4;
 /// Actor::getNameTag (display name)
 pub const PIER_PSTR_NAME_TAG: i32 = 5;
-/// ── 追加 ──
+/// Appended.
 /// SNBT {x,y,z} or "" if none
 pub const PIER_PSTR_LAST_DEATH_POS: i32 = 6;
 /// dimension id as string
@@ -128,7 +131,7 @@ pub const PIER_PACT_SET_SPAWN_POINT: i32 = 4;
 pub const PIER_PACT_CLEAR_TITLE: i32 = 5;
 /// sarg=text, a=slot(0 title,1 subtitle,2 actionbar) via /title
 pub const PIER_PACT_SET_TITLE: i32 = 6;
-/// ── 追加 ──
+/// Appended.
 /// a=xp                  Player::addExperience
 pub const PIER_PACT_ADD_EXPERIENCE: i32 = 7;
 /// a=levels              Player::addLevels
@@ -167,7 +170,7 @@ pub const PIER_PACT_OPEN_INVENTORY: i32 = 23;
 pub const PIER_PACT_SIDEBAR_SET: i32 = 24;
 /// sarg=objective        RemoveObjectivePacket
 pub const PIER_PACT_SIDEBAR_CLEAR: i32 = 25;
-/// a=PlayerPermissionLevel（0 Visitor / 1 Member / 2 Operator / 3 Custom）
-/// LayeredAbilities::setPlayerPermissions + UpdateAbilitiesPacket。
-/// 读的那一侧是 PIER_PPROP_PERMISSION_LEVEL。
+/// a=PlayerPermissionLevel (0 Visitor / 1 Member / 2 Operator / 3 Custom)
+/// LayeredAbilities::setPlayerPermissions + UpdateAbilitiesPacket.
+/// The reading side is PIER_PPROP_PERMISSION_LEVEL.
 pub const PIER_PACT_SET_PERMISSION_LEVEL: i32 = 26;

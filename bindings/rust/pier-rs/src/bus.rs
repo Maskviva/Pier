@@ -1,17 +1,18 @@
-//! 跨模组事件总线 —— 广播，无返回值。
+//! The cross-mod event bus: broadcast, with no return value.
 //!
-//! 和 [`crate::service`] 互补：总线一对多、无返回、顺序不保证；服务一对一、
-//! 有返回、名字独占。
+//! Complementary to [`crate::service`]: the bus is one to many, returns nothing and guarantees no
+//! order, while a service is one to one, returns a value and holds its name exclusively.
 //!
-//! # 收不到自己发的
+//! # A mod does not receive its own publish
 //!
-//! 一个模组不会收到自己的 publish。想通知自己有直接函数调用；而自发自收是
-//! 唯一一种任何深度限制都分辨不出来的环。跨模组的环（A→B→A）由深度上限
-//! 接住，撞上限时最内层那次 publish 被丢弃并打一条日志。
+//! A mod does not receive its own publish. Notifying yourself is a direct function call, and
+//! publishing to yourself is the one cycle no depth limit can tell apart. A cross-mod cycle, A to B
+//! to A, is caught by the depth cap, and hitting it discards the innermost publish with a log line.
 //!
-//! # 全族线程安全，回调在**发布方**的线程上跑
+//! # The whole family is thread safe and a callback runs on the publisher's thread
 //!
-//! 所以回调里别碰世界状态 —— 要碰就 `Host::schedule` 丢回服务器线程。
+//! A callback therefore must not touch world state; touching it means `Host::schedule` back onto
+//! the server thread.
 
 use core::ffi::c_void;
 
@@ -21,13 +22,14 @@ use crate::rt::logger::Logger;
 use crate::rt::runtime::rt;
 use crate::sys;
 
-/// 一次订阅。**Drop 即退订。**
+/// One subscription. Dropping it unsubscribes.
 ///
-/// 想让它活到模组卸载就调 [`Subscription::forget`]，宿主卸载时会统一清。
+/// [`Subscription::forget`] keeps it alive until the mod unloads, when the host clears it.
 pub struct Subscription {
     id: u64,
     topic: String,
-    /// 只持有、只析构，不取出来用 —— 和 `service::Registration` 同一套纪律。
+    /// Only held and dropped, never taken out, following the same discipline as
+    /// `service::Registration`.
     owned: Option<Box<dyn std::any::Any + Send>>,
 }
 
@@ -60,9 +62,10 @@ impl Drop for Subscription {
             return;
         };
         if !unsafe { f(rt().handle(), self.id) } {
-            // 退订失败而闭包马上要被释放 —— 那就是个悬垂指针。宁可泄漏。
+            // A failed unsubscribe with the closure about to be freed is a dangling pointer.
+            // Leaking is preferable.
             Logger::get().error(&format!(
-                "退订主题 `{}` 失败 —— 它可能还挂在宿主上，闭包改为泄漏而不是释放。",
+                "unsubscribing from topic `{}` failed; it may still be attached to the host, so the closure is leaked rather than freed.",
                 self.topic
             ));
             if let Some(o) = self.owned.take() {
@@ -74,22 +77,22 @@ impl Drop for Subscription {
 
 type Handler = dyn FnMut(&str, &str) -> bool + Send + 'static;
 
-/// 订阅一个主题。
+/// Subscribes to a topic.
 ///
-/// 回调返回 `true` 表示**否决**，只有 [`publish_vetoable`] 会去看它；
-/// 普通 [`publish`] 忽略返回值。
+/// A `true` from the callback is a veto, which only [`publish_vetoable`] reads; an
+/// ordinary [`publish`] ignores the return value.
 pub fn subscribe(
     topic: &str,
     handler: impl FnMut(&str, &str) -> bool + Send + 'static,
 ) -> Result<Subscription> {
-    let f = crate::require_slot!(bus_subscribe, "订阅总线主题");
+    let f = crate::require_slot!(bus_subscribe, "subscribing to a bus topic");
     let boxed: Box<Box<Handler>> = Box::new(Box::new(handler));
     let user = Box::into_raw(boxed);
     let id = unsafe { f(rt().handle(), s(topic), trampoline, user.cast()) };
     if id == 0 {
         drop(unsafe { Box::from_raw(user) });
         return Err(Error(format!(
-            "订阅主题 `{topic}` 失败（主题为空或过长，或模组还没被接管）"
+            "subscribing to topic `{topic}` failed: the topic is empty or too long, or the mod is not adopted yet"
         )));
     }
     Ok(Subscription {
@@ -99,33 +102,34 @@ pub fn subscribe(
     })
 }
 
-/// 广播。返回**真正跑了**的订阅者数；0 是正常结果，表示没人在听。
+/// Broadcasts. It returns how many subscribers really ran, and 0 is a normal result
+/// meaning nobody is listening.
 pub fn publish(topic: &str, payload: &str) -> Result<u32> {
-    let f = crate::require_slot!(bus_publish, "发布总线消息");
+    let f = crate::require_slot!(bus_publish, "publishing a bus message");
     Ok(unsafe { f(rt().handle(), s(topic), s(payload)) })
 }
 
-/// 一次可否决广播的结果。
+/// The result of one vetoable broadcast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Vetoable {
-    /// 有订阅者投了否决。
+    /// A subscriber cast a veto.
     pub vetoed: bool,
-    /// 实际跑了几个订阅者。**没有短路** —— 即使前面有人否决，
-    /// 后面的观察者照样收到，这样它们看到的是一条一致的流。
+    /// How many subscribers really ran. There is no short circuit: even after a veto the
+    /// later observers still receive it, so they see a consistent stream.
     pub delivered: u32,
 }
 
-/// 广播并收集否决位。
+/// Broadcasts and collects the veto bit.
 pub fn publish_vetoable(topic: &str, payload: &str) -> Result<Vetoable> {
-    let f = crate::require_slot!(bus_publish_vetoable, "发布可否决的总线消息");
+    let f = crate::require_slot!(bus_publish_vetoable, "publishing a vetoable bus message");
     let mut delivered: u32 = 0;
     let vetoed = unsafe { f(rt().handle(), s(topic), s(payload), &mut delivered) };
     Ok(Vetoable { vetoed, delivered })
 }
 
-/// 这个主题现在有几个订阅者（跨全部模组）。
+/// How many subscribers this topic currently has, across every mod.
 ///
-/// 用来跳过「拼一份没人看的载荷」的开销。
+/// For skipping the cost of assembling a payload nobody will read.
 pub fn subscriber_count(topic: &str) -> u32 {
     if !crate::has_slot!(bus_subscriber_count) {
         return 0;
@@ -137,7 +141,7 @@ pub fn subscriber_count(topic: &str) -> u32 {
 }
 
 /// # Safety
-/// `user` 必须是 `subscribe` 里 `Box<Box<Handler>>::into_raw` 的产物。
+/// `user` must come from the `Box<Box<Handler>>::into_raw` inside `subscribe`.
 unsafe extern "C" fn trampoline(
     user: *mut c_void,
     topic: sys::PierStr,
@@ -152,9 +156,10 @@ unsafe extern "C" fn trampoline(
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(t, p))) {
         Ok(v) => v,
         Err(_) => {
-            // 否决是更强的动作，不该由一个 bug 触发。按不否决处理。
+            // A veto is the stronger action and should not be triggered by a bug. Treated as no
+            // veto.
             Logger::get().error(&format!(
-                "主题 `{t}` 的订阅回调 panic 了。已就地拦下，本次按不否决处理。"
+                "a subscription callback for topic `{t}` panicked. It was caught here and this one is treated as no veto."
             ));
             false
         }

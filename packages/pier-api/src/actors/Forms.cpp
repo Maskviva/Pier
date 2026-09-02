@@ -1,19 +1,18 @@
-/** actors/Forms.cpp —— 带异步结果回调的表单。
- *
- * 回调在调用帧之后才触发的唯一入口。生命周期纪律与命令一致：ll::form 的回调只捕
- * 获 weak_ptr<HostedMod> 加一张宿主侧待决表的票据；玩家应答时模组若已卸载或已禁
- * 用，回调被静默丢弃，卸载清空全部待决票据。
- *
- * 结果编码在这一层收口。CustomFormElementResult 是 variant<monostate, uint64,
- * double, string>，dropdown 与 step_slider 在不同 LL 版本上有的回传选中项下标、有
- * 的回传文本；只按下标解读时碰到字符串会静默回退成 0，表现为「不管选哪一项拿到的
- * 永远是第一项」。构表时记住每个选择型控件的 options，回传拿到整数就当下标，拿到
- * 字符串就查回下标（先精确，再去掉 §x 颜色码），输出永远是下标与文本两份。
- *
- * 会让客户端整个表单渲染失败的几种参数也在这里钳住：空 options 的下拉框、越界的
- * 默认下标、不在 [min,max] 内或没落在步进点上的滑块默认值。设 PIER_TRACE_FORM=1
- * 打印元素清单与回传时每个键的 variant 类型和原始值。
- */
+/** actors/Forms.cpp: forms with an asynchronous result callback.
+ * The only entry point whose callback fires after the calling frame returns. The lifetime
+ * discipline matches commands: an ll::form callback captures a weak_ptr<HostedMod> plus a ticket
+ * into a host-side pending table, and when the player answers, a mod that has been unloaded or
+ * disabled sees the callback dropped silently. Unload clears every pending ticket. Result encoding
+ * is resolved at this layer. CustomFormElementResult is variant<monostate, uint64, double,
+ * string>, and depending on the LL version a dropdown or step_slider returns either the selected
+ * index or the text. Reading it as an index alone falls back to 0 on a string, which shows up as
+ * always receiving the first item no matter what was selected. The options of every choice control
+ * are recorded when the form is built, an integer coming back is taken as an index, a string is
+ * looked up back to an index, first exactly and then with the §x color codes removed, and both the
+ * index and the text are always emitted. The parameter shapes that make a client fail to render
+ * the whole form are clamped here as well: a dropdown with empty options, an out-of-range default
+ * index, and a slider default outside [min,max] or off the step grid. PIER_TRACE_FORM=1 prints the
+ * element list and, on the way back, the variant kind and raw value of every key. / */
 #ifndef PIER_BUILD_CLIENT
 
 #include <algorithm>
@@ -54,7 +53,7 @@ namespace pier::api_impl
     {
         struct PendingForm
         {
-            HostedMod* mod = nullptr; // 只作身份比对；永不盲目解引用
+            HostedMod* mod = nullptr; // Identity comparison only, never dereferenced
             PierFormResultCb cb = nullptr;
             void* user = nullptr;
         };
@@ -63,20 +62,23 @@ namespace pier::api_impl
         std::unordered_map<uint64_t, PendingForm> gPendingForms;
         uint64_t gNextTicket = 1;
 
-        /** 选择型控件（dropdown / step_slider）的 name → options 台账。 */
+        /** Ledger of name to options for the choice controls, dropdown and
+         *  step_slider. */
         using ChoiceTable = std::unordered_map<std::string, std::vector<std::string>>;
 
-        /** 滑块的 name → {min,max,step} 台账。回传值来自客户端，LL 的
-         *  Slider::parseResult 是裸 get<double>()，不做任何范围检查；宿主既然
-         *  在发送侧归一化了规格，就必须在回传侧按同一规格钳制。 */
+        /** Ledger of name to {min,max,step} for sliders. The returned value comes from
+         *  a client and Slider::parseResult in LL is a bare get<double>() with no range
+         *  check, so a host that normalized the spec on the way out must clamp to the
+         *  same spec on the way back. */
         struct SliderSpec
         {
             double min, max, step;
         };
         using SliderTable = std::unordered_map<std::string, SliderSpec>;
 
-        /** 按规格钳制回传值：越界回到边界、有步进则对齐到最近步进点。
-         *  返回是否改动过（改动即意味着客户端送来了不合法的值）。 */
+        /** Clamps a returned value to the spec: out of range snaps to the bound, and a
+         *  step grid snaps to the nearest step. Returns whether it changed, which means
+         *  the client sent a value the form could not produce. */
         bool clampSliderValue(SliderSpec const& spec, double& v)
         {
             double const before = v;
@@ -90,7 +92,7 @@ namespace pier::api_impl
             return std::abs(before - v) > 1e-9 || !(before == before);
         }
 
-        /** PIER_TRACE_FORM=1 打开表单追踪。只读一次。 */
+        /** PIER_TRACE_FORM=1 turns on form tracing. Read once. */
         bool formTrace()
         {
             static bool const on = []
@@ -110,8 +112,10 @@ namespace pier::api_impl
         }
 
         /**
-         * 把票据取出表并恰好触发一次回调 —— 除非它的模组已卸载（票据已被
-         * 清掉）或已禁用（静音）。跑在服务器线程上（ll::form 保证）。
+         * Takes the ticket out of the table and fires the callback exactly once, unless
+         * its mod has been unloaded, in which case the ticket is already cleared, or
+         * disabled, in which case it is muted. Runs on the server thread, which
+         * ll::form guarantees.
          */
         void completeTicket(std::weak_ptr<HostedMod> weakMod, uint64_t ticket, std::string const& resultSnbt)
         {
@@ -120,14 +124,14 @@ namespace pier::api_impl
             {
                 std::lock_guard lock(gFormMutex);
                 auto it = gPendingForms.find(ticket);
-                if (it == gPendingForms.end()) return; // 卸载时清掉了
+                if (it == gPendingForms.end()) return; // Cleared at unload
                 pending = it->second;
                 gPendingForms.erase(it);
             }
             auto mod = weakMod.lock();
-            if (!mod || mod.get() != pending.mod) return; // 模组没了
-            if (!mod->isEnabled()) return;                // 禁用期间静音
-            CallbackScope scope{mod.get()};               // 回调期间否决卸载
+            if (!mod || mod.get() != pending.mod) return; // Mod is gone
+            if (!mod->isEnabled()) return;                // Muted while disabled
+            CallbackScope scope{mod.get()};               // Veto unload during callback
             if (pending.cb) pending.cb(pending.user, ps(resultSnbt));
         }
 
@@ -137,7 +141,7 @@ namespace pier::api_impl
             return "{cancelled:1b,reason:" + snbtNum(code) + "}";
         }
 
-        /** 取字符串字段，带默认。 */
+        /** Reads a string field, with a default. */
         std::string strField(CompoundTag const& o, char const* key, std::string def = {})
         {
             if (o.contains(key) && o.at(key).is_string())
@@ -151,20 +155,20 @@ namespace pier::api_impl
             return def;
         }
 
-        //  选择型控件的下标 / 文本互查
+        //  Index and text lookup for choice controls
 
-        /** 去掉 Minecraft 的 §x 颜色控制码，用于第二轮宽松匹配。 */
+        /** Strips the Minecraft §x color codes, for the second, lenient pass. */
         std::string stripFormatCodes(std::string_view s)
         {
             std::string out;
             out.reserve(s.size());
             for (size_t i = 0; i < s.size();)
             {
-                // § 在 UTF-8 里是 0xC2 0xA7
+                // § is 0xC2 0xA7 in UTF-8
                 if (i + 2 < s.size() && static_cast<unsigned char>(s[i]) == 0xC2
                     && static_cast<unsigned char>(s[i + 1]) == 0xA7)
                 {
-                    i += 3; // 跳过 §、控制码本身
+                    i += 3; // Skip § and the code byte itself
                     continue;
                 }
                 out.push_back(s[i]);
@@ -177,14 +181,15 @@ namespace pier::api_impl
         {
             for (size_t i = 0; i < opts.size(); ++i)
                 if (opts[i] == text) return i;
-            // 客户端可能把颜色码吃掉再回传，宽松再比一次
+            // A client may swallow the color codes before returning, so compare once
+            // more leniently
             std::string bare = stripFormatCodes(text);
             for (size_t i = 0; i < opts.size(); ++i)
                 if (stripFormatCodes(opts[i]) == bare) return i;
             return std::nullopt;
         }
 
-        //  SNBT 拼装
+        //  SNBT assembly
 
         struct SnbtObject
         {
@@ -207,7 +212,7 @@ namespace pier::api_impl
             std::string wrap() const { return "{" + body + "}"; }
         };
 
-        /** variant 的类型名，只给 trace 用。 */
+        /** The variant kind name, for tracing only. */
         char const* variantKind(ll::form::CustomFormElementResult const& v)
         {
             if (std::holds_alternative<uint64_t>(v)) return "uint64";
@@ -269,13 +274,14 @@ namespace pier::api_impl
             }
             if (buttons == 0)
             {
-                // 没有按钮的 SimpleForm 客户端点不动，只能靠关闭退出 —— 上层
-                // 多半是列表拼空了，这属于逻辑错误，值得留一行。
-                hostLogger().warn("[form] SimpleForm \"{}\" 一个按钮都没有", strField(spec, "title"));
+                // A SimpleForm without buttons cannot be clicked and can only be
+                // closed. The caller most likely assembled an empty list, which is a
+                // logic error worth one line.
+                hostLogger().warn("[form] SimpleForm \"{}\" has no buttons", strField(spec, "title"));
             }
             if (formTrace())
             {
-                hostLogger().info("[form] simple ticket={} 按钮 {} 个", ticket, buttons);
+                hostLogger().info("[form] simple ticket={} with {} button(s)", ticket, buttons);
             }
             form->sendTo(p, [form, weakMod, ticket, buttons](Player& who, int button, ll::form::FormCancelReason reason)
             {
@@ -285,12 +291,13 @@ namespace pier::api_impl
                 }
                 else if (button >= buttons)
                 {
-                    // LL 把客户端回传的下标原样交出，不做范围检查。
-                    // 改装客户端可以对 3 个按钮的表单回传 999 —— 交给模组就是
-                    // 越界索引（Rust panic → abort / C 越界读）。按取消处理，
-                    // 并留下这个玩家的名字。
+                    // LL hands back the index the client returned without a range
+                    // check. A modified client can answer 999 to a three-button form,
+                    // and passing that to a mod is an out-of-range index, meaning a
+                    // Rust panic and abort or an out-of-bounds read in C. It is
+                    // treated as a cancel and the player's name is recorded.
                     hostLogger().warn(
-                        "[form] 玩家 {} 回传的按钮下标 {} 越界（共 {} 个），按取消处理",
+                        "[form] player {} returned button index {} out of range of {}, treated as a cancel",
                         who.getRealName(), button, buttons);
                     completeTicket(weakMod, ticket, "{cancelled:1b,reason:-2,invalid:1b}");
                 }
@@ -305,15 +312,17 @@ namespace pier::api_impl
         //  CustomForm
 
         /**
-         * 把滑块参数归一化到客户端能接受的形状。
+         * Normalizes slider parameters into a shape the client accepts.
          *
-         * 基岩客户端对 slider 的容忍度很低：默认值越界、或者 (max-min) 不是
-         * step 的整数倍，整个表单可能直接不渲染（玩家看到的是「打开就没
-         * 了」）。上层配置是可以被人手改成任意值的，所以这个钳制必须在桥做。
+         * The Bedrock client tolerates very little here. A default outside the range,
+         * or a (max-min) that is not a whole multiple of step, can make the entire form
+         * fail to render, which the player experiences as the form vanishing on open.
+         * The values come from configuration a human can edit to anything, so the clamp
+         * belongs in the bridge.
          */
         void normalizeSlider(double& mn, double& mx, double& step, double& def, std::string const& name)
         {
-            if (!(mn <= mx)) std::swap(mn, mx); // 顺手接住 NaN
+            if (!(mn <= mx)) std::swap(mn, mx); // Catches NaN as well
             if (!(step > 0.0)) step = 0.0;
 
             if (step > 0.0)
@@ -321,12 +330,13 @@ namespace pier::api_impl
                 double span = mx - mn;
                 if (span < step)
                 {
-                    // 步长比整个范围还大 —— 退化成只有一格，客户端会算出空刻度
+                    // A step larger than the whole range degenerates to a single
+                    // notch, and the client computes an empty scale
                     step = span > 0.0 ? span : 0.0;
                 }
                 else
                 {
-                    // 把 max 收到最后一个落在步进点上的值
+                    // Pull max down to the last value that lands on the step grid
                     double steps = std::floor(span / step + 1e-9);
                     mx = mn + steps * step;
                 }
@@ -342,7 +352,7 @@ namespace pier::api_impl
             if (std::abs(before - def) > 1e-9)
             {
                 hostLogger().warn(
-                    "[form] 滑块 \"{}\" 的默认值 {} 不在 [{}, {}] 的步进点上，已调整为 {}",
+                    "[form] slider \"{}\" default {} is not on the step grid of [{}, {}], adjusted to {}",
                     name, before, mn, mx, def);
             }
         }
@@ -365,19 +375,20 @@ namespace pier::api_impl
                     std::string kind = strField(e, "kind");
                     std::string name = strField(e, "name");
 
-                    // 有值的控件必须有唯一的 name —— 结果是按 name 索引的
-                    // unordered_map，重名会互相覆盖，上层拿到的是「其中一个」。
+                    // A control carrying a value needs a unique name. The result is an
+                    // unordered_map keyed by name, so duplicates overwrite each other
+                    // and the caller receives one of them.
                     bool valued = (kind == "input" || kind == "toggle" || kind == "dropdown"
                         || kind == "step_slider" || kind == "slider");
                     if (valued)
                     {
                         if (name.empty())
                         {
-                            hostLogger().warn("[form] {} 控件没有 name，结果里取不到它", kind);
+                            hostLogger().warn("[form] a {} control has no name and cannot be read from the result", kind);
                         }
                         else if (!seenNames.insert(name).second)
                         {
-                            hostLogger().warn("[form] name \"{}\" 重复，后一个会覆盖前一个", name);
+                            hostLogger().warn("[form] name \"{}\" is duplicated, the later control overwrites the earlier", name);
                         }
                     }
 
@@ -423,8 +434,9 @@ namespace pier::api_impl
                         }
                         if (options.empty())
                         {
-                            // 空的下拉框会让客户端渲染整个表单失败，宁可少一个控件
-                            hostLogger().warn("[form] {} \"{}\" 没有任何选项，已跳过", kind, name);
+                            // An empty dropdown makes the client fail to render the
+                            // whole form, so dropping one control is the better trade
+                            hostLogger().warn("[form] {} \"{}\" has no options and was skipped", kind, name);
                             continue;
                         }
 
@@ -434,7 +446,7 @@ namespace pier::api_impl
                         if (defIdx >= options.size())
                         {
                             hostLogger().warn(
-                                "[form] {} \"{}\" 的默认下标 {} 越界（共 {} 项），已回到 0",
+                                "[form] {} \"{}\" default index {} is out of range of {}, reset to 0",
                                 kind, name, defIdx, options.size());
                             defIdx = 0;
                         }
@@ -474,8 +486,8 @@ namespace pier::api_impl
                     if (!names.empty()) names += ", ";
                     names += k + "(" + snbtNum(v.size()) + ")";
                 }
-                hostLogger().info("[form] custom ticket={} 选择型控件: [{}]", ticket,
-                                  names.empty() ? std::string{"无"} : names);
+                hostLogger().info("[form] custom ticket={} choice controls: [{}]", ticket,
+                                  names.empty() ? std::string{"none"} : names);
             }
 
             form->sendTo(
@@ -503,8 +515,8 @@ namespace pier::api_impl
                         auto choiceIt = choices->find(key);
                         if (choiceIt != choices->end())
                         {
-                            // 选择型：无论 LL 这一版给的是下标还是文本，出去的
-                            // 都是下标 + 文本
+                            // Choice controls emit both an index and the text, whatever
+                            // this LL version hands back
                             auto const& options = choiceIt->second;
                             std::optional<size_t> idx;
                             std::string text;
@@ -525,7 +537,7 @@ namespace pier::api_impl
                                 if (!idx)
                                 {
                                     hostLogger().warn(
-                                        "[form] \"{}\" 回传的文本 \"{}\" 不在选项里，下标交给上层兜底",
+                                        "[form] \"{}\" returned text \"{}\" that is not among the options, the index is left to the caller",
                                         key, text);
                                 }
                             }
@@ -536,7 +548,7 @@ namespace pier::api_impl
                             }
                             else if (idx)
                             {
-                                hostLogger().warn("[form] \"{}\" 回传的下标 {} 越界（共 {} 项）",
+                                hostLogger().warn("[form] \"{}\" returned index {} out of range of {}",
                                                   key, *idx, options.size());
                                 idx.reset();
                             }
@@ -555,12 +567,12 @@ namespace pier::api_impl
                             double d = std::get<double>(value);
                             if (auto sl = sliders->find(key); sl != sliders->end())
                             {
-                                // 按发送时的规格钳制；越界说明客户端送来了
-                                // 表单里根本选不出的值。
+                                // Clamped to the spec that was sent. Out of range means
+                                // the client sent a value the form could not produce.
                                 if (clampSliderValue(sl->second, d))
                                 {
                                     hostLogger().warn(
-                                        "[form] 玩家 {} 的滑块 \"{}\" 回传 {} 不在 [{}, {}] 步进 {} 内，已钳制为 {}",
+                                        "[form] player {} returned slider \"{}\" value {} outside [{}, {}] step {}, clamped to {}",
                                         who.getRealName(), key, std::get<double>(value),
                                         sl->second.min, sl->second.max, sl->second.step, d);
                                 }
@@ -573,9 +585,11 @@ namespace pier::api_impl
                             values.putString(key, s);
                             texts.putString(key, s);
                         }
-                        // monostate（label / divider 这类没有值的元素）：整键略
-                        // 过，不要伪造成空字符串 —— 上层的 bool()/int() 会把它
-                        // 当成「玩家填了个空值」而不是「这里没有值」。
+                        // monostate covers elements with no value, such as label and
+                        // divider. The key is skipped entirely rather than faked as an
+                        // empty string, because bool() or int() on the caller's side
+                        // would read that as the player entering an empty value rather
+                        // than as no value existing here.
                     }
 
                     completeTicket(weakMod, ticket,
@@ -629,7 +643,7 @@ namespace pier::api_impl
                 auto spec = CompoundTag::fromSnbt(sv(formSnbt));
                 if (!spec)
                 {
-                    mod->getLogger().error("form_send：表单 SNBT 不合法");
+                    mod->getLogger().error("[form] form_send: the form SNBT is not valid");
                     return false;
                 }
 
@@ -657,12 +671,12 @@ namespace pier::api_impl
                 }
                 catch (std::exception const& e)
                 {
-                    hostLogger().error("form_send：构建表单时抛异常: {}", e.what());
+                    hostLogger().error("[form] form_send: building the form threw: {}", e.what());
                     ok = false;
                 }
                 catch (...)
                 {
-                    hostLogger().error("form_send：构建表单时抛了未知异常");
+                    hostLogger().error("[form] form_send: building the form threw an unknown exception");
                     ok = false;
                 }
                 if (!ok)
@@ -674,7 +688,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /** 拆除（stage 60）：清空该模组的全部待决表单票据。 */
+        /** Teardown at stage 60. Clears every pending form ticket of this mod. */
         void teardown(HostedMod* mod)
         {
             std::lock_guard lock(gFormMutex);

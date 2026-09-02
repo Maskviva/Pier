@@ -1,281 +1,335 @@
-# Pier 代码契约（v2）
+# The Pier code contract (v2)
 
-这份文件定义**规矩**，不描述现状；和现状冲突的地方，改现状。
-读者是要往这个仓库里加东西的人 —— 包括半年后的你自己。
-每一条都写「为什么」，因为只有「是什么」的规矩会在第一次不方便时被绕过。
+This document defines the rules and does not describe the present state; where the two
+conflict, the present state changes. Its reader is anyone about to add something to this
+repository, including yourself six months from now. Every item states why, because a rule
+that only states what gets worked around the first time it is inconvenient.
 
-v2 相对 v1 的实质变化只有一处，但它改写了第一、二节：**v1 声称的依赖图和
-真实的 include/链接图不一致**（宿主链接着 api 的符号、hooks include 着 api
-的头、可选包删不掉）。规矩不能描述一张不存在的图 —— 所以 v2 把图改成真的，
-并给「可选」「解耦」各配一个**机制**，而不再只是一句宣称。
-
----
-
-## 〇、一句话
-
-> **`pier-abi` 是产品，其它都是它的一个实现。**
-
-Pier 卖的不是 loader，是那份 C ABI。任何让 ABI 迁就实现的改动都是走反了。
-推论：`sdk/abi.h` 必须能被 **C11 编译器**解析 —— 契约的消费方是「任何语言」，
-而 C 是它们唯一都读得懂的那一种。CI 用 C11 和 C++20 各编译它一遍。
+The substantive change of v2 over v1 is one thing, and it rewrote sections 1 and 2: the
+dependency graph v1 claimed did not match the real include and link graph, since the host
+linked symbols of api, hooks included headers of api, and an optional package could not be
+dropped. A rule cannot describe a graph that does not exist, so v2 made the graph true and
+gave optionality and decoupling a mechanism each rather than a claim.
 
 ---
 
-## 一、分包与依赖
+## 0. In one sentence
+
+> **`pier-abi` is the product and everything else is one implementation of it.**
+
+What Pier sells is not a loader, it is that C ABI. Any change that bends the ABI toward an
+implementation is going the wrong way. It follows that `sdk/abi.h` has to be parseable by a
+C11 compiler: the consumers of the contract are any language, and C is the one they all
+read. CI compiles it once as C11 and once as C++20.
+
+---
+
+## 1. Packages and dependencies
 
 ```
-pier-abi          纯 C 头，零源文件，零依赖                ← 契约
-   ↑
-pier-support      跨包的小工具（PierStr↔sv、SNBT 转义、日志入口）
-   ↑
-pier-host         模组生命周期 + SPI 注册处 + PierApi 表的所有者
-   ↑
-   ├── pier-api           核心域实现（core / runtime / actors / world / net）
-   ├── pier-hooks         原生 detour 合成的事件          （能力包）
-   ├── pier-lane          同工具链快车道                  （能力包，可选）
-   ├── pier-dimensions    自定义维度                      （能力包，可选，服务端）
-   └── pier-client        客户端专属槽位                  （能力包，仅客户端构建）
+pier-abi          a pure C header, no source file, no dependency        <- the contract
+   ^
+pier-support      small cross-package utilities (PierStr and sv, SNBT escaping, the logging entry)
+   ^
+pier-host         the mod lifecycle, the SPI registry, and the owner of the PierApi table
+   ^
+   |-- pier-api           the core domain implementation (core / runtime / actors / world / net)
+   |-- pier-hooks         events synthesized with native detours       (capability package)
+   |-- pier-lane          the same-toolchain fast lane                 (capability package, optional)
+   |-- pier-dimensions    custom dimensions                            (capability package, optional, server)
+   +-- pier-client        client-only slots                            (capability package, client build only)
 
-pier-sys-rs → pier-rs                                     ← 一门语言的绑定
+pier-sys-rs -> pier-rs                                                  <- the binding of one language
 ```
 
-**这是两条独立的构建线。** 上面那七个包由根 `xmake.lua` 编成宿主本体
-（`pier.dll`）；下面那两个 crate 由根 `Cargo.toml` 编成绑定。两条线之间
-**没有构建依赖**，只有契约依赖 —— 绑定读的是 `sdk/abi.h` 那一份头文件，
-读法是手写镜像，一致性由 `sys-mirrors-abi` 机检守着。
+**These are two independent build lines.** The eight packages above are compiled by the root
+`xmake.lua` into the host itself, `pier.dll`, and the two crates below by the root
+`Cargo.toml` into the binding. There is no build dependency between the lines, only a
+contract dependency: a binding reads the single header `sdk/abi.h`, through a hand-written
+mirror, and the `sys-mirrors-abi` check guards the agreement.
 
-后果是实用的：「宿主编不过」和「绑定编不过」是两件可以分别修的事，
-而这正是 §〇 那句话的落地形态。`packages/` 下的每个目录必须能被归到
-其中一条线（有 `xmake.lua` 或有 `Cargo.toml`），归不了的会被
-`pkg-layering` 报出来 —— 一个两套判据都覆盖不到的目录等于没有规矩管。
+The consequence is practical: the host failing to build and the binding failing to build
+are two things that can be fixed separately, and that is how the sentence of §0 lands. Every
+directory under `packages/` has to belong to one of the lines, having either an `xmake.lua`
+or a `Cargo.toml`, and one that belongs to neither is reported by `pkg-layering`, since a
+directory no set of criteria covers is a directory no rule governs.
 
-**规则一：箭头只能向上，且这张图就是全部的边。** 能力包之间互不 include、
-互不链接；它们只认识 `pier-abi`、`pier-support` 和 `pier-host` 的 SPI。
-`pier-api` 也是能力包之一，不享有特权 —— 它体量大只是历史，不是层级。
+**Rule 1: arrows point upward only, and this graph is the complete set of edges.**
+Capability packages neither include nor link one another; they know only `pier-abi`,
+`pier-support` and the SPI of `pier-host`. `pier-api` is one of the capability packages and
+holds no privilege: its size is history and not a level.
 
-「多余的边」和「漏掉的边」同样违规。`add_deps` 里躺着一条**当前没用到**的
-横边（hooks 和 dimensions 都曾声明依赖 pier-api，而两个包里零 include、零
-符号引用），今天不出事，但它把「这条边不存在」从一条**结构性事实**降级成
-一句**巧合** —— 下一个人伸手去用的时候，编译和链接都不会拦他。
-`pkg-layering` 机检同时查两张图：`add_deps` 的链接图和 `#include` 的编译图。
+A superfluous edge and a missing edge are equally a violation. A sideways edge sitting in
+`add_deps` that nothing currently uses, as when hooks and dimensions both declared a
+dependency on pier-api while neither package held one include or one symbol reference,
+causes no trouble today while demoting "this edge does not exist" from a structural fact to
+a coincidence: the next person reaching for it is stopped by neither compilation nor
+linking. The `pkg-layering` check reads both graphs, the link graph of `add_deps` and the
+compile graph of `#include`.
 
-**规则二：横向协作一律走宿主的 SPI（`pier/host/spi.h`），方向永远是
-「能力包注册进宿主，宿主在正确的时机回调」。** 四个注册面：
+**Rule 2: sideways collaboration always goes through the host SPI in `pier/host/spi.h`, and
+the direction is always a capability package registering into the host with the host calling
+back at the right moment.** Four registration faces:
 
-| SPI | 谁注册 | 宿主何时用 | 取代了 v1 里的什么 |
+| SPI | Who registers | When the host uses it | What it replaced in v1 |
 |---|---|---|---|
-| 槽位包 `SlotPack` | 每个能力包 | 装载期填 `PierApi` | ApiTable 直呼各包函数 |
-| 拆除步骤 `Teardown(stage)` | 持有模组资源的包 | 卸载时按 stage 升序 | `onHostedModGone` 手写清单 |
-| 卸载否决 `UnloadVeto` | lane 等 | `unload` 之前逐个问 | `laneBusyName` 硬编码转接 |
-| 事件提供方 `EventProvider` | hooks、api 的命令事件 | `subscribe_event` 解析时 | 子串匹配 + 硬编码短路 |
+| the slot pack `SlotPack` | every capability package | filling `PierApi` at load time | ApiTable calling into each package directly |
+| the teardown step `Teardown(stage)` | packages holding mod resources | at unload, in ascending stage order | a hand-written list in `onHostedModGone` |
+| the unload veto `UnloadVeto` | lane and others | asked one by one before `unload` | a hardcoded forward through `laneBusyName` |
+| the event provider `EventProvider` | hooks, and the command events of api | while `subscribe_event` resolves | substring matching plus a hardcoded short circuit |
 
-为什么是注册而不是直呼：直呼的每一条都是一根从中心伸向能力包的**链接边**，
-可选包因此删不掉（v1 的实况）。注册把边反过来 —— 包不在，注册就不发生，
-槽位保持 NULL，宿主一行不用改。
+Why registration and not a direct call: every direct call is a link edge running from the
+center out to a capability package, which is what made an optional package impossible to
+drop in v1. Registration reverses the edge: with the package absent the registration does
+not happen, the slot stays NULL, and the host changes not one line.
 
-**规则三：可选 = 从根 `xmake.lua` 删掉那一行 `includes(...)` 后，配置、编
-译、运行全部照常，对应槽位为 NULL。** 这是可选性的**可执行判据**，
-`optional-drops` 机检就是逐包执行一遍这句话。
+**Rule 3: optional means that after deleting that one `includes(...)` line from the root
+`xmake.lua`, configuring, compiling and running all proceed as usual with the matching slots
+NULL.** That is the executable criterion of optionality, and `optional-drops` runs that
+sentence once per package.
 
-**规则四：所有包 `set_kind("object")`**（`pier-abi` 除外，它零源文件、是
-`headeronly`）。静态库会让链接器丢弃没有外部引用的编译单元 —— 而 hooks /
-dimensions / lane / client 的 SPI 注册全靠文件级静态对象自注册，被丢弃的
-症状是**功能静默消失**。object 让每个 TU 必然进入最终产物；这条不是风格
-偏好，是自注册模式的前置条件，所以写进契约。
+**Rule 4: every package is `set_kind("object")`**, except `pier-abi`, which has no source
+file and is `headeronly`. A static library lets the linker discard a translation unit with
+no external reference, while the SPI registration of hooks, dimensions, lane and client
+rests entirely on file-level static objects registering themselves, and the symptom of one
+being discarded is a capability disappearing silently. Object makes every TU reach the final
+artifact. This is not a style preference, it is a precondition of the self-registration
+pattern, which is why it is in the contract.
 
-这条规矩被违反过一次，而且是在它已经写进契约、交付说明也宣称「所有包
-object」之后 —— 实际是四个包仍是 `static`，恰好就是那四个**全部**依赖
-自注册的包（22 个 TU）。教训不是「要更仔细」，是**一条没有脚本守着的规矩
-等于一句愿望**：`object-kind` 机检就是为这条规矩写的，它现在守着。
+This rule was violated once, after it was already in the contract and after a delivery note
+claimed every package was object, while four packages were still `static` and were exactly
+the four that depend entirely on self-registration, 22 TUs. The lesson is not to be more
+careful, it is that a rule with no script guarding it is a wish. The `object-kind` check was
+written for this rule and guards it now.
 
-**规则五：`pier-abi` 里不许出现语言名，也不许出现任何一门语言的类型。**
-不许有 Rust / Go / Zig，也不许有 `std::string_view` / `enum class`。
-v1 的教训：`PierStr = std::string_view` 让「C ABI」依赖了 MSVC STL 的布局
-细节，还得配一个运行时自检来赎罪。现在 `PierStr` 是显式 `{ptr, len}`，
-自检删除 —— **布局由声明本身定义，就不需要验证声明**。
-
----
-
-## 二、ABI 演进
-
-ABI 从 **v1** 开始，v1 的三个结构性决定：
-
-**2.1 布局在所有构建目标下相同；能力缺席 = 槽位 NULL。**
-`PierApi` 里没有任何条件编译。客户端组（`client_*`）、维度组（`md_*`）永远
-占位，能力包没编进宿主时为 NULL。「有没有」=「是不是 NULL」，SDK 据此报
-「宿主不提供 X」。为什么：v1 之前的条件块让表尾偏移随目标漂移，靠版本号高
-位打标记补救，标记又护不住没重编的模组 —— 一整条补丁链，根因只是布局分岔。
-不分岔，链上每一环都不需要存在。
-
-可选的**外部**依赖（不是能力包，而是别的插件导出的符号，例如经济后端
-LegacyMoney）同理：宿主必须照常起来，功能降级成失败值。这要两半都到位 ——
-运行期的可用性守卫，加上链接器的 `/DELAYLOAD`。只有前者时导入库仍会被静态
-链入，加载器在载入宿主自身时就失败，报 `0x7E 找不到指定的模块`，而运行期
-那套守卫一行都跑不到。两者是否一致由 `delayload-matches-claims` 机检守。
-
-**2.2 只许追加，不许重排、不许删。** 加能力 = 表尾追加，版本不动；SDK 逐槽
-比对 `struct_size`（`require_slot!`）。改签名 / 删 / 重排 = `PIER_ABI_VERSION`
-和 `PIER_ABI_MIN_SUPPORTED` 同时推进到同一个数。兼容是区间不是相等：
-`MIN_SUPPORTED <= mod_abi <= VERSION`。
-
-**2.3 两侧握手都有 `struct_size`。** `PierModVTable` v1 起自带
-`struct_size / abi_version / mod_flags`，宿主只读模组声明长度以内的字段 ——
-vtable 从此也能追加生命周期回调而不升版本。目标匹配走 `mod_flags` 与
-`host_flags` 的 bit 0 比对，明确拒绝并说明原因，不再用版本号高位藏标记。
-
-**2.4 入口符号只有一个：`pier_main`。** 找不到就明确拒绝装载，不做任何回退。
+**Rule 5: no language name appears inside `pier-abi`, and neither does a type of any one
+language.** No Rust, Go or Zig, and no `std::string_view` or `enum class` either. The lesson
+of v1: making `PierStr` an alias for `std::string_view` had a C ABI depend on the layout
+details of the MSVC standard library and needed a runtime self-check to atone for it.
+`PierStr` is now an explicit `{ptr, len}` and the self-check is deleted, because a layout
+defined by a declaration does not need the declaration verified.
 
 ---
 
-## 三、跨边界的所有权
+## 2. ABI evolution
 
-**规则：任何跨边界的缓冲区，由产出方分配、产出方释放。** 接收方只在回调期
-间读，要留就拷贝。推论：**ABI 上不许出现「返回一个需要对方释放的指针」**——
-那需要跨边界的分配器契约，而两边的分配器不是同一个。所有输出走 sink。
+The ABI starts at **v1**, and v1 made three structural decisions:
 
-| 形状 | 谁分配 | 接收方能做什么 |
+**2.1 The layout is identical on every build target, and an absent capability is a NULL
+slot.** There is no conditional compilation anywhere in `PierApi`. The client group,
+`client_*`, and the dimension group, `md_*`, always occupy their places and are NULL when
+the capability package was not built into the host. Whether it exists is whether it is NULL,
+and the SDK reports that the host does not provide X on that basis. Why: before v1 the
+conditional blocks made the tail offsets drift per target, a marker in the high bits of the
+version number was added to compensate, and that marker protected no mod that was not
+rebuilt, which is a whole chain of patches whose root cause was only a forked layout.
+Without the fork, no link of that chain needs to exist.
+
+An optional external dependency, meaning not a capability package but a symbol another
+plugin exports, such as the LegacyMoney economy backend, follows the same rule: the host has
+to come up as usual with the feature degrading to failure values. That needs both halves,
+the runtime availability guard and the `/DELAYLOAD` of the linker. With only the first, the
+import library is still linked in statically, the loader fails while loading the host
+itself, reports `0x7E, the specified module could not be found`, and not one line of the
+runtime guard runs. Whether the two agree is guarded by the `delayload-matches-claims`
+check.
+
+**2.2 Append only: no reordering and no deletion.** Adding a capability means appending at
+the end of the table with the version unchanged, and the SDK compares `struct_size` per slot
+through `require_slot!`. Changing a signature, deleting or reordering means `PIER_ABI_VERSION`
+and `PIER_ABI_MIN_SUPPORTED` both advancing to the same number. Compatibility is a range and
+not an equality: `MIN_SUPPORTED <= mod_abi <= VERSION`.
+
+**2.3 Both sides of the handshake carry `struct_size`.** From v1 `PierModVTable` carries its
+own `struct_size`, `abi_version` and `mod_flags`, and the host reads only the fields within
+the length the mod declared, so the vtable can also gain lifecycle callbacks without a
+version bump. Target matching compares bit 0 of `mod_flags` against `host_flags`, refusing
+explicitly and saying why, rather than hiding a marker in the high bits of a version number.
+
+**2.4 There is one entry symbol, `pier_main`.** Its absence refuses the load explicitly with
+no fallback of any kind.
+
+---
+
+## 3. Ownership across the boundary
+
+**Rule: any buffer crossing the boundary is allocated by the producer and freed by the
+producer.** The receiver reads only during the callback and copies anything it keeps. It
+follows that the ABI never returns a pointer the other side has to free, which would need an
+allocator contract across the boundary while the two allocators are not the same. Every
+output goes through a sink.
+
+| Shape | Who allocates | What the receiver may do |
 |---|---|---|
-| `PierStr`（指针 + 长度） | 调用方 | 回调返回前读完，要留自己拷 |
-| Sink 回调 | 宿主 | 在 sink 内拷走，返回后指针失效 |
-| 车道的 `data` / `vtable` | 提供方 | 只在存活标志为真时调用 |
+| `PierStr`, a pointer and a length | the caller | read it before the callback returns, and copy anything kept |
+| a sink callback | the host | copy it inside the sink; the pointer dies on return |
+| the `data` and `vtable` of a lane | the provider | call only while the liveness flag is true |
 
 ---
 
-## 四、线程
+## 4. Threads
 
-**规则：ABI 的每一个槽默认只能在服务器线程调；例外逐槽注明。**
-宿主内部因此不需要锁。需要跨线程的工作走 `schedule_for` 丢回服务器线程。
-所有回调（事件、命令、计划任务）都在服务器线程触发；客户端组在客户端线程。
-
----
-
-## 五、错误处理
-
-（这一节从下游 rsw 的事故一路追回来，v2 原样保留并加一条。）
-
-**5.1 不许静默回退。** 拿不到值的三种合法做法：返回能表达「没有答案」的值；
-打日志再回退并说清回退成了什么；拒绝执行。
-反面教材（真事）：事件载荷读不出 `dim`，消费方 `unwrap_or(0)`，自定义维度
-里的每个事件都被当成发生在主世界，土地保护「主世界拒绝、别处放行」，零日志。
-
-**5.2 「问不出来」和「答案是否」必须分开。** 可能答不上来的判定函数，返回
-类型就不能是裸 `bool`。压成同一个 `false` 调用方只能猜；压成 `true` 是安全洞。
-
-**5.3 日志要能回答「我该做什么」。** 「subscribe failed」不合格；「事件 X
-在这个 BDS 版本上不存在，注册表里相近的有 A、B、C」合格。成功路径不打 info。
-
-**5.4 注释不许对代码撒谎（新增）。** v1 有三处注释声称的行为代码里不存在
-（「异常已吞掉」而无 try、「匹配 `cancelled:true`」而实现匹配别的、「尾部
-同偏移」而同文件另一处证明偏移不同）。**声称了安全性质的注释，旁边必须就是
-实现那个性质的代码**；做不到就把注释改成事实。撒谎的注释比没有注释危险 ——
-下一个人会照它推理。
+**Rule: every slot of the ABI may be called on the server thread only by default, and an
+exception is noted per slot.** The host therefore needs no lock internally. Work needing
+another thread goes back to the server thread through `schedule_for`. Every callback, for
+events, commands and scheduled tasks, fires on the server thread, and the client group fires
+on the client thread.
 
 ---
 
-## 六、事件路由
+## 5. Error handling
 
-**规则：合成事件（hooks、命令事件）按「精确 id 或带命名空间分隔符的后缀」
-匹配，永远不做子串匹配。** 判定函数只有一个：`spi::idMatches` —— 两处松紧
-不一的匹配器迟早给出两种答案。解析顺序：
+This section was traced back from an incident in a downstream consumer, and v2 keeps it as
+it was and adds one item.
 
-1. 事件提供方按 `idMatches` 认领 → 提供方（认领即负责：订失败要报错，
-   **不**下落到别的路径）；
-2. 注册表精确名，再唯一后缀（同名多条目不算歧义 —— 那只是多个 mod 各自
-   注册了发射器）；
-3. 全失败 → 报错并列出相近 id。
+**5.1 No silent fallback.** Three legitimate ways of not having a value: return a value able
+to express that there is no answer; log and then fall back while saying what it fell back
+to; or refuse to act. A real counterexample: an event payload could not be read for `dim`,
+the consumer wrote `unwrap_or(0)`, every event inside a custom dimension was treated as
+happening in the overworld, land protection refused in the overworld and allowed everywhere
+else, and nothing was logged.
 
-提供方为什么排在注册表之前：命令事件的发射器**在**注册表里，但 LL 只把它
-派发给类型化监听器 —— 动态路径能查到、接不到。这类提供方声明
-`covers_registry = true`（替换注册表路径是修复，不告警）；hooks 的纯合成
-事件声明 `false`，一旦注册表出现同后缀 id 就打 warn —— 那意味着上游新增了
-真事件而合成名撞了，遮蔽必须可见。为什么不许子串：v1 的 `find(name)` 意味
-着 LeviLamina 上游哪天新增一个含相同词干的事件，订阅方就被静默劫持到载荷
-形状完全不同的合成事件上，且无法触达真事件。
+**5.2 Cannot-be-determined and the answer being no must stay apart.** A decision function
+that may fail to answer cannot have a bare `bool` return type. Collapsed into the same
+`false` a caller can only guess, and collapsed into `true` it is a security hole.
+
+**5.3 A log line has to answer what to do about it.** A "subscribe failed" does not qualify;
+an event not existing on this BDS version, with the nearby ids A, B and C from the registry,
+does.  A success path logs nothing at info level.
+
+**5.4 A comment must not lie about the code (new).** v1 had three comments whose claimed
+behavior was not in the code: an exception said to be swallowed with no try, a match said to
+be on a cancel flag while the implementation matched something else, and a tail said to be
+at the same offset while another place in the same file proved otherwise. **A comment
+claiming a safety property has to sit next to the code implementing that property**, and
+where that is impossible the comment changes into the fact. A lying comment is more
+dangerous than no comment, because the next person reasons from it.
 
 ---
 
-## 七、注释与命名
+## 6. Event routing
 
-**注释规范见 `COMMENTS.md`，那是本节的展开件，冲突以它为准。** 一句话：注释只
-写代码回答不了的问题 —— 约束、反直觉的事实、危险、契约、被否掉的显然做法。
-修 bug 写症状（症状可搜索，结论不行），但不写过程：代码的历史在 git 里。
-预算 L1 文件头 ≤16 行 / L2 声明 ≤14 行 / L3 体内 ≤8 行，`pier-abi` 是唯一例外
-（它是产品文档，且注释用英文）。机检 `tools/checks/comment_style.py`。
+**Rule: a synthetic event, from hooks or the command events, matches on an exact id or on a
+suffix carrying the namespace separator, and never on a substring.** There is one decision
+function, `spi::idMatches`, because two matchers of differing strictness eventually give two
+answers. The resolution order:
 
-命名：ABI 类型 `Pier`+帕斯卡、宏
-`PIER_`+大写、入口 `pier_`+蛇形、命名空间 `pier`、C++ 类型不带语言名。
-Rust 包名 `pier-*-rs`，crate 名保持 `levilamina` / `levilamina_sys` —— 包名
-说属于哪条 ABI，crate 名贴调用方心智模型。**用户可见字符串同受语言名禁令**：
-命令是 `/pier`，模组类型是 `"pier"`，报错说「pier 宿主」—— v1 的 `/llr`、
-`"rust"` 管理器、"update levilamina-rust-loader" 全部按此清除。
+1. an event provider claims it through `idMatches`, and claiming means owning it: a failed
+   subscription reports an error and does not fall through to another path;
+2. an exact registry name, then a unique suffix. Several entries under one name are not an
+   ambiguity, since that is only several mods each registering an emitter;
+3. everything failing reports an error and lists the nearby ids.
 
-## 八、文件与目录
+Why a provider comes before the registry: the emitter of a command event is in the registry
+while LL dispatches it only to typed listeners, so the dynamic path finds it and cannot
+receive it. Such a provider declares `covers_registry = true`, where replacing the registry
+path is the fix and warns about nothing. A purely synthetic event from hooks declares
+`false`, and once an id with the same suffix appears in the registry it warns, because that
+means upstream introduced a real event whose name collides and the shadowing has to be
+visible. Why no substring: the `find(name)` of v1 means that once LeviLamina upstream adds
+an event containing the same stem, a subscriber is silently hijacked onto a synthetic event
+with an entirely different payload shape and cannot reach the real one.
 
-一个关注点一个 TU；`pier-hooks/src/` 每个 `.cpp` 一个事件，经 SPI 自注册，
-加删事件不改任何表。文件名和内容对得上；目录名说职责不说技术。
+---
 
-## 九、机器检查
+## 7. Comments and naming
 
-编译器和 clippy 查不到的才值得写脚本。全部在 `tools/checks/`，
-用 `python3 tools/run-checks.py` 跑齐。
+**The comment standard is `COMMENTS.md`, which expands this section, and where the two
+conflict it governs.** In one sentence: a comment only writes what the code cannot answer,
+meaning constraints, counter-intuitive facts, danger, contract, and a rejected obvious
+approach. A bug fix writes the symptom, since a symptom can be searched for and a conclusion
+cannot, and it does not write the sequence of events, because the history of the code is in
+git. The budgets are at most 16 lines for an L1 file header, 14 for an L2 declaration and 8
+for an L3 body comment, with `pier-abi` the one exception, being product documentation. The
+check is `tools/checks/comment_style.py`.
 
-**脚本先行**：一条性质没有脚本守着之前，交付说明里不许给它打 ✓。
-v2 补一条同样重要的：**脚本 PASS 也只能给它覆盖到的那部分打 ✓** ——
-每条检查的输出里写着它覆盖到哪、看不见什么，交付说明照抄那句话，
-不许把「静态必要条件通过」写成「这条性质成立」。
+Naming: an ABI type is `Pier` plus Pascal case, a macro is `PIER_` plus upper case, an entry
+point is `pier_` plus snake case, the namespace is `pier`, and a C++ type carries no language
+name. A Rust package is named `pier-*-rs` while the crate names stay `levilamina` and
+`levilamina_sys`: the package name says which ABI it belongs to and the crate name follows
+the mental model of the caller. **A user-visible string is bound by the same ban on language
+names**: the command is `/pier`, the mod type is `"pier"`, and an error speaks of the pier
+host. The `/llr` command, the "rust" manager and the update line naming a historical product
+were all removed on this basis.
 
-| 检查 | 盯的是 | 覆盖边界 |
+## 8. Files and directories
+
+One concern per TU. Each `.cpp` under `pier-hooks/src/` is one event, self-registering
+through the SPI, so adding or removing an event changes no table. A file name matches its
+contents, and a directory name states a responsibility and not a technology.
+
+## 9. Machine checks
+
+Only what the compiler and clippy cannot find is worth a script. They all live in
+`tools/checks/` and `python3 tools/run-checks.py` runs them together.
+
+**Scripts come first**: a property gets no checkmark in a delivery note before a script
+guards it. v2 adds one equally important item: **a passing script only earns a checkmark for
+what it covers.** The output of each check states what it covers and what it cannot see, and
+a delivery note copies that sentence rather than turning "the static necessary condition
+passed" into "this property holds".
+
+| Check | What it watches | Coverage boundary |
 |---|---|---|
-| `abi-c-parse` | `sdk/abi.h` 能被 `gcc -std=c11` 与 `g++ -std=c++20` 各编过 | 完整 |
-| `abi-additive` | 相对基线 `tools/abi-v1.slots` 只追加；非追加变更必须同步推进两个版本号 | 完整 |
-| `abi-no-lang` | `pier-abi/` 注释禁消费方语言拼写、声明禁 C++ 类型；用户可见字符串禁历史产品名 | 完整 |
-| `abi-fixed-width` | 契约里不许出现 `int` / `long` / `unsigned short` 等宽度平台相关的类型 | 完整 |
-| `pkg-layering` | `add_deps`（链接图）与 `#include`（编译图）都只沿第一节的图；能力包无横边 | 完整 |
-| `object-kind` | 每个包的 xmake 都是 `set_kind("object")`（`pier-abi` 除外，headeronly） | 完整 |
-| `optional-drops` | 可选包的符号无人跨包引用 | **仅必要条件**；充分判据是真删那行再 `xmake f` |
-| `build-config` | target 名唯一；`add_packages ⊆ add_requires`；用了谁的头就声明谁 | 提供头的包；纯链接期的包查不到 |
-| `include-resolves` | 每条内部 `#include` 逐字符解析得到真实文件 | 完整 |
-| `sys-mirrors-abi` | 槽序、**每个槽的签名逐参数**、结构体字段、常量、枚举成员与 `abi.h` 逐格对上；镜像里禁条件编译 | 完整（比 `cargo check` 更严：宽度写错两边都编得过） |
-| `comment-claims` | 「吞掉 / 捕获 / 不会抛」类注释同函数内必须有 try/catch | 需同时出现异常词汇，避免与丢包语义的 swallow 混淆 |
-| `comment-style` | `COMMENTS.md` 的机械部分：预算、禁用词、票号、markdown 排版、行宽、契约头语言 | 看不见「注释是否真实 / 是否复述代码」，那三条要人读 |
-| `manifest-matches-host` | 示例的 `manifest.json` 的 type / 依赖名 / entry 真能被宿主装上 | 完整 |
-| `host-loadable` | 统一内存算子 / 模组注册各恰好一处，且所在包必然进产物 | 完整 |
-| `ledger-covers-tree` | 工作区里的每个文件，台账里都要有一行（台账的**反方向**） | 完整 |
-| `no-silent-fallback` | `catch` 块既不打日志、不重抛、不返回、不复位目标、也不装进错误值 | **仅这一种形状**；跨函数的默认值补齐看不见 |
+| `abi-c-parse` | `sdk/abi.h` compiles under both `gcc -std=c11` and `g++ -std=c++20` | complete |
+| `abi-additive` | append only against the baseline `tools/abi-v1.slots`; a non-append change advances both version numbers together | complete |
+| `abi-no-lang` | `pier-abi/` comments carry no consumer-language spelling and declarations no C++ type; a user-visible string carries no historical product name | complete |
+| `abi-fixed-width` | the contract carries no type whose width depends on the platform, such as `int`, `long` or `unsigned short` | complete |
+| `pkg-layering` | `add_deps`, the link graph, and `#include`, the compile graph, both follow the graph of section 1; capability packages have no sideways edge | complete |
+| `object-kind` | the xmake of every package is `set_kind("object")`, except `pier-abi`, which is headeronly | complete |
+| `optional-drops` | no symbol of an optional package is referenced across packages | **the necessary condition only**; the sufficient criterion is really deleting that line and running `xmake f` |
+| `build-config` | target names are unique; `add_packages` is contained in `add_requires`; using a header means declaring its package | packages that ship headers; a link-time-only package is invisible |
+| `include-resolves` | every internal `#include` resolves character for character to a real file | complete |
+| `sys-mirrors-abi` | the slot order, **each slot signature parameter by parameter**, the struct fields, the constants and the enum members all match `abi.h` cell for cell; the mirror carries no conditional compilation | complete, and stricter than `cargo check`, since a wrong width compiles on both sides |
+| `comment-claims` | a comment claiming something is swallowed, caught or never thrown has a try or a catch in the same function | an exception word has to appear as well, to avoid confusion with the swallow of packet-dropping |
+| `comment-style` | the mechanical part of `COMMENTS.md`: budgets, banned wording, ticket numbers, markdown layout, line width, the language of the contract header | it cannot see whether a comment is true or restates the code, and those need a human |
+| `manifest-matches-host` | the type, the dependency name and the entry of an example `manifest.json` really load under the host | complete |
+| `host-loadable` | the unified memory operators and the mod registration appear exactly once each, and their package necessarily reaches the artifact | complete |
+| `ledger-covers-tree` | every file in the workspace has a row in the ledger, the reverse direction of the ledger | complete |
+| `no-silent-fallback` | a `catch` block that neither logs, rethrows, returns, resets the target, nor puts it into an error value | **that one shape only**; a default filled in across functions is invisible |
 
-后四条是 v2 新加的。`build-config`、`include-resolves`、
-`manifest-matches-host` 加进来的理由相同：它们盯的错误**在开发机上永远不
-显形**（Windows 大小写不敏感、xmake 没跑过、装不上的模组不会报错只会不出现），
-而那正是「编译器查不到」的字面含义。
+The last four are new in v2. `build-config`, `include-resolves` and `manifest-matches-host`
+were added for the same reason: the errors they watch never surface on a development
+machine, since Windows is case insensitive, xmake was never run, and a mod that cannot load
+reports nothing and simply does not appear, which is the literal meaning of what the compiler
+cannot find.
 
-`manifest-matches-host` 是被实际事故推出来的：v0 的示例 manifest 依赖
-`levilamina-rust-loader`，而那个名字的模组在改名之后已经不存在 ——
-示例装不上，且没有任何报错，只是不在 `/pier list` 里。
+`manifest-matches-host` was pushed out by a real incident: the example manifest of v0
+depended on a mod name that no longer existed after the rename, so the example could not
+load, with no error at all and merely an absence from `/pier list`.
 
-`host-loadable` 同样：`MemoryOperators.cpp` 从头到尾没写，98 个 TU 全编过、
-`pier.dll` 链好、mod 打包完成，装的时候 LeviLamina 才说「没有使用统一的
-内存分配操作符」。这一族的共同形状是 —— **编译期完全看不见，装载期才报，
-而报出来的话和构建过程毫无关系。**
+`host-loadable` likewise: `MemoryOperators.cpp` was never written, all 98 TUs compiled,
+`pier.dll` linked, the mod packaged, and only at load time did LeviLamina say the unified
+memory allocation operators were not used. The common shape of this family is that it is
+entirely invisible at compile time, is reported at load time, and what is reported has
+nothing to do with the build.
 
-**七个 surrogate 不在这张表里**（`python3 tools/run-surrogates.py` 一次跑齐）：
-`build-prereqs` / `link-` / `include-` / `rust-` / `example-surrogate` /
-`typed-storage` / `ledger-count`，分别是构建前置条件、链接器、C++ 编译器、
-`cargo clippy`、示例可编译性、`TypedStorage` 坍缩规则、人工清点的替身。它们查得到的东西编译器本来就会报，所以按 §九 的判据
-（「编译器和 clippy 查不到的才值得写脚本」）它们不该是契约的一部分。
+**The surrogates are not in this table**, and `python3 tools/run-surrogates.py` runs them
+together: `build-prereqs`, `typed-storage` and `ledger-count`, standing in respectively for
+the build preconditions, the `TypedStorage` collapse rules and counting by hand. The
+surrogates that duplicated the compiler, the linker and clippy were removed once a toolchain
+existed, since what they find the compiler reports anyway, which under the criterion of §9,
+that only what the compiler and clippy cannot find is worth a script, keeps them out of the
+contract.
 
-它们是**第一次真机编译**之后补齐的：那一次报出的四类错误
-（缺 include、C 类型名残留、悬空文档注释、契约里的裸 `int`）里，只有最后
-一类进了 §九 —— 因为只有它是「两个编译器都不报、要等第二门语言动手才显形」
-的那一种。另外三类归 surrogate。这条分界线值得记：**判据不是「这个错严不严重」，
-是「有没有别的东西已经在守它」。**
+They were filled in after the first compile on a real machine. Of the four classes of error
+that compile reported, a missing include, a leftover C type name, a dangling doc comment and
+a bare `int` in the contract, only the last entered §9, because only it is the kind neither
+compiler reports and that surfaces once a second language gets involved. The other three
+became surrogates. That dividing line is worth recording: **the criterion is not how serious
+the error is, it is whether something else already guards it.**
 
-## 十、加一门语言
+## 10. Adding a language
 
-1. 只读 `packages/pier-abi/include/sdk/abi.h`（它是 C，你的 FFI 工具直接吃）；
-2. 声明 `PierApi` 镜像 —— **无条件声明每一个字段**，没有任何目标分支；
-3. 导出 `pier_main(const PierApi*, PierModHandle, PierModVTable*) -> bool`，
-   vtable 填 `struct_size / abi_version / mod_flags` 和三个生命周期回调；
-4. 每个非核心槽调用前查 `struct_size` 覆盖且槽非 NULL。
+1. Read `packages/pier-abi/include/sdk/abi.h` and nothing else; it is C and your FFI tooling
+   takes it directly.
+2. Declare the `PierApi` mirror, declaring every field unconditionally, with no target branch
+   anywhere.
+3. Export `pier_main(const PierApi*, PierModHandle, PierModVTable*) -> bool` and fill the
+   vtable with `struct_size`, `abi_version`, `mod_flags` and the three lifecycle callbacks.
+4. Before calling a non-core slot, check that `struct_size` covers it and that the slot is
+   not NULL.
 
-`bindings/rust/pier-sys-rs` 是这四步的参考实现。新语言绑定放
-`packages/pier-<lang>`，不进主仓库必编列表 —— Pier 维护的是契约。
+`bindings/rust/pier-sys-rs` is the reference implementation of those four steps. A binding
+for a new language goes in `bindings/<language>/` and not in the unconditional include list
+of the main repository; what Pier maintains is the contract.

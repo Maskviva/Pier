@@ -1,29 +1,36 @@
 # -*- coding: utf-8 -*-
-"""rust-layering —— 绑定内部的模块依赖图（契约 §一 的同一条规矩，下沉一层）。
+"""rust-layering: the module dependency graph inside the bindings, the same rule as
+contract §1 one level down.
 
-## 为什么需要它
+## Why this exists
 
-`pkg_layering.py` 守的是 C++ 那八个包之间的边。Rust 侧只有两个 crate，所以
-那条检查在这一侧几乎什么都没查 —— 而真正会腐烂的地方在 `pier-rs` **内部**:
-二十几个域模块，谁能用谁全靠自觉。
+`pkg_layering.py` guards the edges among the eight C++ packages. The Rust side has only
+two crates, so that check finds almost nothing here, while the place that really rots is
+inside `pier-rs`: twenty-odd domain modules where who may use whom rests on discipline
+alone.
 
-一次讨论里提过「要不要把每个域拆成独立 crate」。结论是不拆:crate 是编译与
-发版的单位，module 才是模块化的单位，拆了只多出二十几份 Cargo.toml 和一份
-版本错配的新失败模式，换不来任何现在没有的隔离。但那个讨论想要的**纪律**
-是对的 —— 于是把纪律放在这里，用检查而不是用目录结构去守。
+One discussion raised splitting each domain into its own crate. The conclusion was not
+to: a crate is the unit of compilation and release while a module is the unit of
+modularity, and splitting would add twenty-odd Cargo.toml files and a new failure mode
+from version mismatch without buying any isolation that does not already exist. The
+discipline that discussion wanted was right, so the discipline lives here and is guarded
+by a check rather than by directory structure.
 
-副作用是退路也留住了:边一直是干净的，将来真要拆某个域，module → crate
-就是机械操作。
+A side effect is that the way back stays open: the edges have stayed clean, so turning a
+domain into a crate later is mechanical.
 
-## 判据
+## The criteria
 
-1. `ALLOWED` 是那张图的机器可读副本。用了没声明的边 → 红。
-2. 声明了却没用的边 → 红。陈旧的许可比缺失的许可更危险:它让下一个人以为
-   这条边是有意为之。
-3. 任何环 → 红。环意味着两个模块以后只能一起动，也意味着讲不清谁建在谁上。
+1. `ALLOWED` is the machine-readable copy of that graph. An edge used without being
+   declared is red.
+2. An edge declared without being used is red. A stale permission is more dangerous than
+   a missing one, because it makes the next person believe the edge is deliberate.
+3. Any cycle is red. A cycle means two modules can only move together from then on, and
+   that there is no telling which is built on which.
 
-**只看真代码**，文档注释里的 `[`crate::x`]` 交叉引用不算边 —— 那正是文档
-该做的事，把它算成依赖会逼着人删掉有用的链接。
+Only real code counts. A `[`crate::x`]` cross-reference in a doc comment is not an edge,
+since that is exactly what documentation is for, and counting it as a dependency would
+push people to delete useful links.
 """
 
 import os
@@ -35,22 +42,25 @@ from _abi import ROOT, Result  # noqa: E402
 
 SRC = os.path.join(ROOT, "bindings", "rust", "pier-rs", "src")
 
-# 那张图。**这里是规矩，不是现状的描述** —— 图变了要先改这里。
+# The graph. This is the rule and not a description of the present state: a change to the
+# graph starts here.
 #
-#   rt      运行时地基:握手、两道闸、字符串收口、日志。谁都能用它。
-#   types   共享值类型。零依赖，故意的:它是域之间传值的公共货币，
-#           一旦它开始依赖某个域，那个域就成了所有人的依赖。
-#   nbt     SNBT 树与解析。只用 rt（二进制互转要走宿主的解析器）。
+#   rt      The runtime foundation: the handshake, the two gates, string handling and
+#           logging. Anyone may use it.
+#   types   Shared value types. Zero dependencies, deliberately: it is the common
+#           currency for passing values between domains, and once it depends on a domain,
+#           that domain becomes everyone's dependency.
+#   nbt     The SNBT tree and its parsing. It uses only rt, since binary conversion goes
+#           through the host parser.
 ALLOWED = {
-    # rt 只认识 context 一个域:`register_mod!` 展开出来的生命周期入口住在
-    # `rt::registration`，而它要把 `ModContext` 交给回调。这条边是**单向**的
-    # —— context 不回头碰 rt 的内部，它只调各个门面的 `get()`。
-    # rt 只认识 context 一个域:`register_mod!` 展开的生命周期入口住在
-    # `rt::registration`，它要把 `ModContext` 交给回调。
+    # rt knows exactly one domain, context: the lifecycle entry point that
+    # `register_mod!` expands to lives in `rt::registration` and has to hand a
+    # `ModContext` to the callback. The edge is one way, since context never reaches back
+    # into the internals of rt and only calls `get()` on each facade.
     "rt": {"context"},
     "types": set(),
     "nbt": {"rt"},
-    # ── 叶子域:只认识地基 ──────────────────────────────────
+    # Leaf domains: they know the foundation only
     "service": {"rt"},
     "packet": {"rt"},
     "kvdb": {"rt"},
@@ -63,9 +73,10 @@ ALLOWED = {
     "command": {"rt", "nbt"},
     "server": {"rt", "nbt"},
     "item": {"rt", "nbt"},
-    # ── 选择器:身份纪律的落点。自定义维度的命令名要问 dimensions ──
+    # Selectors: where the identity discipline lands. The command name of a custom
+    # dimension is asked of dimensions.
     "sel": {"rt", "dimensions"},
-    # ── 组合域 ────────────────────────────────────────────
+    # Composite domains
     "event": {"rt", "nbt", "sel"},
     "container": {"rt", "sel", "item"},
     "entity": {"rt", "nbt", "types", "item"},
@@ -73,16 +84,19 @@ ALLOWED = {
     "gui": {"rt", "nbt", "player"},
     "sim": {"rt", "nbt", "sel", "player"},
     "block": {"rt", "nbt", "types", "item", "container"},
-    # host 在 world 下面，不在上面:`Host::world()` 那种便利访问器会造环，
-    # 而 world 要用 `execute_command` 拼 /fill 是真依赖。见 host.rs 末尾。
+    # host sits below world and not above it: a convenience accessor such as
+    # `Host::world()` would create a cycle, while world needing `execute_command` to
+    # assemble a /fill is a real dependency. See the end of host.rs.
     "host": {"rt", "nbt", "types", "packet", "world", "server"},
     "world": {"rt", "nbt", "types", "sel", "block", "entity", "host"},
-    # 给模组作者的门面，聚合各域的入口。它在**最上层** —— 曾经住在 `rt` 里，
-    # 于是 `ctx.host()` 让地基认识了建在它上面的东西。当时的处理是砍掉那个
-    # 访问器，那是错的:该动的是它的位置，不是模组作者在用的 API。
-    # `host_is_client` / `host_abi` 要读运行时状态，所以确实依赖 rt；
-    # 而 `rt::registration` 又要构造 ModContext 交给回调。这一对和
-    # host↔world 同类:只跨零大小门面与只读状态，不共享可变状态。
+    # The facade for mod authors, aggregating the entry points of every domain. It sits
+    # at the top. Living in `rt` made `ctx.host()` let the foundation know something built
+    # on top of it, and the response then was to delete that accessor, which was wrong:
+    # what had to move was its position and not an API mod authors were using.
+    # `host_is_client` and `host_abi` read runtime state, so it really does depend on rt,
+    # while `rt::registration` has to construct a ModContext for the callback. This pair
+    # is of the same kind as host and world: it crosses zero-sized facades and read-only
+    # state and shares no mutable state.
     "context": {"rt", "host", "packet", "world", "server"},
 }
 
@@ -103,13 +117,14 @@ def _modules():
 
 
 def _reexport_owner():
-    """`crate::Player` 这样的名字属于哪个模块 —— lib.rs 的 re-export 表。"""
+    """Which module a name such as `crate::Player` belongs to, from the re-export table of lib.rs."""
     lib = open(os.path.join(SRC, "lib.rs"), encoding="utf-8").read()
     owner = {}
-    # 两种形状都要收：`pub use server::Server;`（无花括号）和
-    # `pub use event::{A, B};`。上一版只认后者，于是 `crate::Server` 解析不到
-    # 归属，`server` 那几条边被判成「声明了却没用」——一个只在**某些**
-    # re-export 写法上失效的解析器，比没有解析更容易骗过人。
+    # Both shapes have to be taken: `pub use server::Server;` without braces and
+    # `pub use event::{A, B};`. An earlier version recognized only the latter, so
+    # `crate::Server` resolved to no owner and the `server` edges were judged declared but
+    # unused. A parser that fails on only some re-export spellings fools people more
+    # easily than no parser at all.
     for m in re.finditer(r"^pub use (\w+)::(?:\{([^}]*)\}|(\w+));", lib, re.M):
         names = m.group(2) if m.group(2) is not None else m.group(3)
         for n in re.split(r"[,{}\s]+", names):
@@ -128,7 +143,7 @@ def _strip_comments(text):
 def run():
     r = Result("rust-layering")
     if not os.path.isdir(SRC):
-        r.fail("bindings/rust/pier-rs/src 不存在")
+        r.fail("bindings/rust/pier-rs/src does not exist")
         return r
 
     mods = _modules()
@@ -137,12 +152,12 @@ def run():
     unknown = sorted(set(mods) - set(ALLOWED))
     if unknown:
         r.fail(
-            "这些模块不在那张图里:%s —— 新加一个域就要先在 ALLOWED 里给它一行，"
-            "说清楚它建在谁上面" % "、".join(unknown)
+            "these modules are not in the graph: %s. Adding a domain starts with a line for it "
+            "in ALLOWED saying what it is built on" % ", ".join(unknown)
         )
     stale = sorted(set(ALLOWED) - set(mods))
     if stale:
-        r.fail("图里有已经不存在的模块:%s" % "、".join(stale))
+        r.fail("the graph names modules that no longer exist: %s" % ", ".join(stale))
 
     actual = {}
     for name, files in mods.items():
@@ -161,26 +176,30 @@ def run():
         extra = actual[name] - ALLOWED[name]
         if extra:
             r.fail(
-                "`%s` 用了没声明的边:%s。要么这条依赖不该有，要么图变了 —— "
-                "两种都得先改 ALLOWED 再说" % (name, "、".join(sorted(extra)))
+                "`%s` uses undeclared edges: %s. Either the dependency should not exist or the "
+                "graph changed, and both start with editing ALLOWED" % (name, ", ".join(sorted(extra)))
             )
         dead = ALLOWED[name] - actual[name]
         if dead:
             r.fail(
-                "`%s` 声明了却没用的边:%s。陈旧的许可比缺失的更危险，"
-                "它让下一个人以为这条边是有意为之" % (name, "、".join(sorted(dead)))
+                "`%s` declares edges it does not use: %s. A stale permission is more dangerous "
+                "than a missing one, because it makes the next person believe the edge is "
+                "deliberate" % (name, ", ".join(sorted(dead)))
             )
 
-    # 门面之间的双向引用是**这个 crate 的形状**，不是设计失误:`Host` 给得出
-    # `World`，而 `World` 拼 `/fill` 要 `Host::execute_command`；`ModContext`
-    # 聚合各域的入口，而 `rt::registration` 要把它交给生命周期回调。
+    # A two-way reference between facades is the shape of this crate and not a design
+    # mistake: `Host` hands out a `World` while `World` needs `Host::execute_command` to
+    # assemble a `/fill`, and `ModContext` aggregates the entry points of every domain
+    # while `rt::registration` has to hand it to a lifecycle callback. Each of these pairs
+    # crosses only the `get()` of a zero-sized facade, shares no state, and changing one
+    # side does not move the other.
     #
-    # 这几对全都只跨零大小门面的 `get()`，不共享状态，改一边不会牵动另一边。
-    # 上一版没有这个口子，于是为了让检查变绿，`ctx.host()` 和 `Host::world()`
-    # 被直接删掉 —— **模组作者在用的 API，为了一条内部规则被砍了**。
-    # 一条逼人削 API 面的规则，问题在规则。
+    # Without this opening, an earlier version turned the check green by deleting
+    # `ctx.host()` and `Host::world()`, which cut an API mod authors were using for the
+    # sake of an internal rule. A rule that forces the API surface to shrink is a problem
+    # with the rule.
     #
-    # 白名单是显式的:新的环仍然报红，加进来要在这里写清楚为什么。
+    # The allowance is explicit: a new cycle is still red and adding one here states why.
     CYCLE_OK = {("host", "world"), ("context", "rt")}
 
     cycles = []
@@ -193,15 +212,17 @@ def run():
                 cycles.append((a, b))
     for a, b in cycles:
         r.fail(
-            "`%s` 与 `%s` 互相依赖。环意味着这两个模块以后只能一起动，"
-            "也意味着讲不清谁建在谁上面 —— 砍掉可以不要的那一边" % (a, b)
+            "`%s` and `%s` depend on each other. A cycle means the two modules can only move "
+            "together from then on and that there is no telling which is built on which; cut "
+            "whichever side is not needed" % (a, b)
         )
 
     if not r.failures:
         r.note(
-            "%d 个模块，%d 条边，无环。判据只覆盖 `crate::` 路径引用；"
-            "通过 `use` 引进来再裸用的名字由 lib.rs 的 re-export 表解析，"
-            "表外的名字看不见。" % (len(mods), sum(len(v) for v in actual.values()))
+            "%d module(s), %d edge(s), no cycle. The criterion covers `crate::` path references "
+            "only; a name brought in through `use` and then used bare is resolved through the "
+            "re-export table of lib.rs, and a name outside that table is invisible."
+            % (len(mods), sum(len(v) for v in actual.values()))
         )
     return r
 

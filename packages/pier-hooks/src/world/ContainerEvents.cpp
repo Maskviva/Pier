@@ -1,14 +1,13 @@
-/** hooks/world/ContainerEvents.cpp —— 合成事件 "PlayerOpenContainerEvent"，
- * 可取消。
- *
- * 权限模型里有 open_container 这个动作，但宿主此前没有容器钩子去喂它：访客只要
- * 不破坏方块，就能走进别人的领地把箱子搬空。
- *
- * 钩点是 VanillaServerGameplayEventListener::onEvent，返回 EventResult，
- * StopProcessing 中止这次打开。本包的合成事件默认只观察（见 hook_events.h），
- * 所以这里用 dispatchHookEventCancellable 而不是 dispatchHookEvent：后者的写回
- * sink 按设计是 no-op。任一订阅者写回含取消旗的应答即拒绝这次打开。
- */
+/** hooks/world/ContainerEvents.cpp: the synthetic, cancellable
+ * "PlayerOpenContainerEvent".
+ * The permission model has an open_container action, and the host had no container hook
+ * to feed it: a visitor who breaks no block can walk into someone's claim and empty their
+ * chests.
+ * The hook point is VanillaServerGameplayEventListener::onEvent, which returns an
+ * EventResult where StopProcessing aborts the open. A synthetic event in this package
+ * observes only by default (see hook_events.h), so this uses
+ * dispatchHookEventCancellable rather than dispatchHookEvent, whose write-back sink is a
+ * no-op by design. Any subscriber answering with the cancel flag refuses the open. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -30,7 +29,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& openContainerDef(); // 前向
+        HookEventDef& openContainerDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             PlayerOpenContainerHook,
@@ -46,8 +45,8 @@ namespace pier::hooks
                 return origin(ev);
             }
 
-            // mPlayer 是 WeakEntityRef，取的时候可能已经死了，所以走 tryUnwrap，
-            // 不成就放行。
+            // mPlayer is a WeakEntityRef and may already be dead when read, so it goes
+            // through tryUnwrap and the action passes on failure.
             Actor* actor = nullptr;
             auto opt = ev.mPlayer->tryUnwrap<Actor>();
             actor = opt ? &*opt : nullptr;

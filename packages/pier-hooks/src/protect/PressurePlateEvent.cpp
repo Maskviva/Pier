@@ -1,17 +1,17 @@
-/**
- * hooks/protect/PressurePlateEvent.cpp —— 合成事件
- * "PlayerStepOnPressurePlateEvent"，可取消。
- *
- * 压力板没有玩家动作可挂：走路才是动作，板子是副作用，从引擎角度看玩家什么都
- * 没做。真正跑触发逻辑的是 entityInside（BasePressurePlateBlock 覆盖全部板子
- * 类型，TripWireBlock 走 _checkPressed）；它返回 void，取消即不调 origin，板子
- * 不按下、绊线不拉响、不发红石信号。shouldTriggerEntityInside 作为便宜的提前退
- * 出一并保留，代价是多一次缓存查询，换来不依赖某个构建恰好调哪一个。
- *
- * 两个虚函数对方块内每个实体每 tick 都跑，节流缓存是必需而非优化，键的选法见
- * decision_throttle.h。载荷 {eventId, x, y, z, dim, kind, _player:{…}}，
- * kind 为 "pressure_plate" 或 "tripwire"。
- */
+/** hooks/protect/PressurePlateEvent.cpp: the synthetic, cancellable
+ * "PlayerStepOnPressurePlateEvent".
+ * A pressure plate has no player action to hook: walking is the action and the plate is a
+ * side effect, so from the engine's view the player did nothing. What runs the trigger
+ * logic is entityInside, where BasePressurePlateBlock covers every plate type and
+ * TripWireBlock goes through _checkPressed. It returns void, so cancelling means not
+ * calling origin: the plate does not depress, the tripwire does not fire and no redstone
+ * signal is emitted. shouldTriggerEntityInside is kept as a cheap early exit, at the cost
+ * of one extra cache lookup, so the behavior does not depend on which one a given build
+ * happens to call.
+ * Both virtuals run once per tick for every actor inside the block, so the throttle cache
+ * is a requirement and not an optimization; decision_throttle.h explains the key choice.
+ * Payload {eventId, x, y, z, dim, kind, _player:{...}}, where kind is "pressure_plate" or
+ * "tripwire". */
 #include "pier/hooks/decision_throttle.h"
 #include "pier/hooks/hook_events.h"
 #include "pier/support/log.h"
@@ -34,8 +34,8 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& plateDef();      // 前向：玩家踩
-        HookEventDef& actorPlateDef(); // 前向：非玩家实体踩
+        HookEventDef& plateDef();      // Forward: a player steps on it
+        HookEventDef& actorPlateDef(); // Forward: a non-player actor steps on it
 
         std::unordered_map<std::string, ThrottledDecision>& plateCache()
         {
@@ -43,8 +43,9 @@ namespace pier::hooks
             return c;
         }
 
-        /** 非玩家实体用另一张表：两类键落在同一张表会互相挤占 512 条上限，
-         *  而实体的数量级远大于玩家。 */
+        /** Non-player actors use a separate table. Both key kinds in one table would
+         *  crowd each other out of the 512-entry cap, and actors outnumber players by
+         *  orders of magnitude. */
         std::unordered_map<std::string, ThrottledDecision>& actorPlateCache()
         {
             static std::unordered_map<std::string, ThrottledDecision> c;
@@ -52,8 +53,8 @@ namespace pier::hooks
         }
 
         /**
-         * 该拒绝这次触发时返回 true。每个（玩家, 方块位置）在
-         * kDecisionTtlMs 内至多派发一次。
+         * Returns true when this trigger must be refused. Each (player, block position)
+         * dispatches at most once within kDecisionTtlMs.
          */
         bool refuseTrigger(
             ::Actor& entity, ::BlockSource& region, ::BlockPos const& pos, char const* kind)
@@ -64,13 +65,15 @@ namespace pier::hooks
 
             Player* p = isPlayer ? static_cast<Player*>(&entity) : nullptr;
 
-            // 节流键：玩家用 xuid（指针会被回收，见 decision_throttle.h），
-            // 非玩家用「类型名 + 实体 id」—— id 同样不复用，比裸指针安全。
+            // The throttle key uses the xuid for a player, since pointers are recycled
+            // (see decision_throttle.h), and the type name plus the actor id for anything
+            // else, since an id is likewise never reused and is safer than a raw
+            // pointer.
             std::string key;
             if (p)
             {
                 key = p->getXuid();
-                if (key.empty()) key = p->getRealName(); // 离线模式服务器
+                if (key.empty()) key = p->getRealName(); // An offline-mode server
             }
             else
             {
@@ -80,7 +83,8 @@ namespace pier::hooks
                 }
                 catch (...)
                 {
-                    return false; // 连 id 都问不出来的实体不值得为它派发
+                    // An actor whose id cannot even be read is not worth dispatching for.
+                    return false;
                 }
             }
 
@@ -126,7 +130,7 @@ namespace pier::hooks
             return cancelled;
         }
 
-        // 真正跑触发逻辑的那条路。
+        // The path that actually runs the trigger logic.
 
         LL_TYPE_INSTANCE_HOOK(
             PressurePlateInsideHook,
@@ -156,7 +160,7 @@ namespace pier::hooks
             origin(region, pos, entity);
         }
 
-        // 便宜的提前退出，在引擎确实会咨询它的构建上生效。
+        // A cheap early exit, effective on builds where the engine really consults it.
 
         LL_TYPE_INSTANCE_HOOK(
             PressurePlateShouldTriggerHook,
@@ -197,7 +201,7 @@ namespace pier::hooks
                 if (r1 != 0 || r2 != 0 || r3 != 0 || r4 != 0)
                 {
                     hostLogger().error(
-                        "[PressurePlateEvent] 有 detour 未装上（codes: {} {} {} {}）—— 订阅被拒绝。",
+                        "[hooks/PressurePlateEvent] a detour failed to install (codes: {} {} {} {}), so the subscription is refused",
                         r1, r2, r3, r4);
                 }
                 return r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0;
@@ -205,7 +209,7 @@ namespace pier::hooks
         };
         HookEventDef& plateDef() { return gDef; }
 
-        // 同一组 detour 供两个事件 id 使用（同 RideEvent）。
+        // One set of detours serves two event ids, as in RideEvent.
         HookEventDef gActorDef{
             "ActorStepOnPressurePlateEvent",
             []

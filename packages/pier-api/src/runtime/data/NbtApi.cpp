@@ -1,7 +1,7 @@
-/** runtime/data/NbtApi.cpp —— 二进制 NBT 编解码。
+/** runtime/data/NbtApi.cpp: binary NBT encoding and decoding.
  *
- * SNBT 对象模型整个活在 SDK 侧；只有二进制格式需要引擎的编解码器，
- * 所以跨边界的只有这两个调用。 */
+ * The whole SNBT object model lives on the SDK side. Only the binary format needs the
+ * engine codec, so these two calls are all that cross the boundary. */
 #include <string>
 #include <string_view>
 

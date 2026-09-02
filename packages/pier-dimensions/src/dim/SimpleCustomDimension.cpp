@@ -1,13 +1,13 @@
 /**
- * SimpleCustomDimension.cpp —— 一个原版生成器 + 自己的种子。
+ * SimpleCustomDimension.cpp: a vanilla generator plus its own seed.
  *
- * 两处历史修正，都写在原地：
- *   1. `init` 里曾无条件 `mHasSkylight = false` —— 把每一个自定义维度都做成了
- *      下界的照明模型，选超平坦的人得到一张全黑的地图；
- *   2. `createGenerator` 的 default 分支曾一声不吭地建虚空世界 —— 玩家看到的是
- *      「我选了主世界，结果掉进虚空」。
+ * Two constraints are enforced in place. `init` must not set `mHasSkylight = false`
+ * unconditionally, which would give every custom dimension the nether lighting model and
+ * hand anyone choosing superflat a completely dark map. The default branch of
+ * `createGenerator` must not build a void world silently, which a player experiences as
+ * choosing the overworld and falling into the void.
  *
- * 另有三个符号解析改成懒加载，理由在下面 `overworldAddress()` 那一段。
+ * Three symbol resolutions are lazy; the reason is in `overworldAddress()` below.
  */
 #include "pier/dimensions/dim/complete_base_types.h"
 
@@ -57,10 +57,12 @@ namespace pier::dimensions
     {
         using ::pier::hostLogger;
 
-        // 这三个符号只有 Overworld / Nether / TheEnd 生成器用得到，所以放在函数内
-        // 作 static 懒解析：放在命名空间作用域会让 DLL 一加载就解析，任何一次 BDS
-        // 签名变更都在启动时打三条 FATAL，哪怕这台服务器只用 Flat / Void / Plot。
-        // 符号缺失时降级成「不生成结构」并打 warn，不拿 nullptr 去 addressCall。
+        // These three symbols are needed only by the Overworld, Nether and TheEnd
+        // generators, so they resolve lazily as function-local statics. At namespace
+        // scope they would resolve as soon as the DLL loads and any BDS signature change
+        // would print three FATAL lines at startup, even on a server that only uses Flat,
+        // Void or Plot. A missing symbol degrades to generating no structures and warns,
+        // rather than passing nullptr to addressCall.
         using namespace ll::memory_literals;
 
         void* overworldAddress()
@@ -93,8 +95,8 @@ namespace pier::dimensions
             if (!addr)
             {
                 hostLogger().warn(
-                    "符号 OverworldDimensionAnon::addStructureFeatures 未找到，"
-                    "自定义主世界维度将不生成结构"
+                    "[dim] symbol OverworldDimensionAnon::addStructureFeatures not found; "
+                    "custom overworld dimensions will generate no structures"
                 );
                 return;
             }
@@ -114,8 +116,8 @@ namespace pier::dimensions
             if (!addr)
             {
                 hostLogger().warn(
-                    "符号 NetherDimensionAnon::addStructureFeatures 未找到，"
-                    "自定义下界维度将不生成结构"
+                    "[dim] symbol NetherDimensionAnon::addStructureFeatures not found; "
+                    "custom nether dimensions will generate no structures"
                 );
                 return;
             }
@@ -131,8 +133,8 @@ namespace pier::dimensions
             if (!addr)
             {
                 hostLogger().warn(
-                    "符号 StructureFeatureRegistry::addStructureFeature<EndCityFeature> 未找到，"
-                    "自定义末地维度将不生成末地城"
+                    "[dim] symbol StructureFeatureRegistry::addStructureFeature<EndCityFeature> "
+                    "not found; custom end dimensions will generate no end cities"
                 );
                 return;
             }
@@ -143,26 +145,29 @@ namespace pier::dimensions
     } // namespace
 
     SimpleCustomDimension::SimpleCustomDimension(std::string const& name, DimensionFactoryInfo const& info)
-        : // 第 5 个参数是 mTypeId，见 PlotDimension.cpp 里的说明。
+        : // The fifth argument is mTypeId, as explained in PlotDimension.cpp.
           //
-          // 高度范围取共享常量：这一份必须和 CustomDimensionManager 交给
-          // DimensionDefinition（也就是 DimensionDataPacket 里发给客户端的那份）
-          // 的值完全一致，否则客户端进维度就会因为子区块索引越界而闪退。
+          // The height range comes from the shared constant. It must match exactly the
+          // pair CustomDimensionManager hands to the DimensionDefinition, which is what
+          // DimensionDataPacket sends to the client, otherwise the client crashes on a
+          // subchunk index out of range as soon as it enters the dimension.
           Dimension(
               DimensionArguments(std::move(info.arguments), info.dimId, {kWorldMinY, kWorldMaxY}, name, name)
           )
     {
         mDefaultBrightness->sky = Brightness::MAX();
-        // 这里读的是已经存进配置的那个名字，不是本次调用传进来的参数 ——
-        // generateNewData 只在维度第一次创建时跑一次。所以一个维度建错了生成器，
-        // 之后重启多少次都还是错的，改代码不会追溯修正它。
+        // What is read here is the name already stored in the config and not the
+        // argument of this call, because generateNewData runs once when the dimension is
+        // first created. A dimension built with the wrong generator stays wrong across
+        // any number of restarts and a code change does not correct it retroactively.
         auto const storedName = static_cast<std::string_view>(info.data["generatorType"]);
         auto generatorTypeOpt = magic_enum::enum_cast<GeneratorType>(storedName);
         if (!generatorTypeOpt)
         {
             hostLogger().error(
-                "维度 '{}' 存下来的 generatorType 是 '{}'，不认识 —— 退回 Overworld。"
-                "地形会和创建时选的不一样。",
+                "[dim] the stored generatorType of '{}' is '{}', which is unrecognized, so "
+                "it falls back to Overworld; the terrain will differ from what was chosen "
+                "at creation",
                 name, std::string{storedName}
             );
         }
@@ -198,13 +203,14 @@ namespace pier::dimensions
 
     void SimpleCustomDimension::init(br::worldgen::StructureSetRegistry const& structureSetRegistry)
     {
-        // 以前这里无条件 `mHasSkylight = false`，也就是不管选的是主世界、超平坦
-        // 还是虚空，一律按下界的照明模型来。选超平坦的人会得到一张全黑的平坦
-        // 地图 —— 方块都在、能站上去，但什么都看不见。
+        // Skylight follows what vanilla does: only the nether and the end turn it off
+        // and everything else keeps it. OverworldDimension does not even override init,
+        // while NetherDimension and TheEndDimension do.
         //
-        // 对齐原版的做法：只有下界和末地关天光，其余都开。
-        // （OverworldDimension 连 init 都没重写，NetherDimension 和
-        //  TheEndDimension 才重写。）
+        // Setting `mHasSkylight = false` unconditionally would apply the nether lighting
+        // model whether the choice was overworld, superflat or void, and anyone choosing
+        // superflat would get a completely dark flat map where the blocks are all there
+        // and standable while nothing is visible.
         switch (generatorType)
         {
         case GeneratorType::Nether:
@@ -217,8 +223,9 @@ namespace pier::dimensions
         }
         Dimension::init(structureSetRegistry);
 
-        // 见 utils.h 里的说明：服务端判子区块越界用的是 Dimension::mHeightRange，
-        // 客户端用的是 DimensionDataPacket 里那份定义，两者是独立的两份数据。
+        // As utils.h explains, the server judges a subchunk out of range against
+        // Dimension::mHeightRange while the client uses the definition inside
+        // DimensionDataPacket, and the two are independent copies.
         verifyHeightRange(*this, kWorldMinY, kWorldMaxY, "SimpleCustomDimension");
     }
 
@@ -270,14 +277,16 @@ namespace pier::dimensions
                 );
             break;
         default:
-            // Void 之外的任何值走到这里都是 bug（Legacy / Undefined / 越界的
-            // static_cast）。以前这个分支是纯 default，什么都不说就建了个虚空
-            // 世界出来 —— 玩家看到的是「我选了主世界，结果掉进虚空」。
+            // Any value other than Void reaching here is a bug, whether Legacy,
+            // Undefined or an out-of-range static_cast. A plain default branch would
+            // build a void world without saying anything, which a player experiences as
+            // choosing the overworld and falling into the void.
             if (generatorType != GeneratorType::Void)
             {
                 hostLogger().error(
-                    "维度 '{}' 的 generatorType={}({}) 没有对应的生成器分支，只能退回虚空生成器。"
-                    "这是个 bug，请把这一行发给开发者。",
+                    "[dim] '{}' has generatorType={}({}) with no matching generator branch "
+                    "and falls back to the void generator; this is a bug, report this line "
+                    "to the developers",
                     mName.get(), magic_enum::enum_name(generatorType), static_cast<int>(generatorType)
                 );
             }

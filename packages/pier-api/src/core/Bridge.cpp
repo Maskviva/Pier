@@ -1,4 +1,5 @@
-/** core/Bridge.cpp —— 把 ABI 侧的引用解析成引擎对象。声明见 bridge.h。 */
+/** core/Bridge.cpp: resolves ABI-side references into engine objects. The
+ *  declarations are in bridge.h. */
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -40,8 +41,8 @@ namespace pier::bridge
     namespace
     {
         /**
-         * 同一个 id 只抱怨一次。这些错误一旦发生就会每 tick 复现，
-         * 不去重的话日志会被冲垮，反而看不见第一条。
+         * Complains once per id. These errors repeat every tick once they start, and
+         * without deduplication the log is flooded and the first line is lost.
          */
         bool firstComplaintFor(int32_t dimId)
         {
@@ -67,33 +68,36 @@ namespace pier::bridge
         auto* level = levelReady();
         if (!level) return nullptr;
 
-        // 已经建好的维度：直接拿。
+        // An already built dimension is taken directly.
         if (auto dim = level->getDimension(DimensionType{dimId}).lock())
         {
             return &dim->getBlockSourceFromMainChunkSource();
         }
 
-        // 没人进过的自定义维度只存在于注册表里，Dimension 对象还没被创建。
-        // 要往里写方块（或者传送人进去）就得先把它逼出来 —— 怎么逼、按什么
-        // 名字逼，只有 dimensions 能力包知道，所以走维度桥（spi §6）。
+        // A custom dimension nobody has entered exists only in the registry and its
+        // Dimension object has not been created yet. Writing a block into it, or
+        // teleporting someone there, has to force it into existence first. Only the
+        // dimensions package knows how and under which name, so this goes through the
+        // dimension bridge (spi §6).
         if (dimId >= 3)
         {
             if (auto const* db = spi::dimensionBridge())
             {
-                return db->blockSourceOf(dimId); // 失败的诊断由桥的实现方打
+                return db->blockSourceOf(dimId); // The bridge logs its own diagnostics
             }
             if (firstComplaintFor(dimId))
             {
                 hostLogger().warn(
-                    "维度 {}：这是自定义维度 id，但 dimensions 能力包没有编进本宿主 —— "
-                    "只认原版三个维度",
+                    "[api] dimension {} is a custom dimension id, but the dimensions "
+                    "package is not compiled into this host; only the three vanilla "
+                    "dimensions are recognized",
                     dimId
                 );
             }
             return nullptr;
         }
 
-        // 原版维度。
+        // A vanilla dimension.
         if (dimensionSelector(dimId).empty()) return nullptr;
         auto dim = level->getOrCreateDimension(DimensionType{dimId}).lock();
         if (!dim) return nullptr;
@@ -112,7 +116,7 @@ namespace pier::bridge
             bool hit = false;
             switch (sel.kind)
             {
-            case 0: // 账号名
+            case 0: // Account name
                 hit = (p.getRealName() == wanted);
                 break;
             case 1: // xuid
@@ -133,7 +137,8 @@ namespace pier::bridge
         });
         if (!found && sel.kind == 0)
         {
-            // 第二遍按显示名找：改名牌插件改的是 NameTag，不是账号名。
+            // A second pass matches the display name, because a name-tag plugin
+            // changes the NameTag and not the account name.
             level->forEachPlayer([&](Player& p)
             {
                 if (std::string_view{p.getNameTag()} == wanted)
@@ -160,7 +165,7 @@ namespace pier::bridge
     {
         if (ref.which == 4)
         {
-            // 方块容器（箱子 / 漏斗 /…）在 (dim, pos)。
+            // A block container such as a chest or hopper lives at (dim, pos).
             auto* bs = blockSourceOf(ref.dim);
             if (!bs) return nullptr;
             auto* be = bs->getBlockEntity(BlockPos{ref.x, ref.y, ref.z});
@@ -171,21 +176,23 @@ namespace pier::bridge
         if (!p) return nullptr;
         switch (ref.which)
         {
-        case 0: // 主背包
+        case 0: // Main inventory
             return &p->getInventory();
         case 1:
         {
-            // 末影箱
+            // Ender chest
             auto ec = p->getEnderChestContainer();
             return ec ? ec.as_ptr() : nullptr;
         }
-        // 盔甲和手是货真价实的 Container，只是不从 Player 走：
-        // ActorEquipment::getArmorContainer(EntityContext&) 与 getHandContainer(...)
-        // 递回 SimpleContainer，它派生自 Container，既有的物品读写路径原样可用。
-        // 不要改用 actor 快照 NBT，那是存档表示，落后现实的时长等于上次落盘到现在。
-        case 2: // 盔甲：头、胸、腿、脚
+        // Armor and hands are real Containers, they simply do not come from Player.
+        // ActorEquipment::getArmorContainer(EntityContext&) and getHandContainer(...)
+        // hand back a SimpleContainer, which derives from Container, so the existing
+        // item read and write paths work unchanged. Actor snapshot NBT is not a
+        // substitute: it is the save representation and lags reality by however long
+        // ago the last write to disk was.
+        case 2: // Armor: head, chest, legs, feet
             return &ActorEquipment::getArmorContainer(p->getEntityContext());
-        case 3: // 手：槽 0 = 主手，槽 1 = 副手
+        case 3: // Hands: slot 0 is the main hand, slot 1 the offhand
             return &ActorEquipment::getHandContainer(p->getEntityContext());
         default:
             return nullptr;
@@ -207,9 +214,11 @@ namespace pier::bridge
         }
         if (dim < 0) return {};
 
-        // 自定义维度的名字只有 dimensions 能力包知道（它的注册台账、引擎
-        // DimensionMap、配置镜像的三层数据源和漂移告警都在桥的那一头 ——
-        // 连「为什么不能碰 VanillaDimensions::toString」的血泪史也在那边）。
+        // Only the dimensions package knows the name of a custom dimension. Its
+        // registration ledger, the engine DimensionMap, the config mirror and the
+        // drift warnings across those three sources all live on the far side of the
+        // bridge, together with the reason VanillaDimensions::toString must not be
+        // used.
         if (auto const* db = spi::dimensionBridge())
         {
             return db->selectorNameOf(dim);
@@ -217,7 +226,8 @@ namespace pier::bridge
         if (firstComplaintFor(dim))
         {
             hostLogger().warn(
-                "维度 {}：自定义维度 id，但 dimensions 能力包没有编进本宿主 —— 无法解析名字",
+                "[api] dimension {} is a custom dimension id, but the dimensions "
+                "package is not compiled into this host; the name cannot be resolved",
                 dim
             );
         }
@@ -240,7 +250,7 @@ namespace pier::bridge
     bool runConsoleCommand(std::string const& cmd)
     {
 #ifdef PIER_BUILD_CLIENT
-        // 客户端构建没有服务器控制台 —— 命令是服务端专属。
+        // A client build has no server console, so commands are server only.
         (void)cmd;
         return false;
 #else
@@ -280,7 +290,8 @@ namespace pier::bridge
 
     std::optional<ItemStack> itemFromSnbt(std::string_view snbt)
     {
-        // fromSnbt / fromTag 对畸形输入会抛；这里的输入最终来自客户端。
+        // fromSnbt and fromTag throw on malformed input, and this input ultimately
+        // comes from a client.
         try
         {
             auto tag = CompoundTag::fromSnbt(snbt);

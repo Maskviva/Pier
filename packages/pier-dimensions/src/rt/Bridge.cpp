@@ -1,18 +1,18 @@
 /**
- * pier-dimensions/rt/Bridge.cpp —— spi::DimensionBridge 的唯一实现。
- *
- * api 侧（core/Bridge.cpp）对自定义维度一无所知，只知道「id >= 3 的东西得问桥」。
- * 往下：解析一个自定义维度名要同时看注册台账、引擎的 DimensionMap 和配置镜像三层
- * 数据源，还要知道哪些引擎 API 不能碰（见 nameToId 上的注释），这些知识只在本包里
- * 成立。往上：本包不编入时桥缺席，api 侧只认原版三维度并各打一次告警，降级是可预
- * 期的行为。
- *
- * blockSourceOf 承担一道安全闸：必须校验引擎实际建出的 Dimension 自报的 id 等于请
- * 求的 dim（spi.h §6 明文要求）。台账 id 与引擎 id 一旦漂移，方块写入会静默落进错
- * 的维度（调用方拿到一个有效的 BlockSource，看不出异常），把玩家传送进去则会让引
- * 擎在区块工作线程上抛未捕获异常，整个进程 fastfail(0xC0000409)。校验放在这一头，
- * 因为「按名字把维度逼出来、再问它自己的 id」只有本包做得到；api 侧把
- * blockSourceOf 返回非空当作唯一放行条件。
+ * pier-dimensions/rt/Bridge.cpp: the only implementation of spi::DimensionBridge.
+ * core/Bridge.cpp on the api side knows nothing about custom dimensions beyond the rule
+ * that id 3 or above goes through the bridge. Resolving a custom name needs three
+ * sources at once, the registration ledger, the engine DimensionMap and the config
+ * mirror, plus knowing which engine APIs must not be touched (see resolveIdByName), and
+ * that knowledge holds only here. Without this package the bridge is absent and the api
+ * side recognizes only the three vanilla dimensions, warning once per function.
+ * blockSourceOf carries a safety gate: it must verify that the Dimension the engine
+ * built reports the requested dim as its own id (spi.h §6). Once the ledger id and the
+ * engine id drift apart, block writes land silently in the wrong dimension, because the
+ * caller receives a valid BlockSource, and teleporting a player there throws an uncaught
+ * exception on a chunk worker thread and fastfails with 0xC0000409. Only this package
+ * can force a dimension into existence by name and then ask it for its id, so the check
+ * lives here; the api side treats a non-null result as its only condition to proceed.
  */
 #include <optional>
 #include <set>
@@ -39,19 +39,18 @@ namespace pier::dimensions::rt
     namespace
     {
         /**
-         * 名字 → id 的三层数据源，按可信度排列：注册台账（dimensionIdOf，记的是引擎
-         * 注册成功时实际返回的 id）、引擎的 DimensionMap、配置镜像（兜底，命中打警
-         * 告）。
-         *
-         * 不许用 VanillaDimensions::toString() 做反查或往返核对。fromString() 对未知
-         * 名字返回 Undefined()，而它会被 addDimension 在运行期改写（维持在比最高自定
-         * 义 id 大一的位置），数值永远看起来像合理的维度 id，原样返回会让调用方相信
-         * 一个不存在的维度存在。toString() 交回来的对象则不符合 MSVC 的 std::string
-         * 布局，文本字节落在 _Mysize 的位置：一个叫 "red" 的维度会让消费方执行
-         * memcpy(dst, src, 0x646572)，死在 VCRUNTIME140 里。只直接读 DimensionMap()，
-         * 它返回 const&、不构造不拷贝不跨 ABI，也正是每个 BDS 内部消费方查的同一张
-         * 表。
-         */
+         * Name to id across three sources, ordered by trust: the registration ledger through
+         * dimensionIdOf, holding the id the engine returned on a successful registration; the
+         * engine DimensionMap; and the config mirror, which warns when it is the one that hits.
+         * VanillaDimensions::toString() must not be used for a reverse lookup or a round trip.
+         * fromString() answers an unknown name with Undefined(), which addDimension rewrites at
+         * runtime to stay one above the highest custom id, so it always looks like a plausible id
+         * and returning it convinces a caller that a nonexistent dimension exists. The object
+         * toString() returns does not match the MSVC std::string layout and the text bytes land
+         * where _Mysize belongs, so a dimension named "red" makes the consumer run memcpy(dst, src,
+         * 0x646572) and die in VCRUNTIME140. Only DimensionMap() is read: it returns a const
+         * reference, constructs and copies nothing, crosses no ABI, and is the table BDS itself
+         * queries. */
         int resolveIdByName(std::string const& wanted)
         {
             if (wanted.empty()) return -1;
@@ -59,37 +58,39 @@ namespace pier::dimensions::rt
             if (wanted == "nether") return 1;
             if (wanted == "the_end") return 2;
 
-            // 1. 注册台账
+            // 1. The registration ledger
             if (int const id = dimensionIdOf(wanted); id >= 0) return id;
 
-            // 2. 引擎的 DimensionMap
+            // 2. The engine DimensionMap
             {
                 auto const& dimMap = ::VanillaDimensions::DimensionMap();
                 auto const hit = dimMap.mRight.find(wanted);
                 if (hit != dimMap.mRight.end())
                 {
                     auto const id = hit->second.value();
-                    // Undefined() 在运行期被改写成「比最高已分配 id 大一」，所
-                    // 以它永远是一个看着合理的数。解析到它的名字就是没注册的
-                    // 名字。
+                    // Undefined() is rewritten at runtime to one above the highest
+                    // allocated id, so it is always a plausible-looking number. A name
+                    // that resolves to it is a name that was never registered.
                     if (id >= 0 && id != ::VanillaDimensions::Undefined().value()) return id;
                 }
             }
 
-            // 3. 配置镜像（兜底）
+            // 3. The config mirror, as a fallback
             auto const& list = CustomDimensionConfig::getConfig().dimensionList;
             auto const it = list.find(wanted);
             if (it == list.end()) return -1;
 
             pier::hostLogger().warn(
-                "维度 '{}' 是从配置镜像解析出来的（id {}），不是从引擎的维度表 —— "
-                "两者已经漂移。传送和写方块可能落到错的地方，建议检查存档里的维度注册。",
+                "[dim] '{}' resolved to id {} from the config mirror rather than the engine "
+                "dimension table; the two have drifted apart, so teleports and block writes "
+                "may land in the wrong place, check the dimension registrations in the save",
                 wanted, it->second.dimId
             );
             return it->second.dimId;
         }
 
-        /** id → 名字。台账优先，其次引擎表。查不到给空串。 */
+        /** Id to name. The ledger first, then the engine table. An empty string when
+         *  neither has it. */
         std::string resolveNameById(int32_t dim)
         {
             if (dim < 0) return {};
@@ -114,14 +115,15 @@ namespace pier::dimensions::rt
             return {};
         }
 
-        /** 每个 id 只抱怨一次，别把一个循环调用刷成一场事故。 */
+        /** Complains once per id, so a call inside a loop does not turn into an
+         *  incident. */
         bool firstComplaintFor(int32_t dim)
         {
             static std::set<int32_t> seen;
             return seen.insert(dim).second;
         }
 
-        //  spi::DimensionBridge 的两个面
+        //  The two faces of spi::DimensionBridge
 
         std::string bridgeSelectorNameOf(int32_t dim)
         {
@@ -129,8 +131,8 @@ namespace pier::dimensions::rt
             if (name.empty() && firstComplaintFor(dim))
             {
                 pier::hostLogger().warn(
-                    "维度 {} 解析不到名字：注册台账、引擎维度表、配置镜像三处都没有它。"
-                    "已注册的是：{}",
+                    "[dim] no name for dimension {}: the registration ledger, the engine "
+                    "dimension table and the config mirror all lack it; registered are: {}",
                     dim, describeRegisteredDimensions()
                 );
             }
@@ -145,30 +147,35 @@ namespace pier::dimensions::rt
                 if (firstComplaintFor(dim))
                 {
                     pier::hostLogger().error(
-                        "维度 {}：解析不到名字，建不出实例。已注册的是：{}",
+                        "[dim] dimension {} has no resolvable name, so no instance can be built; registered are: {}",
                         dim, describeRegisteredDimensions()
                     );
                 }
                 return nullptr;
             }
 
-            // 按名字把维度逼出来。id → 名字的反查在引擎内部走 NameIdStore，
-            // 按名字进去可以少一次反查，故障面更小。
+            // Forces the dimension into existence by name. The engine resolves id to
+            // name internally through NameIdStore, so entering by name skips one reverse
+            // lookup and narrows the failure surface.
             auto* real = native::getOrCreateByName(name);
-            if (!real) return nullptr; // getOrCreateByName 自己分三种原因打过日志了
+            if (!real) return nullptr; // getOrCreateByName already logged one of three reasons
 
-            //  安全闸：引擎实例 id 必须等于请求的 dim
+            //  Safety gate: the engine instance id must equal the requested dim
             //
-            // 见文件头。不一致时不能把这个 BlockSource 交出去：调用方会拿
-            // 它去写方块（静默落进错的维度），或者据此放行一次传送（区块线程
-            // 未捕获异常 → 整个进程 fastfail 0xC0000409）。
+            // See the file header. On a mismatch this BlockSource must not be handed
+            // over: the caller would write blocks through it, landing silently in the
+            // wrong dimension, or allow a teleport on the strength of it, which throws
+            // an uncaught exception on a chunk thread and fastfails the process with
+            // 0xC0000409.
             int const realId = real->getDimensionId().value();
             if (realId != dim)
             {
                 pier::hostLogger().error(
-                    "拒绝提供维度 {} 的 BlockSource：台账里它叫 '{}'，但引擎按这个名字建出来的"
-                    "实例自报 id 是 {}。台账和引擎已经漂移 —— 继续下去要么把方块写进错的维度，"
-                    "要么在传送时让区块线程抛异常直接 abort。",
+                    "[dim] refusing to provide a BlockSource for dimension {}: the ledger "
+                    "calls it '{}', but the instance the engine built under that name reports "
+                    "id {}. The ledger and the engine have drifted apart, and continuing "
+                    "would either write blocks into the wrong dimension or abort on a chunk "
+                    "thread during a teleport",
                     dim, name, realId
                 );
                 return nullptr;
@@ -182,18 +189,21 @@ namespace pier::dimensions::rt
             &bridgeBlockSourceOf,
         };
 
-        /** Bootstrap：把桥挂上去。在任何 API 调用之前跑（宿主启动路径）。 */
+        /** Bootstrap. Installs the bridge, before any API call, on the host startup
+         *  path. */
         void bootstrap()
         {
             spi::setDimensionBridge(&gBridge);
-            pier::hostLogger().debug("维度桥已挂载（自定义维度可用）");
+            pier::hostLogger().debug("[dim] dimension bridge installed, custom dimensions available");
         }
 
-        // stage 10：桥必须在任何维度注册（stage 20+）之前挂上 —— 注册路径
-        // 里的自检会反过来经桥问「引擎实际建出来的 id 是多少」。
+        // Stage 10. The bridge must be installed before any dimension registration at
+        // stage 20 or later, because the self-check on the registration path asks the
+        // bridge back for the id the engine actually built.
         spi::BootstrapReg regBoot{{10, "dimension-bridge", &bootstrap}};
     } // namespace
 
-    /** 给包内其他 TU 用的名字解析（addDimension 的自检路径要）。 */
+    /** Name resolution for the other TUs of this package, used by the self-check on
+     *  the addDimension path. */
     int idByName(std::string const& name) { return resolveIdByName(name); }
 } // namespace pier::dimensions::rt

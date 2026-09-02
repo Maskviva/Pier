@@ -1,12 +1,13 @@
-/** actors/SimPlayer.cpp —— 模拟（假）玩家。
+/** actors/SimPlayer.cpp: simulated players.
+ * Two main ABI entry points. sim_spawn(name, dim, x, y, z) goes through
+ * SimulatedPlayer::create and produces a real ServerPlayer under that name, so every
+ * existing per-player API reaches it through the ordinary name selector. sim_do(sel,
+ * action, args_snbt) dispatches verbs over the simulate* family. A new verb is added
+ * on this side and does not grow the ABI table, since the verb list is data and not
+ * layout. Actor::isSimulatedPlayer() gates it, a real player is never driven, and
+ * args is SNBT.
  *
- * 两个主 ABI 入口。sim_spawn(name, dim, x, y, z) 走 SimulatedPlayer::create，产物
- * 是一个顶着这个名字的真 ServerPlayer，所以每个已有的按玩家 API 都经普通名字选择
- * 器对它生效，不需要复制一套接口面。sim_do(sel, action, args_snbt) 是 simulate*
- * 家族上的多路动词派发器，新动词加在桥这一侧、不涨 ABI 表（动作词表是数据不是布
- * 局），用 Actor::isSimulatedPlayer() 把门，真玩家不可能被操纵，args 是 SNBT。
- *
- * 动词，花括号内是参数，'=' 后是默认值：
+ * Verbs, with parameters in braces and defaults after '=':
  *   despawn | stop | jump | attack | interact | use_item | drop | respawn
  *   move_to{x,y,z,speed=1,face_target=1}   navigate_to{x,y,z,speed=4.3}
  *   look_at{x,y,z}   interact_block{x,y,z,face=1}   chat{msg}
@@ -70,7 +71,7 @@ namespace pier::api_impl
 
         ::ScriptModuleMinecraft::ScriptFacing argFace(CompoundTag const& t)
         {
-            int f = static_cast<int>(argD(t, "face", 1)); // 默认 Up
+            int f = static_cast<int>(argD(t, "face", 1)); // Defaults to Up
             if (f < 0 || f > 5) f = 1;
             return static_cast<::ScriptModuleMinecraft::ScriptFacing>(f);
         }
@@ -79,10 +80,12 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!bridge::levelReady()) return false;
-                // 目标维度必须能经维度桥建出（同 player_teleport）。
+                // The target dimension must be buildable through the dimension
+                // bridge, as in player_teleport.
                 if (!bridge::blockSourceOf(dimension)) return false;
-                // 不允许和在线玩家同名 —— 所有按名字寻址的槽都会在两者之间
-                // 随机命中，`chat` 动词还能以真人的名字发言。
+                // A name already held by an online player is refused. Every slot that
+                // addresses by name would hit one or the other at random, and the
+                // `chat` verb could speak under a real person's name.
                 if (bridge::resolvePlayer(PierPlayerSel{0, name}) != nullptr) return false;
                 auto sp = SimulatedPlayer::create(
                     toString(name),
@@ -106,9 +109,10 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level || !nameSink) return;
-                // 复用既有的玩家枚举原语，过滤出机器人。只吐名字（不吐完整摘
-                // 要）：调用方拿名字重建一个 SimPlayer 句柄，再经它够到完整的
-                // 玩家接口面。
+                // Reuses the existing player enumeration primitive and filters for
+                // bots. Only names are emitted rather than full summaries, because the
+                // caller rebuilds a SimPlayer handle from a name and reaches the whole
+                // player interface through it.
                 level->forEachPlayer([&](Player& p)
                 {
                     if (p.isSimulatedPlayer()) nameSink(ctx, ps(p.getRealName()));
@@ -121,16 +125,16 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 Player* p = bridge::resolvePlayer(sel);
-                if (!p || !p->isSimulatedPlayer()) return false; // 真玩家永不被操纵
+                if (!p || !p->isSimulatedPlayer()) return false; // A real player is never driven
                 auto* sim = static_cast<SimulatedPlayer*>(p);
 
-                // 参数只解析一次；"" 和 "{}" 都表示「无参」。
+                // Arguments are parsed once. Both "" and "{}" mean no arguments.
                 CompoundTag args;
                 std::string_view raw = sv(argsSnbt);
                 if (!raw.empty())
                 {
                     auto parsed = CompoundTag::fromSnbt(raw);
-                    if (!parsed) return false; // 畸形参数：拒绝，不猜
+                    if (!parsed) return false; // Malformed arguments are refused, not guessed
                     args = std::move(*parsed);
                 }
 
@@ -180,10 +184,11 @@ namespace pier::api_impl
                 }
                 if (verb == "look_at")
                 {
-                    // 存在三个重载（(Vec3&)、(Vec3&, LookDuration)、还有一个
-                    // BlockPos 的）；裸 Vec3 在前两个之间有歧义。显式传
-                    // LookDuration 钉住 Vec3 重载 —— Instant 对应无时长版本
-                    // 「瞬间转头」的语义。
+                    // Three overloads exist: (Vec3&), (Vec3&, LookDuration) and one
+                    // taking a BlockPos. A bare Vec3 is ambiguous between the first
+                    // two. Passing LookDuration explicitly pins the Vec3 overload, and
+                    // Instant carries the same turn-immediately meaning as the version
+                    // without a duration.
                     sim->simulateLookAt(
                         Vec3{
                             (float)argD(args, "x", 0),
@@ -225,7 +230,7 @@ namespace pier::api_impl
                     return true;
                 }
 
-                return false; // 不认识的动词
+                return false; // Unknown verb
             PIER_API_GUARD_END
         }
 

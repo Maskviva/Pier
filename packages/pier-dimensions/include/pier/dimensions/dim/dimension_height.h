@@ -3,44 +3,49 @@
 namespace pier::dimensions
 {
     /**
-     * 自定义维度的竖直范围，唯一的一份。两个消费者：Dimension 构造函数里的 DimensionArguments 决定服务端实际生成、存
-     * 储、发送多少个子区块；DimensionDefinitionGroup::DimensionDefinition 会被
-     * DimensionDataPacket 整个发给客户端，决定客户端为这个维度分配多高的区块缓冲、
-     * 以及它会请求哪些子区块索引。两者对不上时客户端会收到落在自己缓冲之外的子区
-     * 块，表现是进维度加载完直接闪退，所以必须读同一个常量。
+     * The vertical range of a custom dimension, in one place. Two consumers read it. The
+     * DimensionArguments in the Dimension constructor decide how many subchunks the
+     * server generates, stores and sends. The
+     * DimensionDefinitionGroup::DimensionDefinition goes whole into DimensionDataPacket
+     * and decides how tall a chunk buffer the client allocates and which subchunk indices
+     * it requests. When the two disagree the client receives subchunks outside its own
+     * buffer, which shows up as a crash right after the dimension finishes loading, so
+     * both must read the same constant.
      *
-     * 要支持「每个维度不同高度」的话，正确做法是让这两个消费者从同一份 payload 取
-     * 值（payload 在 addDimension 里已先于注册准备好），而不是一边读 NBT、一边用写
-     * 死的常量。
+     * Supporting a different height per dimension means having both consumers take the
+     * value from the same payload, which addDimension prepares before registration,
+     * rather than one reading NBT while the other uses a hardcoded constant.
      */
 
-    /**
-     * 底部是 -512 而不是 -64，因为客户端在自定义维度里不用服务端发过去的几何信息。
-     * 三组定义（-64..320、0..384、0..256）下客户端一律请求子区块 -32..-24：它退回到
-     * 「最大可能世界」，底部恒定取子区块 -32，也就是 y = -512。服务端按 -64 校验时
-     * 每一个子区块请求都判 IndexOutOfBounds，方块数据一块都过不去。对照组是主世界，
-     * 同一个客户端请求 -4..4 全部成功，因为原版维度它自己认识。
-     *
-     * 所以服务端搬过去对齐，顶部保持 320，维度总高 832 格即 52 个子区块。代价是每列
-     * 多出 28 个纯空气子区块，调色板只有一项、序列化后很小，但内存里确实多占一些。
-     * 引擎对维度高度是否有上限未确认，开服报错或维度建不出来时改回 -64 即可回到原状。
-     * 已有存档的区块按 -64 的底部写成，换底部之后对不上，测试世界建议删掉重建。
-     */
+    /** The bottom is -512 and not -64, because a client does not use the geometry the
+     * server sends for a custom dimension. Under -64..320, 0..384 and 0..256 alike the
+     * client always requests subchunks -32..-24: it falls back to the largest possible
+     * world and takes the bottom as subchunk -32, y = -512. With the server validating
+     * against -64, every request is judged IndexOutOfBounds and no block data gets
+     * through. The control is the overworld, where the same client requests -4..4 and all
+     * succeed, because it knows the vanilla dimensions itself. The server therefore moves
+     * to match, the top stays at 320, and the dimension is 832 blocks tall, 52 subchunks.
+     * The cost is 28 extra pure-air subchunks per column, whose palette holds one entry
+     * and which serialize small while still occupying memory. Whether the engine caps
+     * dimension height is unconfirmed; setting this back to -64 restores the previous
+     * state if a boot fails or a dimension cannot be built. Chunks in an existing save
+     * were written against a bottom of -64 and no longer line up, so a test world is best
+     * deleted and recreated. */
     inline constexpr int kWorldMinY = -512;
     inline constexpr int kWorldMaxY = 320;
 
     /**
-     * 基岩层所在的 y。
+     * The y of the bedrock layer.
      *
-     * 维度底部下移到 -512 之后，如果还把基岩放在缓冲区索引 0（也就是
-     * y=-512），上面到地表之间会被填土填掉 576 层 —— 又费内存又没意义。所以基
-     * 岩仍然放在 y=-64，它下面那 448 格全是空气，玩家看到的世界和以前**完全一
-     * 样**。
+     * With the dimension bottom moved to -512, keeping bedrock at buffer index 0, which
+     * is y=-512, would fill 576 layers with dirt between it and the surface, costing
+     * memory for nothing. Bedrock therefore stays at y=-64, the 448 blocks below it are
+     * all air, and the world a player sees is exactly as it was.
      */
     inline constexpr int kBedrockY = -64;
 
-    static_assert(kWorldMinY % 16 == 0, "维度底部必须对齐到子区块边界");
-    static_assert(kWorldMaxY % 16 == 0, "维度顶部必须对齐到子区块边界");
-    static_assert(kWorldMinY < kWorldMaxY, "维度高度范围为空");
-    static_assert(kWorldMinY < kBedrockY && kBedrockY < kWorldMaxY, "基岩层必须在维度范围内");
+    static_assert(kWorldMinY % 16 == 0, "the dimension bottom must align to a subchunk boundary");
+    static_assert(kWorldMaxY % 16 == 0, "the dimension top must align to a subchunk boundary");
+    static_assert(kWorldMinY < kWorldMaxY, "the dimension height range is empty");
+    static_assert(kWorldMinY < kBedrockY && kBedrockY < kWorldMaxY, "the bedrock layer must lie inside the dimension range");
 } // namespace pier::dimensions

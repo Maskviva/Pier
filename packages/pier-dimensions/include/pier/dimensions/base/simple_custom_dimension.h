@@ -12,11 +12,12 @@ namespace pier::dimensions
     struct DimensionFactoryInfo;
 
     /**
-     * 最朴素的自定义维度：一个原版生成器 + 自己的种子。
+     * The plainest custom dimension: a vanilla generator plus its own seed.
      *
-     * 声明上不再带 `MORE_DIMENSIONS_API`（`__declspec(dllexport)`）—— 本包在
-     * 新架构里是编进宿主的 object 包，能力经 SlotPack 装进 ABI 表，不导出任何符号。导出宏留
-     * 着只会让链接器多生成一份没人用的导出表。
+     * The declaration carries no `MORE_DIMENSIONS_API`, meaning `__declspec(dllexport)`.
+     * This package is an object package compiled into the host, its capability reaches
+     * the ABI table through a SlotPack, and it exports no symbol. An export macro would
+     * only make the linker emit an export table nobody uses.
      */
     class SimpleCustomDimension : public Dimension
     {

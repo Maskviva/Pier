@@ -1,8 +1,9 @@
 /**
- * PlotDimension.cpp —— 地皮维度本体。
+ * PlotDimension.cpp: the plot dimension itself.
  *
- * 与 SimpleCustomDimension 的 override 集合完全相同，只在两处分岔：
- * `createGenerator` 返回 PlotGenerator，构造时把 PlotLayout 从载荷里读回来。
+ * The override set is identical to SimpleCustomDimension and differs in two places:
+ * `createGenerator` returns a PlotGenerator, and the constructor reads the PlotLayout
+ * back out of the payload.
  */
 #include "pier/dimensions/dim/complete_base_types.h"
 
@@ -29,10 +30,12 @@
 namespace pier::dimensions
 {
     PlotDimension::PlotDimension(std::string const& name, DimensionFactoryInfo const& info)
-    // DimensionArguments 在 26.20 有 5 个成员，最后一个是 mTypeId（维度类型
-    // 标识，数据驱动维度用它对应 DimensionDefinitionGroup 里的那条定义）。
-    // 之前这里只写了 4 个，mTypeId 被默认成空串 —— 聚合初始化不会报错，但
-    // 引擎侧拿到的是一个没有类型的维度。自定义维度的类型标识就用维度名。
+    // DimensionArguments has 5 members on 26.20 and the last is mTypeId, the dimension
+    // type identifier a data-driven dimension uses to match its entry in
+    // DimensionDefinitionGroup. Writing only 4 leaves mTypeId defaulted to an empty
+    // string, which aggregate initialization accepts without complaint while the engine
+    // receives a dimension with no type. The type identifier of a custom dimension is
+    // its name.
         : Dimension(DimensionArguments(
             std::move(info.arguments), info.dimId, {PlotLayout::kMinY, PlotLayout::kMaxY}, name, name
         ))
@@ -44,7 +47,7 @@ namespace pier::dimensions
         mSeed = info.data.contains("seed") ? static_cast<uint>(info.data.at("seed")) : 0u;
         if (info.data.contains("layout"))
         {
-            // layout 是一个内嵌的 CompoundTag
+            // layout is a nested CompoundTag
             mLayout = PlotLayout::fromNbt(info.data.at("layout").get<CompoundTag>());
         }
         else
@@ -66,20 +69,22 @@ namespace pier::dimensions
 
     void PlotDimension::init(br::worldgen::StructureSetRegistry const& structureSetRegistry)
     {
-        // 保留天光。原版只有 NetherDimension 和 TheEndDimension 重写 init 关掉天
-        // 光，OverworldDimension 根本没重写；本包两个自定义维度类都关掉的话，等于
-        // 把每一个自定义维度都做成下界。
-        //
-        // 地皮世界是露天的、光源只有天空，关掉之后整张地图光照全是 0。方块、碰撞、
-        // 区块下发都正常，服务端日志看不出异常，玩家看到的却是全黑，容易被当成区块
-        // 没加载。判断方法：进去后能站在地面上不往下掉，就说明方块在，是照明问题。
+        // Skylight is kept. In vanilla only NetherDimension and TheEndDimension override
+        // init to turn it off, OverworldDimension does not override it at all, so turning
+        // it off in both custom dimension classes would make every custom dimension a
+        // nether. A plot world is open-air and the sky is its only light source, so with
+        // skylight off the whole map has light level 0: blocks, collision and chunk
+        // delivery behave normally, the server log shows nothing, and the player sees
+        // black and reads it as chunks failing to load. Standing on the ground without
+        // falling means the blocks are there and the problem is lighting.
         Dimension::init(structureSetRegistry);
 
-        // 子区块请求全部被回 IndexOutOfBounds，说明服务端判越界用的高度范围和
-        // 发给客户端的那一份对不上。引擎判越界走的是
-        // `Dimension::isSubChunkHeightWithinRange`，它读的就是 mHeightRange。
-        // 所以这里把它实际是什么打出来，并且在不对的时候纠正回来 —— 纠正是
-        // 安全的：这两个数就是发给客户端的那一份定义。
+        // Every subchunk request coming back IndexOutOfBounds means the height range the
+        // server judges against disagrees with the copy sent to the client. The engine
+        // judges through `Dimension::isSubChunkHeightWithinRange`, which reads
+        // mHeightRange, so this prints what it actually holds and corrects it when it is
+        // wrong. The correction is safe, because those two numbers are the definition
+        // sent to the client.
         verifyHeightRange(*this, PlotLayout::kMinY, PlotLayout::kMaxY, "PlotDimension");
     }
 
@@ -87,8 +92,8 @@ namespace pier::dimensions
     {
         auto& level = mLevel;
         auto& levelData = level.getLevelData();
-        // 平坦生成器的 options 只用来初始化基类的原型体积，
-        // 真正的图案完全由 PlotGenerator::loadChunk 决定。
+        // The flat generator options only initialize the prototype volume of the base
+        // class. The actual pattern is decided entirely by PlotGenerator::loadChunk.
         return std::make_unique<PlotGenerator>(*this, mSeed, levelData.mFlatWorldOptions, mLayout);
     }
 

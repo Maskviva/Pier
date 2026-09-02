@@ -1,31 +1,36 @@
 # -*- coding: utf-8 -*-
-"""delayload-matches-claims —— 说是延迟加载的，链接器那边必须真的延迟加载。
+"""delayload-matches-claims: whatever is described as delay-loaded must really be
+delay-loaded by the linker.
 
-## 为什么需要它
+## Why this exists
 
-`money_guard.h` 从第一天就写着「LLMoney_* 住在延迟加载的 LegacyMoney.dll 里」，
-`Money.cpp` 的每个入口都老老实实先过 `moneyBackendReady()`，运行期降级逻辑一行
-不差。但 `xmake.lua` 里从来没有 `/DELAYLOAD:LegacyMoney.dll` —— `add_packages`
-把导入库直接链了进去。
+`money_guard.h` said from day one that the LLMoney_* symbols live in a delay-loaded
+LegacyMoney.dll, and every entry point in `Money.cpp` dutifully goes through
+`moneyBackendReady()` first, with the runtime degradation logic complete to the line. But
+`xmake.lua` never carried `/DELAYLOAD:LegacyMoney.dll`, and `add_packages` linked the
+import library straight in.
 
-后果不是「经济功能不可用」，是**整个 pier 装不上**：加载器在载入 pier.dll 时就
-解析不了导入表，报 `0x7E 找不到指定的模块`。那条报错里没有「money」这个词，
-所以从症状回溯到根因要跨过整个运行期降级逻辑 —— 而那套逻辑看起来完全正确，
-只是一行都没机会跑。
+The consequence is not that the economy features are unavailable, it is that pier does not
+load at all: the loader cannot resolve the import table while loading pier.dll and reports
+`0x7E, the specified module could not be found`. That message contains no word about
+money, so tracing the symptom back to the cause means crossing the entire runtime
+degradation logic, which looks completely correct and simply never got a line to run.
 
-这正是契约 §5.4 说的「注释对代码撒谎」的最坏形态:注释描述的是**设计意图**，
-代码实现了意图的一半，而缺的那一半在另一个文件里，没人对得上。
+This is the worst form of what contract §5.4 calls a comment lying about the code: the
+comment describes the design intent, the code implements half of that intent, and the
+missing half lives in another file where nobody lines the two up.
 
-## 判据
+## The criteria
 
-在 C++ 源码与头文件里找「延迟加载」的声称（中文「延迟加载」或英文
-delay-load / delay load / DELAYLOAD），从上下文取出 `X.dll`，然后要求
-根 `xmake.lua` 里有对应的 `/DELAYLOAD:X.dll`。
+C++ sources and headers are searched for a delay-load claim, `X.dll` is taken from the
+surrounding context, and the root `xmake.lua` is then required to carry the matching
+`/DELAYLOAD:X.dll`.
 
-反向也查：`/DELAYLOAD:` 列了某个 DLL，却没有任何一处代码在运行期检查它是否
-可用，那是另一种失配 —— 延迟加载失败会在第一次调用时抛 SEH 异常，没有守卫
-就是把「没装这个可选依赖」变成一次崩溃。这一条只报告，不判失败:守卫可能写在
-判据看不见的地方（比如别的 TU 里的一个通用 helper）。
+The reverse is checked too: a DLL listed under `/DELAYLOAD:` with no code anywhere
+checking its availability at runtime is a different mismatch, since a failed delay load
+raises an SEH exception on the first call and no guard turns a missing optional dependency
+into a crash. That one only reports and does not fail, because the guard may sit where the
+criterion cannot see it, such as a shared helper in another TU.
 """
 
 import os
@@ -39,12 +44,12 @@ CPP_DIRS = [os.path.join(ROOT, "packages")]
 CLAIM = re.compile(r"延迟加载|delay-?\s?load", re.I)
 DLLNAME = re.compile(r"([A-Za-z][\w.-]*\.dll)")
 
-# 宿主自己的产物，不可能是它自己的延迟加载对象。
+# The host's own artifact cannot be a delay-load target of itself.
 SELF = {"pier.dll", "pier-client.dll"}
 
 
 def _claimed_dlls():
-    """代码里被说成「延迟加载」的 DLL → 出处。"""
+    """Maps a DLL the code describes as delay-loaded to where that claim is made."""
     out = {}
     for base in CPP_DIRS:
         for dp, _, fs in os.walk(base):
@@ -56,12 +61,13 @@ def _claimed_dlls():
                 for i, line in enumerate(lines):
                     if not CLAIM.search(line):
                         continue
-                    # DLL 名可能落在这一行，也可能在紧邻的上下两行。
+                    # The DLL name may sit on this line or on either adjacent line.
                     #
-                    # 排除宿主自己:讲清楚「pier.dll 会加载失败」是**后果**的
-                    # 描述，不是「pier.dll 被延迟加载」的声称。一条把后果误当
-                    # 成声称的检查，第一次跑就会报一个假阳性，而假阳性正是让
-                    # 人把检查加进忽略列表的那件事。
+                    # The host itself is excluded: explaining that pier.dll fails to load
+                    # describes a consequence and is not a claim that pier.dll is
+                    # delay-loaded. A check mistaking a consequence for a claim reports a
+                    # false positive on its first run, and a false positive is exactly what
+                    # gets a check added to an ignore list.
                     window = " ".join(lines[max(0, i - 1) : i + 2])
                     for m in DLLNAME.finditer(window):
                         dll = m.group(1)
@@ -77,7 +83,7 @@ def run():
     r = Result("delayload-matches-claims")
     xm = os.path.join(ROOT, "xmake.lua")
     if not os.path.exists(xm):
-        r.fail("根 xmake.lua 不存在")
+        r.fail("the root xmake.lua does not exist")
         return r
     build = open(xm, encoding="utf-8").read()
     flagged = {m.group(1) for m in re.finditer(r"/DELAYLOAD:([\w.-]+\.dll)", build)}
@@ -87,23 +93,24 @@ def run():
         if dll in flagged:
             continue
         r.fail(
-            "%s 在代码里被说成是延迟加载的（%s），但根 xmake.lua 里没有 "
-            "/DELAYLOAD:%s —— 导入库会被静态链进去，宿主在**加载自己**时就失败，"
-            "报 `0x7E 找不到指定的模块`，运行期的降级逻辑一行都跑不到"
+            "%s is described in the code as delay-loaded (%s) while the root xmake.lua carries "
+            "no /DELAYLOAD:%s. The import library is linked in statically, the host fails while "
+            "loading itself and reports `0x7E, the specified module could not be found`, and "
+            "not one line of the runtime degradation logic runs"
             % (dll, where[0], dll)
         )
 
     if flagged and "delayimp" not in build:
         r.fail(
-            "用了 /DELAYLOAD 但没链 delayimp —— 链接器会报 __delayLoadHelper2 未定义"
+            "/DELAYLOAD is used without linking delayimp, so the linker reports __delayLoadHelper2 as undefined"
         )
 
-    # /DELAYLOAD 要落在**对的那个 flag 通道**上。
-    #
-    # xmake 里 `add_ldflags` 只作用于 `kind("binary")`，共享库走 `add_shflags`。
-    # 写错通道不会报错，也不会中断构建 —— 那一行被静默忽略，产物照样带硬性
-    # DLL 依赖，症状和根本没加时**一模一样**。这一条就是为这个失效模式存在的:
-    # 上一次修这个 bug 时写成了 ldflags，用户重编之后拿到了完全相同的报错。
+    # /DELAYLOAD has to land in the right flag channel. In xmake `add_ldflags` applies only
+    # to `kind("binary")` while a shared library reads `add_shflags`. The wrong channel
+    # raises no error and stops no build: the line is silently ignored, the artifact still
+    # carries a hard DLL dependency, and the symptom is identical to never adding it. This
+    # criterion exists for that failure mode, because the previous fix for this bug was
+    # written as ldflags and a rebuild produced exactly the same error.
     for m in re.finditer(r'target\("(\w+)"\)(.*?)target_end\(\)', build, re.S):
         name, body = m.group(1), m.group(2)
         if "/DELAYLOAD:" not in body:
@@ -113,13 +120,13 @@ def run():
         has_ld = re.search(r"add_ldflags\([^)]*DELAYLOAD", body)
         if shared and not has_sh:
             r.fail(
-                "target `%s` 是 shared，但 /DELAYLOAD 只写在 add_ldflags 上 —— "
-                "xmake 对共享库读的是 add_shflags，这一行会被静默忽略，"
-                "构建照常成功而产物照样带硬性 DLL 依赖" % name
+                "target `%s` is shared while /DELAYLOAD appears only in add_ldflags. xmake reads "
+                "add_shflags for a shared library, so that line is silently ignored, the build "
+                "succeeds as usual and the artifact still carries a hard DLL dependency" % name
             )
         if not shared and not has_ld:
             r.fail(
-                "target `%s` 不是 shared，但 /DELAYLOAD 只写在 add_shflags 上" % name
+                "target `%s` is not shared while /DELAYLOAD appears only in add_shflags" % name
             )
 
     for dll in sorted(flagged):
@@ -137,15 +144,17 @@ def run():
                         guarded = True
         if not guarded:
             r.note(
-                "%s 声明了延迟加载，但没找到运行期可用性守卫。延迟加载失败会在"
-                "第一次调用时抛 SEH —— 没有守卫就是把「没装这个可选依赖」变成崩溃。"
-                "（判据看不见跨 TU 的通用 helper，所以这只是提醒）" % dll
+                "%s declares delay loading while no runtime availability guard was found. A "
+                "failed delay load raises SEH on the first call, so no guard turns a missing "
+                "optional dependency into a crash. The criterion cannot see a shared helper in "
+                "another TU, so this is a reminder only" % dll
             )
 
     if not r.failures:
         r.note(
-            "声称延迟加载的 DLL %d 个，链接器标志 %d 个，一一对应。"
-            "判据只比对**名字**:它保证不了那个守卫真的守住了每个入口。"
+            "%d DLL(s) claimed as delay-loaded against %d linker flag(s), matching one to one. "
+            "The criterion compares names only and cannot guarantee the guard really covers "
+            "every entry point."
             % (len(claimed), len(flagged))
         )
     return r

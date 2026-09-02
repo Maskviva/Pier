@@ -1,5 +1,6 @@
-/** core/Log.cpp —— 模组日志槽。一个槽一个 TU 显得小题大做，但 log 是唯一
- *  「必须在任何别的槽可用之前就能用」的槽 —— 它不许染上任何域的依赖。 */
+/** core/Log.cpp: the mod logging slot. One TU for one slot looks excessive, but log
+ *  is the one slot that must work before any other slot is usable, so it may not
+ *  pick up a dependency on any domain. */
 #include "ll/api/io/LogLevel.h"
 #include "ll/api/io/Logger.h"
 

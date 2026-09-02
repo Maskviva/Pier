@@ -33,7 +33,7 @@ namespace pier::dimensions::CustomDimensionConfig
     {
         if (!ll::service::getLevel())
         {
-            throw std::runtime_error("Level 还没开，定位不了维度配置路径");
+            throw std::runtime_error("Level is not open yet, the dimension config path cannot be resolved");
         }
         gConfigPath /= ll::string_utils::str2u8str(ll::service::getPropertiesSettings()->mLevelName);
         gConfigPath /= u8"dimension_config.json";
@@ -50,10 +50,12 @@ namespace pier::dimensions::CustomDimensionConfig
                         gConfigPath,
                         [](Config& config, nlohmann::ordered_json& data)
                         {
-                            // 版本升级：老格式把 NBT 存成 snappy 压缩后再
-                            // base64 的 `base64Nbt`，新格式直接存 SNBT 文本。
-                            // 就地转换，转不出来的条目跳过而不是丢弃整个文件
-                            // —— 一条坏数据不该让所有维度都消失。
+                            // Version upgrade. The older format stored the NBT as
+                            // `base64Nbt`, snappy compressed and then base64 encoded,
+                            // while the current one stores SNBT text directly. It is
+                            // converted in place, and an entry that fails to convert is
+                            // skipped rather than discarding the whole file, since one
+                            // bad record must not make every dimension disappear.
                             if (data["version"] < config.version)
                             {
                                 for (auto& item : data["dimensionList"])
@@ -99,10 +101,10 @@ namespace pier::dimensions::CustomDimensionConfig
     {
         try
         {
-            // 早先这里有一句 printf("saveConfigFile::: %ls", ...)：它绕开日志
-            // 系统直接写 stdout、没有换行、也没有等级，在控制台里表现为把下一
-            // 条日志的开头顶掉。诊断价值由下面这条 debug 覆盖。
-            pier::hostLogger().debug("保存维度配置：{}", gConfigPath.string());
+            // Diagnostics go through the logger. Writing to stdout directly bypasses
+            // the log system, carries no newline and no level, and in a console it
+            // overwrites the start of the next log line.
+            pier::hostLogger().debug("[dim] saving dimension config to {}", gConfigPath.string());
             return ll::config::saveConfig(getConfig(), gConfigPath);
         }
         catch (...)

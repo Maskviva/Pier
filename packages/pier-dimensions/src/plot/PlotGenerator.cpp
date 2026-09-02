@@ -1,10 +1,11 @@
 /**
- * PlotGenerator.cpp —— 地皮世界的区块生成。
+ * PlotGenerator.cpp: chunk generation for a plot world.
  *
- * 每个区块只做两次「会变的层」重填 + 256 次分类，然后一次 setBlockVolume。
- * 与列无关的部分（基岩、填充、空气）由 `refillStatic` 一次性铺好，之后
- * 每个区块只覆盖地表和路缘那两层 —— 这是这个生成器能跟原版平坦世界同量级
- * 的原因，也是为什么这件事必须在 C++ 侧做。
+ * Each chunk refills the two layers that vary and classifies 256 columns, then makes one
+ * setBlockVolume call. The column-independent parts, bedrock, fill and air, are laid down
+ * once by `refillStatic`, after which each chunk overwrites only the surface and the curb
+ * layer. That is why this generator stays in the same order as a vanilla flat world, and
+ * why the work belongs on the C++ side.
  */
 #include "pier/dimensions/dim/complete_base_types.h"
 
@@ -41,13 +42,13 @@ namespace pier::dimensions
         constexpr int kColumns = kChunkWidth * kChunkWidth;
         constexpr int kBufferSize = kColumns * kTotalHeight;
 
-        // 区块内存布局是 XZY：索引 = (x*16 + z)*totalHeight + y
+        // The chunk memory layout is XZY: index = (x*16 + z)*totalHeight + y
         [[nodiscard]] constexpr int bufferIndex(int x, int yIdx, int z)
         {
             return (x * kChunkWidth + z) * kTotalHeight + yIdx;
         }
 
-        /** 把整个 y 层填成同一个方块。 */
+        /** Fills an entire y layer with one block. */
         void fillLayer(std::vector<Block const*>& buf, Block const* block, int yIdx)
         {
             for (int i = 0; i < kColumns; ++i) buf[static_cast<size_t>(yIdx + i * kTotalHeight)] = block;
@@ -58,8 +59,9 @@ namespace pier::dimensions
             for (int y = fromIdx; y < toIdxExclusive; ++y) fillLayer(buf, block, y);
         }
 
-        // getDefaultBlockState 找不到时返回的是 air 而不是 null，所以传
-        // logNotFound=true，让配错的方块 id 在日志里留痕，而不是静默变空气。
+        // getDefaultBlockState returns air rather than null when it finds nothing, so
+        // logNotFound=true is passed and a misconfigured block id leaves a trace in the
+        // log instead of quietly becoming air.
         Block const* lookupBlock(HashedString const& id)
         {
             return &BlockTypeRegistry::get().getDefaultBlockState(id, true);
@@ -77,9 +79,10 @@ namespace pier::dimensions
         mBiome = level.getBiomeRegistry().lookupByName(mLayout.biome);
         if (!mBiome)
         {
-            // 群系名写错不该让整个服务器起不来，退回平原 —— 但必须出声，
-            // 否则「我配了樱花群系，进去是平原」会变成一个查不到根因的报障。
-            hostLogger().warn("未知生物群系 '{}'，回退到 minecraft:plains", mLayout.biome);
+            // A misspelled biome name must not stop the server from starting, so it
+            // falls back to plains, but it has to say so, otherwise configuring a cherry
+            // grove and walking into plains becomes a report with no findable cause.
+            hostLogger().warn("[plot] unknown biome '{}', falling back to minecraft:plains", mLayout.biome);
             mBiome = level.getBiomeRegistry().lookupByName("minecraft:plains");
         }
         if (mBiome) mBiomeSource = std::make_unique<FixedBiomeSource>(*mBiome);
@@ -111,12 +114,14 @@ namespace pier::dimensions
         return buf;
     }
 
-    /** 重填与列无关的部分（基岩 / 填充 / 空气）以及 BlockVolume 视图。 */
+    /** Refills the column-independent parts, bedrock, fill and air, along with the
+     *  BlockVolume view. */
     void PlotGenerator::refillStatic(ThreadBuffer& buf)
     {
-        // 维度底部下移到 y=-512 之后，基岩不再放在缓冲区索引 0，而是留在 y=-64。
-        // 它下面那一段全是空气：玩家看到的世界和以前完全一样，只是维度往下多出
-        // 了 28 个空子区块，用来和客户端写死的底部（子区块 -32）对齐。
+        // With the dimension bottom moved to y=-512, bedrock no longer sits at buffer
+        // index 0 and stays at y=-64. Everything below it is air, so the world a player
+        // sees is exactly as it was, with 28 extra empty subchunks underneath to align
+        // with the bottom the client hardcodes, subchunk -32.
         int const bedrockIdx = PlotLayout::kBedrockY - PlotLayout::kMinY;
 
         fillRange(buf.blocks, mAirBlock, 0, bedrockIdx);
@@ -127,28 +132,29 @@ namespace pier::dimensions
         buf.volume = mPrototype;
         buf.volume->mHeight = static_cast<uint>(kTotalHeight);
         buf.volume->mBlocks->mBegin = buf.blocks.data();
-        buf.volume->mBlocks->mEnd = buf.blocks.data() + buf.blocks.size(); // &*end() 是 UB
+        buf.volume->mBlocks->mEnd = buf.blocks.data() + buf.blocks.size(); // &*end() is UB
     }
 
     void PlotGenerator::loadChunk(LevelChunk& lc, bool)
     {
-        // 追踪开关走 chunk_trace.h 的那一份。不要在这里再读一遍 env ——
-        // 旧版就是各抄一份，两处判据一旦漂移，症状是「追踪开着但生成这一段
-        // 没有日志」，而那看起来像是生成器根本没被调用。
+        // The tracing switch comes from the one in chunk_trace.h and the env is not read
+        // again here. Two copies of the test drifting apart gives the symptom of tracing
+        // being on while the generation stage prints nothing, which looks like the
+        // generator was never called.
         bool const trace = chunkTraceEnabled();
         if (trace)
         {
             auto const& cp = lc.mPosition.get();
             hostLogger().info(
-                "[gen>  ] 区块 ({}, {}) 进入 PlotGenerator::loadChunk，当前状态编号 {}",
+                "[gen>  ] chunk ({}, {}) entering PlotGenerator::loadChunk, state number {}",
                 cp.x, cp.z, static_cast<int>(lc.mLoadState->load())
             );
         }
 
         auto& buf = acquireBuffer();
 
-        // 每个区块开工前把两层「会变」的层重置掉：上一个区块留下的路缘和
-        // 道路方块不能渗到这个区块里来。
+        // The two varying layers are reset before each chunk, so the curb and road
+        // blocks the previous chunk left behind cannot bleed into this one.
         fillLayer(buf.blocks, mFloorBlock, mFloorIndexY);
         fillLayer(buf.blocks, mAirBlock, mBorderIndexY);
 
@@ -174,11 +180,11 @@ namespace pier::dimensions
                     buf.blocks[static_cast<size_t>(bufferIndex(x, mFloorIndexY, z))] = mRoadBlock;
                     break;
                 case PlotArea1D::Border:
-                    // 地表保持地皮方块，上面加一圈路缘
+                    // The surface keeps the plot block and a curb is added above it
                     buf.blocks[static_cast<size_t>(bufferIndex(x, mBorderIndexY, z))] = mBorderBlock;
                     break;
                 case PlotArea1D::Plot:
-                    break; // 已经是地表方块 + 上方空气
+                    break; // Already the surface block with air above
                 }
             }
         }
@@ -188,21 +194,22 @@ namespace pier::dimensions
         lc.recomputeHeightMap(false);
         lc.setSaved();
 
-        // 用 LevelChunk::tryChangeState，不要手写 CAS。tryChangeState 是导出函数，
-        // 除了换那个原子量还要叫醒等在这块地上的链路；手写 CAS 只换值，而且失败时
-        // 完全静默 —— 状态但凡不是恰好 Generating，这一步什么都没干、日志上一个字
-        //都没有，区块永远停在那儿。
+        // LevelChunk::tryChangeState is used and no CAS is written by hand.
+        // tryChangeState is an exported function that also wakes the chain waiting on
+        // this chunk, while a hand-written CAS only swaps the value and is entirely
+        // silent on failure: with the state anything other than exactly Generating, the
+        // step does nothing, prints nothing, and the chunk stays there forever.
         if (!lc.tryChangeState(ChunkState::Generating, ChunkState::Generated))
         {
             hostLogger().error(
-                "区块 ({}, {}) 的 Generating -> Generated 跃迁失败，当前状态编号 {} —— "
-                "这块地不会被送到客户端",
+                "[plot] chunk ({}, {}) failed the Generating to Generated transition, state "
+                "number {}; this chunk will not be sent to the client",
                 chunkPos.x, chunkPos.z, static_cast<int>(lc.mLoadState->load())
             );
         }
         else if (trace)
         {
-            hostLogger().info("[gen   ] 区块 ({}, {}) 生成完毕", chunkPos.x, chunkPos.z);
+            hostLogger().info("[gen   ] chunk ({}, {}) generated", chunkPos.x, chunkPos.z);
         }
     }
 } // namespace pier::dimensions

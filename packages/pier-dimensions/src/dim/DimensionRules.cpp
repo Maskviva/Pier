@@ -1,18 +1,17 @@
 /**
- * DimensionRules.cpp —— 按维度生效的行为规则。
- *
- * 基岩版的 gamerule 是全服一份的：想让创造用的地皮世界不刷怪只能
- * doMobSpawning=false，而这会把同一个服务器上的生存世界也变成空城。这里换成钩住真
- * 正干活的那几个函数（Spawner::spawnMob、Level::explode 之类），它们都带着一个
- * BlockSource，从中拿得到维度 id，判定于是真正按维度隔离。
- *
- * 规则表按维度 id 稀疏存储，查不到就直接 origin()：这些 hook 装在全局，绝不能因为
- * 装了 hook 就改变没被管理的维度的行为，调用方不需要为原版维度显式开启任何东西。
- *
- * 八个挂载点覆盖十二条规则。SpawnMonster、SpawnAnimal、SpawnSpawner 共用
- * Spawner::spawnMob，ExplodeBlocks 与 MobGriefing 共用 Level::explode，PistonPush
- * 与 PistonCrossPlot 共用 PistonBlockActor::_checkAttachedBlocks。EntityCrossPlot
- * 不在本文件，它由 PlotConfine.cpp 自己的挂载点实现。
+ * DimensionRules.cpp: behavior rules that apply per dimension.
+ * A Bedrock gamerule is one value for the whole server: keeping mobs out of a creative
+ * plot world means doMobSpawning=false, which also empties the survival world on the
+ * same server. The functions that do the work are hooked instead, such as
+ * Spawner::spawnMob and Level::explode. Each carries a BlockSource that yields a
+ * dimension id, so the decision really is per dimension.
+ * The rule table is sparse by dimension id and a miss goes straight to origin(). These
+ * hooks are installed globally and must never change the behavior of an unmanaged
+ * dimension, so a caller enables nothing for the vanilla dimensions.
+ * Eight hook points cover twelve rules. SpawnMonster, SpawnAnimal and SpawnSpawner
+ * share Spawner::spawnMob, ExplodeBlocks and MobGriefing share Level::explode, and
+ * PistonPush and PistonCrossPlot share PistonBlockActor::_checkAttachedBlocks.
+ * EntityCrossPlot is not in this file; PlotConfine.cpp implements it on its own hook.
  */
 #include "pier/dimensions/dim/dimension_rules.h"
 
@@ -43,9 +42,11 @@
 
 namespace pier::dimensions
 {
-    // 编号必须和 ABI 逐值一致。写两遍是不得已（这一侧要有名字），但不能
-    // 只靠人来保持同步 —— 错位之后的症状是「设了不刷怪、关掉的却是火焰蔓延」，
-    // 从现象完全看不出根因在编号上。所以钉在编译期。
+    // The numbering must match the ABI value for value. Writing it twice is
+    // unavoidable, since this side needs names, but keeping the two in step must not
+    // rest on a person. The symptom of a mismatch is setting mob spawning off and
+    // turning off fire spread instead, which shows nothing about the numbering, so it
+    // is pinned at compile time.
     static_assert(static_cast<int>(DimRule::SpawnMonster) == PIER_DIMRULE_SPAWN_MONSTER);
     static_assert(static_cast<int>(DimRule::SpawnAnimal) == PIER_DIMRULE_SPAWN_ANIMAL);
     static_assert(static_cast<int>(DimRule::SpawnSpawner) == PIER_DIMRULE_SPAWN_SPAWNER);
@@ -59,19 +60,19 @@ namespace pier::dimensions
     static_assert(static_cast<int>(DimRule::Ride) == PIER_DIMRULE_RIDE);
     static_assert(static_cast<int>(DimRule::PistonCrossPlot) == PIER_DIMRULE_PISTON_CROSS_PLOT);
     static_assert(static_cast<int>(DimRule::EntityCrossPlot) == PIER_DIMRULE_ENTITY_CROSS_PLOT);
-    static_assert(kDimRuleCount == PIER_DIMRULE_ENTITY_CROSS_PLOT + 1, "追加了规则却没改计数");
+    static_assert(kDimRuleCount == PIER_DIMRULE_ENTITY_CROSS_PLOT + 1, "a rule was appended without updating the count");
 
     namespace
     {
         using ::pier::hostLogger;
 
         /**
-         * (维度 id, 规则) -> 允许与否。只存显式设过的项。
-         *
-         * 用 mutex 而不是无锁结构：写入只发生在世界创建/加载时（每服几十次），
-         * 读取在 spawn 路径上（每秒几百次）。读多写少，但读的绝对量也不大 ——
-         * 一次 spawn 已经要走一大堆引擎逻辑，一次 mutex lock 淹没在噪音里。
-         * 真要优化也该先测，别凭感觉上无锁。
+         * (dimension id, rule) to allowed. Only entries that were set explicitly.
+         * A mutex rather than a lock-free structure. Writes happen when a world is
+         * created or loaded, a few dozen times per server, and reads happen on the spawn
+         * path, a few hundred times per second. Reads dominate, but their absolute count
+         * is small: one spawn already runs a great deal of engine logic and one mutex
+         * lock disappears into that noise. Optimizing this starts with a measurement.
          */
         std::mutex& rulesMutex()
         {
@@ -91,7 +92,8 @@ namespace pier::dimensions
                 | static_cast<uint32_t>(rule);
         }
 
-        /** 该维度是否有任何规则。没有就整个 hook 走快速路径。 */
+        /** Whether the dimension has any rule at all. Without one the hook takes its
+         *  fast path. */
         std::unordered_map<int, int>& dimCounts()
         {
             static std::unordered_map<int, int> m;
@@ -110,11 +112,13 @@ namespace pier::dimensions
     {
         if (rule < 0 || rule >= kDimRuleCount)
         {
-            // 越界的规则号只可能来自调用方的 bug 或者一个比宿主更新的 SDK。
-            // 静默忽略会让「我明明设了」变成一个查不到根因的报障。
+            // An out-of-range rule number can only come from a caller bug or from an SDK
+            // newer than the host. Ignoring it silently turns "I did set it" into a
+            // report with no findable cause.
             hostLogger().error(
-                "set_dimension_rule(dim={}, rule={})：规则号超出本宿主支持的范围 [0,{})，忽略。"
-                "如果这个规则是新加的，说明模组是按更新的 ABI 编的，请升级 pier。",
+                "[dim] set_dimension_rule(dim={}, rule={}): the rule number is outside the "
+                "range [0,{}) this host supports and is ignored; if the rule is new, the mod "
+                "was built against a newer ABI and the pier host needs upgrading",
                 dimension, rule, kDimRuleCount
             );
             return;
@@ -144,10 +148,10 @@ namespace pier::dimensions
     namespace
     {
         /**
-         * 查一条规则。没设过就返回 `fallback`（一律是 true = 按原版走）。
-         *
-         * 默认放行是这里的关键约束：这些 hook 装在全局，任何一个没被管理
-         * 的维度都必须完全感觉不到它们的存在。
+         * Looks up one rule. An unset rule returns `fallback`, which is always true,
+         * meaning behave as vanilla.
+         * Defaulting to allow is the key constraint here: these hooks are installed
+         * globally and an unmanaged dimension must not notice them at all.
          */
         bool allowed(int dimension, DimRule rule, bool fallback = true)
         {
@@ -157,10 +161,12 @@ namespace pier::dimensions
         }
 
         /**
-         * 取维度 id。-1 是「问不出来」，不是某个维度（契约 §5.2）——
-         * 所有调用点都写成 `dim < 0 → 直接 origin()`，也就是「不知道就别管」。
-         * 这是刻意的：一个读不出维度的 BlockSource 说明引擎状态已经不正常，
-         * 这时候按某个猜出来的维度去执行保护规则，比不执行更危险。
+         * Reads the dimension id. -1 means it cannot be determined and is not a
+         * dimension (contract §5.2), so every call site is written as
+         * `dim < 0` going straight to origin(), meaning do nothing when unknown. That is
+         * deliberate: a BlockSource whose dimension cannot be read means the engine state
+         * is already abnormal, and enforcing a protection rule against a guessed
+         * dimension is more dangerous than not enforcing it.
          */
         int dimOf(::BlockSource& region)
         {
@@ -174,19 +180,19 @@ namespace pier::dimensions
             }
         }
 
-        //  生物生成
+        //  Mob spawning
 
         /*
-         * `Spawner::spawnMob` 是所有生成的必经之路：自然刷怪、刷怪笼、
-         * 刷怪蛋、指令召唤都从这里过。所以要靠参数区分来源，别把玩家用刷怪蛋
-         * 放的羊也拦掉。
+         * `Spawner::spawnMob` is on the path of every spawn: natural spawning, spawners,
+         * spawn eggs and command summons all pass through it, so the source is told apart
+         * by the arguments and a sheep a player placed with an egg is not blocked.
          *
-         *   naturalSpawn == true   自然生成 -> 按 SpawnMonster / SpawnAnimal
-         *   fromSpawner  == true   刷怪笼   -> 按 SpawnSpawner
-         *   两者都 false           指令/刷怪蛋/繁殖 -> 永远放行
+         *   naturalSpawn == true   natural spawn -> SpawnMonster or SpawnAnimal
+         *   fromSpawner  == true   a spawner     -> SpawnSpawner
+         *   both false             command, egg or breeding -> always allowed
          *
-         * 最后那条是有意的：玩家在创造世界里主动放生物是正常玩法，不该被
-         * 「这个世界不刷怪」的设置拦住。
+         * The last line is deliberate: a player placing a mob in a creative world is
+         * ordinary play and must not be blocked by a no-spawning setting.
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleSpawnMobHook,
@@ -216,8 +222,9 @@ namespace pier::dimensions
 
             if (naturalSpawn)
             {
-                // 敌对还是友好：先按类别判，判不出来就当敌对处理。
-                // 宁可在创造世界少刷一只，也不要多刷一只打断建筑。
+                // Hostile or friendly is decided by category, and an undecidable one
+                // counts as hostile. One mob too few in a creative world beats one too
+                // many interrupting a build.
                 auto* mob = origin(region, id, spawner, pos, naturalSpawn, surface, fromSpawner);
                 if (!mob) return nullptr;
 
@@ -226,29 +233,31 @@ namespace pier::dimensions
                     hostile ? allowed(dim, DimRule::SpawnMonster) : allowed(dim, DimRule::SpawnAnimal);
                 if (!ok)
                 {
-                    // 已经生成出来了才知道类别，只能立刻移除。比在生成前猜类别
-                    // 可靠 —— ActorDefinitionIdentifier 只有名字，把
-                    // "minecraft:zombie" 之类硬编码成一张表迟早会漏。
+                    // The category is only known once the mob exists, so it is removed
+                    // immediately. That is more reliable than guessing beforehand:
+                    // ActorDefinitionIdentifier carries only a name, and hardcoding
+                    // entries such as "minecraft:zombie" into a table eventually misses
+                    // one.
                     try
                     {
-                        // $despawn 是虚函数 thunk（Actor.h:1917）；
-                        // 直接调 despawn() 在这套头文件里不存在。
+                        // $despawn is the virtual thunk (Actor.h:1917). A direct
+                        // despawn() does not exist in these headers.
                         mob->$despawn();
                     }
                     catch (...)
                     {
-                        hostLogger().warn("按维度规则移除生成的生物时抛异常（dim {}）", dim);
+                        hostLogger().warn("[dim] removing a spawned mob for a dimension rule threw, dim {}", dim);
                     }
                     return nullptr;
                 }
                 return mob;
             }
 
-            // 指令 / 刷怪蛋 / 繁殖：不拦。
+            // Command, spawn egg and breeding are not blocked.
             return origin(region, id, spawner, pos, naturalSpawn, surface, fromSpawner);
         }
 
-        //  弹射物
+        //  Projectiles
 
         LL_TYPE_INSTANCE_HOOK(
             DimRuleSpawnProjectileHook,
@@ -271,19 +280,20 @@ namespace pier::dimensions
             return origin(region, id, spawner, position, direction);
         }
 
-        //  爆炸
+        //  Explosions
 
         /*
-         * 关键取舍：不取消爆炸，只把「破坏方块」这一位关掉。Level::explode 有一个
-         * breaksBlocks 参数，传 false 就是「炸得响、有伤害、但不留坑」；整个取消会
-         *连带吃掉伤害和粒子，玩家会觉得苦力怕失灵了。
-         *
-         * ExplodeBlocks = false 时任何爆炸都不破坏方块（含 TNT）；MobGriefing =
-         * false 时只有生物引发的爆炸不破坏方块，玩家点的 TNT 照炸。两个都设时任意
-         * 一个禁止就不破坏。
-         *
-         * 只钩带 BlockSource 的那个重载。另一个 $explode(Explosion&) 的 Explosion
-         * 里没有 BlockSource 成员（只有 mPos / mSourceID），拿不到维度。
+         * The key trade: the explosion is not cancelled, only its block-breaking bit is
+         * turned off. Level::explode takes a breaksBlocks parameter, and false means it
+         * still bangs and still hurts but leaves no crater. Cancelling the whole thing
+         * would also eat the damage and the particles, and a player would conclude the
+         * creeper is broken.
+         * ExplodeBlocks = false stops any explosion from breaking blocks, TNT included.
+         * MobGriefing = false stops only mob-caused explosions, while TNT a player lit
+         * still breaks blocks. With both set, either one forbidding is enough.
+         * Only the overload carrying a BlockSource is hooked. The Explosion passed to
+         * $explode(Explosion&) has no BlockSource member, only mPos and mSourceID, so the
+         * dimension cannot be obtained there.
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleExplodeHook,
@@ -311,8 +321,9 @@ namespace pier::dimensions
 
             bool allowBreak = allowed(dim, DimRule::ExplodeBlocks);
 
-            // 生物引发的爆炸额外受 MobGriefing 约束。玩家点的 TNT 不算 ——
-            // source 为空（TNT 方块自己）或者是玩家时，只看 ExplodeBlocks。
+            // A mob-caused explosion is additionally subject to MobGriefing. TNT lit by
+            // a player is not: with source null, meaning the TNT block itself, or a
+            // player, only ExplodeBlocks applies.
             if (allowBreak && source != nullptr)
             {
                 bool isMob = false;
@@ -323,9 +334,10 @@ namespace pier::dimensions
                 }
                 catch (...)
                 {
-                    // 问不出类别就当它不是生物 —— 这条路只会让爆炸照原样
-                    // 破坏方块（也就是不额外施加 MobGriefing），是这两条规则
-                    // 里更保守的那一侧：ExplodeBlocks 仍然管着它。
+                    // An undecidable category counts as not a mob. That path only lets
+                    // the explosion break blocks as it otherwise would, applying no extra
+                    // MobGriefing, which is the more conservative side of the two rules
+                    // since ExplodeBlocks still governs it.
                     isMob = false;
                 }
                 if (isMob && !allowed(dim, DimRule::MobGriefing))
@@ -339,15 +351,16 @@ namespace pier::dimensions
             );
         }
 
-        //  火焰蔓延
+        //  Fire spread
 
         /*
-         * `FireBlock::checkBurn` 是火向邻居扩散的那一步。拦住它，已经点着的火
-         * 还会烧、还会烧掉自己那一格，但不会往旁边爬 —— 这正是「火焰蔓延」该有
-         * 的语义，而不是「火焰不存在」。
+         * `FireBlock::checkBurn` is the step where fire spreads to a neighbor. Blocking
+         * it leaves an already burning fire burning, still consuming its own cell, while
+         * it no longer creeps sideways. That is what fire spread should mean, rather than
+         * fire not existing.
          *
-         * 注意这是 const 成员函数。本工程里 const hook 已经证实可用
-         * （ChunkTrace 里那几个包 hook 就是）。
+         * This is a const member function. A const hook is known to work in this project;
+         * the packet hooks in ChunkTrace are const too.
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleFireSpreadHook,
@@ -371,14 +384,14 @@ namespace pier::dimensions
             origin(region, pos, chance, random, age, firePos);
         }
 
-        //  液体蔓延
+        //  Liquid spread
 
         /*
-         * `LiquidBlock::_trySpreadTo` 是水/岩浆向某一格扩散的那一步。拦住它，
-         * 已经放下的液体源还在，但不会往外爬 —— 这正是 PlotSquared 里
-         * `LiquidFlow` 那个 flag 的语义。
+         * `LiquidBlock::_trySpreadTo` is the step where water or lava spreads into one
+         * cell. Blocking it leaves a placed liquid source in place while it no longer
+         * creeps outward, which is what the `LiquidFlow` flag in PlotSquared means.
          *
-         * 挂载点取自 LegacyScriptEngine 的 `onLiquidFlow`。
+         * The hook point comes from `onLiquidFlow` in LegacyScriptEngine.
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleLiquidFlowHook,
@@ -401,11 +414,11 @@ namespace pier::dimensions
             origin(region, pos, neighbor, flowFromPos, flowFromDirection);
         }
 
-        //  耕地被踩坏
+        //  Farmland trampling
 
         /*
-         * `FarmBlock::$transformOnFall` 是「踩上去变回泥土」。地皮世界里这个
-         * 很烦人 —— 别人从你的农场上跑过就毁一片。
+         * `FarmBlock::$transformOnFall` turns farmland back into dirt when stepped on.
+         * In a plot world someone running across a farm ruins a stretch of it.
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleFarmlandHook,
@@ -427,22 +440,22 @@ namespace pier::dimensions
             origin(region, pos, actor, fallDistance);
         }
 
-        //  活塞推动
+        //  Piston movement
 
-        /*
-         * PistonBlockActor::_checkAttachedBlocks 决定这次伸缩能不能带动附着的方块，
-         * 返回 false 即推不动，活塞卡住而不是把方块搬走。拦这里而不拦活塞本身：活塞
-         * 照常动、红石照常工作，整个禁用活塞会把很多红石装置弄坏。
-         *
-         * PistonPush 与 PistonCrossPlot 共用这一个 hook：前者整维度一刀切，后者按边
-         * 界判。同一个符号上叠两层补丁只多一次间接跳转和一处「谁先跑」的不确定性。
-         *
-         * 必须先 origin(region)：要移动哪些方块由它算出（_attachedBlockWalker 往
-         * mAttachedBlocks 里填），不跑就没有清单可查。拿到 true 之后再逐块检查当前
-         * 格与落点格是否都和活塞同区，任何一块出界就整次拒绝 —— 部分放行会把一台飞
-         * 行器撕成两半。拒绝时不清 mAttachedBlocks：返回 false 正是引擎自己「推不
-         * 动」的出口（撞基岩、超过 12 块都走这条），清单留着是它本来就有的状态。
-         */
+        /* PistonBlockActor::_checkAttachedBlocks decides whether this extension can carry
+         * the attached blocks; false means it cannot, so the piston jams rather than moving
+         * them. Blocking here and not the piston itself keeps the piston moving and
+         * redstone working, where disabling pistons breaks many contraptions.
+         * PistonPush and PistonCrossPlot share this hook, the first applying to the whole
+         * dimension and the second deciding by boundary; two patches on one symbol would
+         * add an indirect jump and an ordering question for nothing.
+         * origin(region) must run first: it computes which blocks move, with
+         * _attachedBlockWalker filling mAttachedBlocks, and without it there is no list to
+         * inspect. Once it returns true, each block is checked so that its current cell and
+         * its destination cell are both in the same area as the piston, and one block out
+         * of bounds refuses the whole move, because a partial allowance tears a flying
+         * machine in half. A refusal leaves mAttachedBlocks alone: returning false is the
+         * engine's own cannot-move exit, taken on bedrock or beyond 12 blocks. */
         LL_TYPE_INSTANCE_HOOK(
             DimRulePistonHook,
             ll::memory::HookPriority::Normal,
@@ -462,7 +475,8 @@ namespace pier::dimensions
             {
                 return false;
             }
-            // 允许跨界（或这个维度没被管、没有网格）时到此为止，一格坐标都不算。
+            // Nothing further is computed when crossing is allowed, or the dimension is
+            // unmanaged, or there is no grid.
             if (!managed || allowed(dim, DimRule::PistonCrossPlot) || !hasPlotGrid(dim))
             {
                 return true;
@@ -470,16 +484,20 @@ namespace pier::dimensions
 
             try
             {
-                // 位置和清单走成员而不是 `getPosition()` / `getAttachedBlocks()`：
-                // 那两个都是 MCFOLD，要在运行时解析符号，多一个会因版本漂移而失败
-                // 的环节，而它们只是把这两个成员读出来。`getFacingDir` 不同 ——
-                // 它要从方块状态算朝向，只能调。
+                // The position and the list are read as members rather than through
+                // `getPosition()` and `getAttachedBlocks()`. Both of those are MCFOLD and
+                // need runtime symbol resolution, which adds a step that can fail on
+                // version drift, while all they do is read these two members.
+                // `getFacingDir` is different: it computes the facing from the block
+                // state and has to be called.
                 auto const& self = this->mPosition.get();
                 auto const& facing = this->getFacingDir(region);
                 for (auto const& b : this->mAttachedBlocks.get())
                 {
-                    // 起点和落点都要查。只查落点的话，把方块从别人地里拉出来
-                    // （粘性活塞回缩）会被放行，而那和推进去是同一类越界。
+                    // Both the origin cell and the destination cell are checked. Checking
+                    // only the destination would allow pulling a block out of someone
+                    // else's plot with a sticky piston, which is the same violation as
+                    // pushing one in.
                     if (!sameArea(dim, self.x, self.z, b.x, b.z)
                         || !sameArea(dim, self.x, self.z, b.x + facing.x, b.z + facing.z))
                     {
@@ -489,20 +507,23 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 读不到清单就保守拒绝。这是安全判定，不知道的时候放行等于没装。
+                // An unreadable list refuses conservatively. This is a protection
+                // decision, and allowing when unknown is the same as not installing it.
                 return false;
             }
             return true;
         }
 
-        //  乘坐载具
+        //  Riding
 
         /*
-         * `Actor::$canAddPassenger` 是「这个东西能不能被骑」。挂在 Actor 上，
-         * 所以船、矿车、马、猪一起覆盖。挂载点取自 LSE 的 `onRide`。
+         * `Actor::$canAddPassenger` decides whether something can be ridden. It hangs off
+         * Actor, so boats, minecarts, horses and pigs are all covered. The hook point
+         * comes from `onRide` in LSE.
          *
-         * 注意这里的维度是从被骑的那个实体取的，不是乘客 —— 两者一定在同
-         * 一个维度，取哪个都行，取 this 少一次解引用。
+         * The dimension is taken from the ridden entity and not from the passenger. Both
+         * are certainly in the same dimension, so either works, and this saves one
+         * dereference.
          */
         LL_TYPE_INSTANCE_HOOK(
             DimRuleRideHook,
@@ -520,9 +541,10 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 同 dimOf：-1 是「问不出来」，下面那行的 `dim >= 0` 会让整条
-                // 规则失效、直接 origin()。读不出维度的实体多半正在被销毁，
-                // 这时候按猜出来的维度去拦一次骑乘毫无价值。
+                // As in dimOf, -1 means it cannot be determined, and the `dim >= 0` on
+                // the following line disables the rule and goes to origin(). An entity
+                // whose dimension cannot be read is most likely being destroyed, and
+                // blocking one ride against a guessed dimension is worth nothing.
                 dim = -1;
             }
             if (dim >= 0 && anyRuleFor(dim) && !allowed(dim, DimRule::Ride))
@@ -550,10 +572,10 @@ namespace pier::dimensions
         if (gInstalled) return;
         DimRuleHookReg::hook();
         gInstalled = true;
-        // 说数目就要说准：8 个挂载点，覆盖 12 条规则（第 13 条
-        // EntityCrossPlot 在 PlotConfine.cpp）。旧版这里写的是「9 类」——
-        // 两个数都对不上，而一条对不上号的日志会让人去数错的地方。
-        hostLogger().debug("按维度生效的行为规则已启用：8 个挂载点，覆盖 12 条规则");
+        // The counts are stated exactly: 8 hook points covering 12 rules, with the 13th,
+        // EntityCrossPlot, in PlotConfine.cpp. A log line whose numbers do not add up
+        // sends whoever reads it counting in the wrong place.
+        hostLogger().debug("[dim] per-dimension behavior rules enabled: 8 hook points covering 12 rules");
     }
 
     void unregisterDimensionRuleHooks()

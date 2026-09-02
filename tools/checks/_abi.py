@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""共享解析器 —— 所有和 `sdk/abi.h` 有关的机检都从这里取事实。
+"""The shared parser: every machine check concerning `sdk/abi.h` takes its facts here.
 
-为什么单独一份：abi-additive、sys-mirrors-abi、abi-no-lang 三条检查都要
-「PierApi 的槽序」。各写一份解析器 = 三份会各自漂移，而漂移的症状是
-「某一条检查悄悄不再检查它以为在检查的东西」—— 和契约 §五 反对的静默
-回退同族。
+Why there is only one: abi-additive, sys-mirrors-abi and abi-no-lang all need the slot
+order of PierApi. Three separate parsers would drift apart, and the symptom of that drift
+is a check quietly no longer checking what it believes it checks, which is the same family
+as the silent fallback contract §5 forbids.
 """
 
 import os
@@ -25,19 +25,21 @@ def strip_comments(text):
 
 
 def struct_body(src, name):
-    """取出 `typedef struct <name> { ... } <name>;` 的花括号内文本。"""
+    """Returns the text inside the braces of `typedef struct <name> { ... } <name>;`."""
     m = re.search(
         r"typedef\s+struct\s+%s\s*\{(.*?)\n\}\s*%s\s*;" % (name, name), src, re.S
     )
     if not m:
-        raise SystemExit("abi.h 里找不到 struct %s —— 解析器和头文件已经脱节" % name)
+        raise SystemExit("struct %s was not found in abi.h: the parser and the header have come apart" % name)
     return m.group(1)
 
 
 def slots_of(src, struct="PierApi"):
-    """按声明顺序返回字段名列表。函数指针槽返回槽名，标量返回字段名。
+    """Returns the field names in declaration order. A function-pointer slot yields the
+    slot name and a scalar yields the field name.
 
-    顺序就是 ABI 本身 —— 这个列表的任何重排都是破坏性变更（契约 §2.2）。
+    The order is the ABI itself, so any reordering of this list is a breaking change
+    (contract §2.2).
     """
     body = strip_comments(struct_body(src, struct))
     out = []
@@ -51,20 +53,22 @@ def slots_of(src, struct="PierApi"):
             continue
         m = re.match(r"^[\w\s\*]*?\b(\w+)$", decl.replace("\n", " ").strip())
         if not m:
-            raise SystemExit("无法解析 %s 的字段：%r" % (struct, decl[:60]))
+            raise SystemExit("a field of %s could not be parsed: %r" % (struct, decl[:60]))
         out.append(m.group(1))
     return out
 
 
-# 头文件包含守卫不是契约的一部分，不参与镜像比对。
+# An include guard is not part of the contract and takes no part in the mirror comparison.
 _GUARD = {"PIER_SDK_ABI_H"}
 
 
 def defines(src):
-    """取出所有 `#define NAME value` 的字面量宏（用于常量镜像比对）。
+    """Returns every `#define NAME value` literal macro, for the constant mirror
+    comparison.
 
-    值里的行尾块注释要剥掉 —— 不剥的话比对的是「2 /* 说明 */」和「2」，
-    永远不等，而那种恒红的检查等于没有检查。
+    A trailing block comment in the value is stripped. Without stripping, the comparison
+    runs between `2 /* note */` and `2`, which never match, and a permanently red check is
+    the same as no check.
     """
     out = {}
     for m in re.finditer(r"^#define\s+(PIER_\w+)\s+([^\n\\]*)$", src, re.M):
@@ -73,21 +77,23 @@ def defines(src):
             continue
         val = re.sub(r"/\*.*?\*/", "", m.group(2)).strip()
         if not val:
-            continue  # 无值宏（纯开关），没有可比的东西
+            continue  # A macro with no value, a pure switch, has nothing to compare
         out[name] = val
     return out
 
 
 def same_value(a, b):
-    """两个常量字面量在数值上相同吗。
+    """Whether two constant literals are numerically the same.
 
-    先按整数解（十进制、十六进制、带 u/U/L 后缀都认），解不了再退到
-    去掉空白和括号之后的字符串相等 —— `(1 << PIER_PKT_INBOUND)` 和
-    `1 << PIER_PKT_INBOUND` 是同一个表达式，只是 C 那边习惯加括号。
+    Integers are parsed first, in decimal or hexadecimal and with u, U or L suffixes,
+    and anything unparsable falls back to string equality after whitespace and parentheses
+    are removed, since `(1 << PIER_PKT_INBOUND)` and `1 << PIER_PKT_INBOUND` are the same
+    expression and C simply tends to add the parentheses.
 
-    **不要用 `rstrip("u32")` 那种写法**：rstrip 的参数是字符集合，
-    `"2".rstrip("u32")` 得到空串 —— 这个坑刚在本文件的上一版踩过，
-    症状是所有值为 2 或 3 的常量集体报「值不同：2 vs 2」。
+    A spelling such as `rstrip("u32")` must not be used: the argument of rstrip is a set of
+    characters, so `"2".rstrip("u32")` yields an empty string. The previous version of this
+    file hit exactly that, and the symptom was every constant valued 2 or 3 reporting a
+    difference between 2 and 2.
     """
 
     def norm(x):
@@ -106,7 +112,7 @@ def same_value(a, b):
 
 
 def enum_values(src, name):
-    """取出 `typedef enum <name> { A = 1, B = 2 } <name>;` 的成员与值。"""
+    """Returns the members and values of `typedef enum <name> { A = 1, B = 2 } <name>;`."""
     m = re.search(
         r"typedef\s+enum\s+%s\s*\{(.*?)\}\s*%s\s*;" % (name, name), src, re.S
     )
@@ -136,7 +142,7 @@ def enum_values(src, name):
     return out
 
 
-# ── 结果汇报的统一形状 ────────────────────────────────────────────────
+# The common shape for reporting a result
 class Result:
     def __init__(self, check):
         self.check = check

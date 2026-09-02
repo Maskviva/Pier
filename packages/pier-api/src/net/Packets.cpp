@@ -1,15 +1,17 @@
-/** net/Packets.cpp —— 按连接投递数据包（追加槽，struct_size 把门）。
- *
- * 两层。api_send_packet 是裸原语：任意 MinecraftPacketIds 加线格式包体，反序列化
- * 成真数据包对象交给一个玩家的连接，让「就发个包」的需求不必再动桥。
- * api_spawn_particle_for 与 api_player_send_title 是同一条投递路径的类型化派生，
- * 包在 C++ 侧构造（没有线格式跨 FFI，版本安全），复用同一个投递助手。
- *
- * api_player_send_title 存在的理由：player_action 的 PACT_SET_TITLE 曾 shell 出去
- * 跑 /title "<name>" title <text>，名字带引号就碎，文本里的选择器会被展开，时长也
- * 定不了。刻意不暴露广播变体，模组要「所有人」时自己循环玩家。
- *
- * 读改既有的包住在 PacketHooks，本文件只制造新包。
+/** net/Packets.cpp: per-connection packet delivery. Appended slots gated by
+ *  struct_size.
+ * Two layers. api_send_packet is the raw primitive: any MinecraftPacketIds plus a wire
+ * format body, deserialized into a real packet object and handed to one player's
+ * connection, so a plain send-a-packet need never touch the bridge again.
+ * api_spawn_particle_for and api_player_send_title are typed derivatives of the same
+ * delivery path, with the packet built on the C++ side, so no wire format crosses the
+ * FFI and they are version safe, and they reuse the same delivery helper.
+ * api_player_send_title exists because PACT_SET_TITLE on player_action would
+ * shell out to /title "<name>" title <text>, which breaks on a quote in the name,
+ * expands selectors inside the text, and cannot set the durations. No broadcast
+ * variant is exposed on purpose; a mod that wants everyone loops over players.
+ * Reading and editing existing packets lives in PacketHooks. This file only makes new
+ * ones.
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -40,8 +42,8 @@ namespace pier::api_impl
 {
     namespace
     {
-        /// 共享投递：解析目标、把现成的包交给那一个连接。裸入口和类型化入口
-        /// 都终结在这里。
+        /// Shared delivery: resolves the target and hands a ready packet to that one
+        /// connection. Both the raw and the typed entry points end here.
         bool sendToPlayer(PierPlayerSel sel, Packet& pkt)
         {
             Player* p = bridge::resolvePlayer(sel);
@@ -58,13 +60,14 @@ namespace pier::api_impl
                 auto pkt = MinecraftPackets::createPacket(static_cast<MinecraftPacketIds>(packetId));
                 if (!pkt) return false;
 
-                // 把调用方给的包体反序列化进包对象。流借用字节
-                //（copyBuffer=false）—— 本帧内有效。
+                // Deserializes the caller's body into the packet object. The stream
+                // borrows the bytes with copyBuffer=false and is valid for this frame.
                 std::string_view raw{reinterpret_cast<char const*>(body), bodyLen};
                 ReadOnlyBinaryStream stream{raw, /*copyBuffer=*/false};
                 if (!pkt->read(stream)) return false;
-                // 包体必须恰好是一个包：有尾随垃圾意味着调用方按错的形状
-                // 序列化了这个游戏版本 —— 早点拒绝，别把半解析的包发给客户端。
+                // The body must be exactly one packet. Trailing garbage means the
+                // caller serialized the wrong shape for this game version, so it is
+                // refused early rather than sending a half-parsed packet to a client.
                 if (!stream.ensureReadCompleted()) return false;
 
                 return sendToPlayer(sel, *pkt);
@@ -78,15 +81,17 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 using TitleType = SetTitlePacketPayload::TitleType;
 
-                // 6..8 是 TextObject 变体；它们的载荷构造函数要
-                // ResolvedTextObject，那东西跨这道 FFI 没有意义。拒绝而不是静
-                // 默降级成纯字符串变体 —— 调用方要的和它会拿到的不是一个东西。
+                // 6..8 are the TextObject variants, whose payload constructors take a
+                // ResolvedTextObject, which is meaningless across this FFI. They are
+                // refused rather than degraded silently to the plain string variant,
+                // which is not what the caller asked for.
                 if (type < 0 || type > 5) return false;
                 auto const kind = static_cast<TitleType>(type);
 
-                // 三个时长要么全给要么全不给。混着给没有任何站得住的解读：
-                // 「淡入 5 tick、停留时长看客户端手头是啥」是调用点的 bug，不
-                // 是请求。
+                // The three durations are given all together or not at all. A mixed
+                // set has no defensible reading: a 5-tick fade-in with whatever stay
+                // time the client happens to hold is a bug at the call site, not a
+                // request.
                 int const specified =
                     (fadeInTicks >= 0 ? 1 : 0) + (stayTicks >= 0 ? 1 : 0) + (fadeOutTicks >= 0 ? 1 : 0);
                 if (specified != 0 && specified != 3) return false;
@@ -95,10 +100,11 @@ namespace pier::api_impl
                 Player* p = bridge::resolvePlayer(sel);
                 if (!p) return false;
 
-                // 时长（若要）先发、单独一个包 —— `/title <who> times a b c`
-                // 发的就是它，客户端把它应用到之后到达的标题上。只把时长
-                // 塞进内容包在有些版本上行、有些版本上不行；发 Times 包是原版
-                // 自己依赖的行为。
+                // The durations, when requested, go first as a packet of their own,
+                // which is what `/title <who> times a b c` sends, and the client applies
+                // them to titles arriving afterwards. Putting the durations only into
+                // the content packet works on some versions and not others, while
+                // sending a Times packet is behavior vanilla itself relies on.
                 if (withTimes)
                 {
                     SetTitlePacket times;
@@ -107,18 +113,18 @@ namespace pier::api_impl
                     times.mStayTime = stayTicks;
                     times.mFadeOutTime = fadeOutTicks;
                     p->sendNetworkPacket(times);
-                    // type == 5 表示调用方只想改时长。
+                    // type == 5 means the caller only wants to change the durations.
                     if (kind == TitleType::Times) return true;
                 }
                 else if (kind == TitleType::Times)
                 {
-                    // 不带时长的 Times 是个空请求，不是合法的包。
+                    // A Times without durations is an empty request, not a valid packet.
                     return false;
                 }
 
-                // ll::PayloadPacket<T> 派生自 T（mc/network/Packet.h:204），载荷
-                // 字段直接躺在包上 —— 和上面 SpawnParticleEffectPacket 同一个访
-                // 问模式。不涉及线格式。
+                // ll::PayloadPacket<T> derives from T (mc/network/Packet.h:204), so the
+                // payload fields sit directly on the packet, the same access pattern
+                // SpawnParticleEffectPacket uses above. No wire format is involved.
                 SetTitlePacket pkt;
                 pkt.mType = kind;
                 if (kind == TitleType::Title || kind == TitleType::Subtitle
@@ -140,18 +146,22 @@ namespace pier::api_impl
             PierPlayerSel sel, int32_t dimension, PierStr effectName, double x, double y, double z)
         {
             PIER_API_GUARD_BEGIN
-                // 类型化构造：MCAPI 默认构造把包初始化好（序列化模式）、载荷给
-                // 默认值（mActorId = 无效，mMolangVariables = nullopt）；这里只
-                // 填要紧的三个字段。不涉及线格式 —— 版本升了也不用像
-                // api_send_packet 的调用方那样自己跟。
+                // Typed construction. The MCAPI default constructor initializes the
+                // packet in serialization mode and gives the payload its defaults, with
+                // mActorId invalid and mMolangVariables nullopt, so only the three
+                // fields that matter are filled here. No wire format is involved, so a
+                // version bump needs no follow-up the way an api_send_packet caller
+                // does.
                 if (dimension < 0 || dimension > 255)
                 {
                     static std::set<int32_t> warned;
                     if (warned.insert(dimension).second)
                     {
                         hostLogger().warn(
-                            "spawn_particle_for: 维度 {} 装不进 SpawnParticleEffectPacket 的单字节维度号，"
-                            "会被截断成 {}。自定义维度里的定向粒子可能不显示，改用 spawn_particle。",
+                            "[packet] spawn_particle_for: dimension {} does not fit the "
+                            "single-byte dimension id of SpawnParticleEffectPacket and is "
+                            "truncated to {}; a targeted particle in a custom dimension may "
+                            "not appear, use spawn_particle instead",
                             dimension, static_cast<int>(static_cast<uchar>(dimension)));
                     }
                 }

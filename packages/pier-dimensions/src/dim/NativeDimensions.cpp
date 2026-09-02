@@ -25,17 +25,18 @@ namespace pier::dimensions
         using pier::hostLogger;
 
         /**
-         * 「告诉客户端的高度」，只影响写进 DimensionDefinition 的那一份，不影响服务
-         * 端实际生成和校验用的 Dimension::mHeightRange。
+         * The height advertised to the client. It affects only the copy written into the
+         * DimensionDefinition, not the Dimension::mHeightRange the server generates and validates
+         * against.
+         * A diagnostic knob and not a feature. With the same -64..320 definition, the overworld
+         * client requests subchunks -4..4, which is correct, while a custom dimension client
+         * requests -32..-24, treating the bottom as subchunk -32, y=-512. More than one formula
+         * fits a single data point, so this pair can be overridden through PIER_DIM_DEF_MIN and
+         * PIER_DIM_DEF_MAX to fix the line with a second data point.
          *
-         * 这是诊断用的旋钮，不是功能。同一份 -64..320 的定义，主世界客户端请求子区
-         * 块 -4..4（正确），自定义维度客户端请求 -32..-24，也就是把底部当成了子区块
-         * -32（y=-512）。能拟合单个数据点的公式不止一条，所以这一份值可由
-         * PIER_DIM_DEF_MIN / PIER_DIM_DEF_MAX 覆盖，用第二个数据点定线。
-         *
-         * 它不会被持久化：dimension_config.json 里存的是种子和布局，维度定义每次开
-         * 服都重建，改了再改回来即可，存档里的方块不受影响。
-         */
+         * It is not persisted: dimension_config.json holds the seed and the layout, the dimension
+         * definition is rebuilt on every boot, a change can simply be changed back, and blocks in
+         * the save are unaffected. / */
         std::pair<int, int> advertisedRange(int minY, int maxY)
         {
             static auto const override_ = []() -> std::optional<std::pair<int, int>>
@@ -56,8 +57,9 @@ namespace pier::dimensions
             if (!override_) return {minY, maxY};
 
             hostLogger().warn(
-                "诊断开关生效：告诉客户端的高度被覆盖为 {}..{}（服务端实际仍然是 {}..{}）。"
-                "这只用于定位子区块索引对不上的问题，排查完请取消这两个环境变量。",
+                "[dim] diagnostic override active: the height advertised to the client is "
+                "{}..{} while the server still uses {}..{}; this exists only to locate a "
+                "subchunk index mismatch, unset both variables once done",
                 override_->first, override_->second, minY, maxY
             );
             return *override_;
@@ -89,14 +91,15 @@ namespace pier::dimensions
         }
     } // namespace
 
-    //  台账
+    //  The ledger
 
     void rememberDimension(std::string const& name, int id)
     {
         std::lock_guard lock{ledgerMutex()};
 
-        // 同一个名字换了 id（不该发生，但如果发生了，旧的反向条目必须清掉，
-        // 否则 dimensionNameOf(旧id) 会一直指向一个已经不存在的维度）。
+        // The same name under a new id. It should not happen, but if it does the old
+        // reverse entry must be cleared, otherwise dimensionNameOf(old id) keeps pointing
+        // at a dimension that no longer exists.
         if (auto it = ledgerByName().find(name); it != ledgerByName().end() && it->second != id)
         {
             ledgerById().erase(it->second);
@@ -133,10 +136,10 @@ namespace pier::dimensions
             if (!out.empty()) out += ", ";
             out += name + "=" + std::to_string(id);
         });
-        return out.empty() ? std::string{"(无)"} : out;
+        return out.empty() ? std::string{"(none)"} : out;
     }
 
-    //  原生注册
+    //  Native registration
 
     namespace native
     {
@@ -150,14 +153,14 @@ namespace pier::dimensions
             {
                 int const v = mgr->getDimensionId(std::string_view{name}).value();
 
-                // 自定义维度一定 >= 3。
+                // A custom dimension is always 3 or above.
                 if (v < 3) return std::nullopt;
 
-                // 但 >= 3 不等于「注册过」：未注册的名字拿回来的是
-                // Undefined()。早先的版本假设 Undefined() 会被运行时改写成一个
-                // 很大的数，所以只判 < 3 就够；改成走引擎原生注册之后不再
-                // 改写它，它就一直停在 3，于是每一个没注册过的名字都被当成了
-                // 「已存在的 id 3」。
+                // Being 3 or above does not mean registered: an unregistered name comes
+                // back as Undefined(). Testing only for less than 3 relies on Undefined()
+                // being rewritten at runtime to a large number. The native path never
+                // rewrites it, so it stays at 3 and every unregistered name would be read
+                // as an existing id 3.
                 if (v == ::VanillaDimensions::Undefined().value()) return std::nullopt;
 
                 return v;
@@ -188,18 +191,20 @@ namespace pier::dimensions
             auto* mgr = managerOrNull();
             if (!mgr)
             {
-                hostLogger().error("原生维度注册：Level 还没开，DimensionManager 拿不到");
+                hostLogger().error("[dim] native registration: Level is not open, DimensionManager is unavailable");
                 return std::nullopt;
             }
 
-            // 存档里 NameIdStore 恢复出来的 id（如果有）。
+            // The id NameIdStore restored from the save, when there is one.
             //
-            // 注意 名字->id 表被恢复 != 维度本次会话可用：NameIdStore 是持
-            // 久化的，把维度接进 DimensionRegistry / 工厂那一步不是。所以最早
-            // 那版在这里直接 return，等于每次重启后工厂绑定永远不再建立。
+            // A restored name-to-id table does not mean the dimension is usable this
+            // session: NameIdStore is persisted while wiring the dimension into
+            // DimensionRegistry and the factory is not. Returning here would leave the
+            // factory binding permanently unestablished after every restart.
             auto const preexisting = engineDimensionId(name);
 
-            // 1) 已知名字：只补工厂绑定，不碰 NameIdStore。成了就走人。
+            // 1) A known name: only the factory binding is restored and NameIdStore is
+            //    left alone. Success ends the call.
             if (preexisting)
             {
                 try
@@ -210,20 +215,21 @@ namespace pier::dimensions
                 catch (std::exception const& e)
                 {
                     hostLogger().warn(
-                        "维度 '{}'（id {}）补绑引擎工厂抛异常：{}", name, *preexisting, e.what());
+                        "[dim] '{}' (id {}) threw while rebinding the engine factory: {}", name, *preexisting, e.what());
                 }
                 catch (...)
                 {
-                    hostLogger().warn("维度 '{}'（id {}）补绑引擎工厂抛未知异常", name, *preexisting);
+                    hostLogger().warn("[dim] '{}' (id {}) threw an unknown exception while rebinding the engine factory", name, *preexisting);
                 }
 
-                // 必须无条件把定义补回去，已经有了就不动。
-                // DimensionDefinitionGroup 不持久化，每次开服都从空的重建，只有走完
-                // 下面第 2 步的维度才会往里加一条；而这条分支是「名字已在
-                // NameIdStore 里」时走的，也就是第二次及以后的每一次开服。直接
-                // return 的后果是组里没有这条定义、DimensionDataPacket 里也没有，客
-                // 户端收到一个自己没有定义的维度 id 的区块只能丢掉，服务端一路
-                // Loaded 而玩家看到一片空白。
+                // The definition is restored unconditionally and an existing one is left
+                // alone. DimensionDefinitionGroup is not persisted, is rebuilt empty every
+                // boot, and only dimensions completing step 2 add an entry, while this
+                // branch is taken whenever the name is already in NameIdStore, meaning
+                // every boot after the first. Returning here leaves the group and
+                // DimensionDataPacket without the definition, so the client drops chunks
+                // of a dimension id it lacks a definition for while the server reaches
+                // Loaded and the player sees nothing.
                 try
                 {
                     auto& group = mgr->getDimensionDefinitionGroup();
@@ -236,16 +242,19 @@ namespace pier::dimensions
                         if (group.tryAddDimensionDefinition(name, def))
                         {
                             hostLogger().info(
-                                "维度 '{}'（id {}）：本次开服 DimensionDefinitionGroup 里没有它的定义，"
-                                "已补上（高度 {}..{}）—— 缺了这条客户端就认不出这个维度，区块会渲染不出来",
+                                "[dim] '{}' (id {}) had no definition in DimensionDefinitionGroup "
+                                "this boot and one was added (height {}..{}); without it the "
+                                "client does not recognize the dimension and its chunks do not "
+                                "render",
                                 name, *preexisting, minY, maxY
                             );
                         }
                         else
                         {
                             hostLogger().error(
-                                "维度 '{}'（id {}）的定义没能补进 DimensionDefinitionGroup —— "
-                                "客户端很可能收不到这个维度的区块",
+                                "[dim] the definition of '{}' (id {}) could not be added to "
+                                "DimensionDefinitionGroup; the client will most likely not "
+                                "receive chunks of this dimension",
                                 name, *preexisting
                             );
                         }
@@ -253,35 +262,40 @@ namespace pier::dimensions
                 }
                 catch (std::exception const& e)
                 {
-                    hostLogger().error("维度 '{}' 补 DimensionDefinition 时抛异常：{}", name, e.what());
+                    hostLogger().error("[dim] '{}' threw while restoring its DimensionDefinition: {}", name, e.what());
                 }
                 catch (...)
                 {
-                    hostLogger().error("维度 '{}' 补 DimensionDefinition 时抛未知异常", name);
+                    hostLogger().error("[dim] '{}' threw an unknown exception while restoring its DimensionDefinition", name);
                 }
 
-                // 不在这里探测。getOrCreateDimension 会真的把维度建出来，而这一
-                // 刻 id 还没定稿（调用方的工厂闭包读的是旧的 shared->id）；早先
-                // 就是在这里留下了一个 id 用错的实例，后面无论怎么改 id 都盖不
-                // 掉它。能不能建得出来，交给调用方在回填 id 之后统一验一次。
+                // Nothing is probed here. getOrCreateDimension really builds the
+                // dimension, and at this moment the id is not final, since the caller's
+                // factory closure still reads the old shared->id. Probing here leaves an
+                // instance built under the wrong id that no later id change can displace.
+                // Whether it can be built is verified once by the caller after the id is
+                // written back.
                 rememberDimension(name, *preexisting);
                 return preexisting;
             }
 
-            // 2) serverRegisterCustomDimension 按名字去 DimensionDefinitionGroup 取
-            //    几何信息，所以定义必须先在组里。行为包里的 JSON 维度走的也是这条
-            //    路，这里只是手动补一条等价的定义。这个组会被 DimensionDataPacket
-            //    整个发给客户端，客户端由此真正知道有这么一个维度、它多高、用哪种生
-            //    成器，于是能接收带真实维度 id 的区块。千万不要再去拦截
-            //    DimensionDataPacket：那套 FakeDimensionId 方案与这里互斥，一起开的
-            //    症状是切维度极慢、加载完闪退、重进后区块全空。
+            // 2) serverRegisterCustomDimension reads the geometry from
+            //    DimensionDefinitionGroup by name, so the definition must be there first;
+            //    a behavior-pack JSON dimension takes the same path and this adds an
+            //    equivalent one by hand. The group goes whole into DimensionDataPacket,
+            //    telling the client the dimension exists, how tall it is and which
+            //    generator it uses, so it accepts chunks with the real id.
+            //    DimensionDataPacket must not be intercepted: FakeDimensionId excludes it,
+            //    and both together give slow switches, a crash after loading, empty chunks.
             try
             {
                 auto& group = mgr->getDimensionDefinitionGroup();
                 if (!group.getDimensionDefinition(name).has_value())
                 {
-                    // 已经知道 id 就直接填进去，比让引擎回写靠谱；全新维度才用
-                    // -1 占位（JSON 加载的维度同样没法预先知道 id）。
+                    // A known id is written in directly, which is more reliable than
+                    // waiting for the engine to write it back. Only a brand new dimension
+                    // uses the -1 placeholder, as a JSON-loaded dimension does, since its
+                    // id cannot be known in advance either.
                     auto const [advMin, advMax] = advertisedRange(minY, maxY);
                     DimensionDefinitionGroup::DimensionDefinition def{
                         advMin,
@@ -292,8 +306,9 @@ namespace pier::dimensions
                     if (!group.tryAddDimensionDefinition(name, def))
                     {
                         hostLogger().warn(
-                            "维度 '{}' 的定义没能加进 DimensionDefinitionGroup；"
-                            "继续尝试注册，失败的话会退回旧路径",
+                            "[dim] the definition of '{}' could not be added to "
+                            "DimensionDefinitionGroup; registration continues and falls back "
+                            "if it fails",
                             name
                         );
                     }
@@ -301,16 +316,17 @@ namespace pier::dimensions
             }
             catch (std::exception const& e)
             {
-                hostLogger().error("维度 '{}' 写入 DimensionDefinitionGroup 时抛异常：{}", name, e.what());
+                hostLogger().error("[dim] '{}' threw while writing to DimensionDefinitionGroup: {}", name, e.what());
                 return std::nullopt;
             }
             catch (...)
             {
-                hostLogger().error("维度 '{}' 写入 DimensionDefinitionGroup 时抛未知异常", name);
+                hostLogger().error("[dim] '{}' threw an unknown exception while writing to DimensionDefinitionGroup", name);
                 return std::nullopt;
             }
 
-            // 3) 正式注册。引擎分配 id、写 NameIdStore、登记工厂。
+            // 3) The real registration. The engine allocates the id, writes NameIdStore
+            //    and records the factory.
             std::optional<DimensionType> assigned;
             try
             {
@@ -318,25 +334,26 @@ namespace pier::dimensions
             }
             catch (std::exception const& e)
             {
-                hostLogger().error("serverRegisterCustomDimension('{}') 抛异常：{}", name, e.what());
+                hostLogger().error("[dim] serverRegisterCustomDimension('{}') threw: {}", name, e.what());
                 return std::nullopt;
             }
             catch (...)
             {
-                hostLogger().error("serverRegisterCustomDimension('{}') 抛未知异常", name);
+                hostLogger().error("[dim] serverRegisterCustomDimension('{}') threw an unknown exception", name);
                 return std::nullopt;
             }
 
             if (!assigned)
             {
-                // 名字已经在 NameIdStore 里时，引擎很可能就是返回空（「已经注册
-                // 过了」）。这种情况下把 id 丢掉是错的 —— 上层会退回手抄分配逻
-                // 辑，换一个跟存档对不上的 id，玩家已经建好的东西就全废了。
+                // When the name is already in NameIdStore the engine most likely returns
+                // empty, meaning it is already registered. Dropping the id there is wrong:
+                // the caller would fall back to allocating one locally, pick an id that
+                // disagrees with the save, and everything players already built is lost.
                 if (preexisting)
                 {
                     hostLogger().warn(
-                        "serverRegisterCustomDimension('{}') 返回空，但 NameIdStore 里已有 id {}，"
-                        "沿用它（引擎侧 active={}）",
+                        "[dim] serverRegisterCustomDimension('{}') returned empty while "
+                        "NameIdStore already holds id {}, which is kept (engine active={})",
                         name, *preexisting, isActive(*preexisting)
                     );
                     rememberDimension(name, *preexisting);
@@ -344,9 +361,10 @@ namespace pier::dimensions
                 }
 
                 hostLogger().error(
-                    "serverRegisterCustomDimension('{}') 返回空 —— 引擎拒绝了这次注册。"
-                    "常见原因是调用时机太早（NameIdStore 还没从存档载入）或太晚"
-                    "（维度已经全部创建完毕）",
+                    "[dim] serverRegisterCustomDimension('{}') returned empty, so the engine "
+                    "refused the registration; the usual causes are calling too early, "
+                    "before NameIdStore is loaded from the save, or too late, after every "
+                    "dimension has been created",
                     name
                 );
                 return std::nullopt;
@@ -356,33 +374,36 @@ namespace pier::dimensions
 
             if (preexisting && *preexisting != id)
             {
-                // 引擎给了一个跟存档里不一样的 id：存档里所有引用旧 id 的区块和
-                // 玩家数据都会失联。这不是能默默咽下去的事。
+                // The engine returned an id different from the one in the save, which
+                // orphans every chunk and every piece of player data referencing the old
+                // id. That is not something to swallow silently.
                 hostLogger().error(
-                    "维度 '{}' 重新注册后 id 从 {} 变成了 {} —— "
-                    "存档里按旧 id 存的区块和玩家位置会全部失联",
+                    "[dim] '{}' changed id from {} to {} on re-registration; every chunk and "
+                    "player position stored under the old id in the save is orphaned",
                     name, *preexisting, id
                 );
             }
 
-            // 4) 回读校验。这一步是防止「注册看起来成功了，实际 id 对不上」，
-            //    也就是早先最终表现成「传送失败」的那类静默错位。
+            // 4) The read-back check, which catches a registration that looks successful
+            //    while the id does not match, the silent mismatch that finally surfaces as
+            //    a failed teleport.
             auto const readBack = engineDimensionId(name);
             if (!readBack || *readBack != id)
             {
                 hostLogger().error(
-                    "维度 '{}' 注册返回 id {}，但 getDimensionId 回读得到 {} —— "
-                    "引擎台账不自洽，放弃原生路径",
-                    name, id, readBack ? std::to_string(*readBack) : std::string{"(无)"}
+                    "[dim] '{}' registered as id {} while getDimensionId reads back {}; the "
+                    "engine ledger is inconsistent and the native path is abandoned",
+                    name, id, readBack ? std::to_string(*readBack) : std::string{"(none)"}
                 );
                 return std::nullopt;
             }
 
-            // 5) 把真实 id 写回 DimensionDefinitionGroup 里那条定义。第 2 步建定义
-            //    时 mDimensionType 填的是 -1 占位，引擎在
-            //    _registerCustomDimensionWithDimensionDefinitionGroup 里通常会自己
-            //    回写，但不能指望：这个组会被 DimensionDataPacket 整个序列化给客户
-            //    端，一个 -1 的维度类型足以让客户端解析失败。
+            // 5) The real id is written back into that definition in
+            //    DimensionDefinitionGroup. Step 2 filled mDimensionType with the -1
+            //    placeholder, and the engine usually writes it back itself inside
+            //    _registerCustomDimensionWithDimensionDefinitionGroup, but that cannot be
+            //    relied on: the group is serialized whole into DimensionDataPacket and a
+            //    dimension type of -1 is enough to make the client fail to parse it.
             try
             {
                 auto& defs = *mgr->getDimensionDefinitionGroup().mDimensionDefinitions;
@@ -390,7 +411,7 @@ namespace pier::dimensions
                     it != defs.end() && it->second.mDimensionType->value() != id)
                 {
                     hostLogger().debug(
-                        "维度 '{}' 的 DimensionDefinition 里 mDimensionType 是 {}，改写为 {}",
+                        "[dim] mDimensionType in the DimensionDefinition of '{}' was {}, rewritten to {}",
                         name, it->second.mDimensionType->value(), id
                     );
                     it->second.mDimensionType = DimensionType{id};
@@ -398,10 +419,10 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                hostLogger().warn("维度 '{}' 回写 DimensionDefinition 的 id 失败（不影响注册本身）", name);
+                hostLogger().warn("[dim] writing the id back into the DimensionDefinition of '{}' failed; registration itself is unaffected", name);
             }
 
-            hostLogger().debug("维度 '{}' 已由引擎原生注册，id {}（高度 {}..{}），active={}",
+            hostLogger().debug("[dim] '{}' registered natively by the engine with id {} (height {}..{}), active={}",
                                name, id, minY, maxY, isActive(id));
             rememberDimension(name, id);
             return id;
@@ -412,27 +433,30 @@ namespace pier::dimensions
             auto* mgr = managerOrNull();
             if (!mgr)
             {
-                hostLogger().error("getOrCreateByName('{}')：Level 还没开", name);
+                hostLogger().error("[dim] getOrCreateByName('{}'): Level is not open", name);
                 return nullptr;
             }
 
-            // 失败原因分三种，混在一个 catch(...) 里根本没法排查：
-            //   a) 名字在 NameIdStore 里查不到  -> 注册压根没生效
-            //   b) 查得到但 active=false        -> 工厂绑定缺失（本次会话没注册）
-            //   c) 以上都正常但 lock() 是空的   -> 工厂闭包本身返回了空
+            // There are three distinct failure causes, and folding them into one
+            // catch(...) makes none of them diagnosable:
+            //   a) the name is not in NameIdStore  -> registration never took effect
+            //   b) present but active=false        -> the factory binding is missing, so
+            //                                         it was not registered this session
+            //   c) both fine but lock() is empty   -> the factory closure returned empty
             auto const id = engineDimensionId(name);
             if (!id)
             {
-                hostLogger().error("getOrCreateByName('{}')：引擎 NameIdStore 里没有这个名字", name);
+                hostLogger().error("[dim] getOrCreateByName('{}'): the engine NameIdStore does not have this name", name);
                 return nullptr;
             }
-            // active=false 不能当拦路条件：观测下来维度实例还没建出来时它就是
-            // false，而 getOrCreateDimension 的职责恰恰是把它建出来。早先的版本
-            // 在这里 return，等于自己把唯一一次真正的尝试挡掉了。只记一笔。
+            // active=false must not block: it is observed to be false whenever the
+            // dimension instance has not been built yet, and building it is precisely what
+            // getOrCreateDimension is for. Returning here would block the only real
+            // attempt, so this only records the fact.
             if (!isActive(*id))
             {
                 hostLogger().debug(
-                    "getOrCreateByName('{}')：id {} 当前 active=false，仍然尝试创建", name, *id);
+                    "[dim] getOrCreateByName('{}'): id {} is currently active=false, creating anyway", name, *id);
             }
 
             try
@@ -442,8 +466,9 @@ namespace pier::dimensions
                 if (!ptr)
                 {
                     hostLogger().error(
-                        "getOrCreateByName('{}')：id {} 已就绪，但 getOrCreateDimension 拿到的是空引用 —— "
-                        "mFactoryMap 里那个闭包返回了空，检查工厂是否在注册之前就位",
+                        "[dim] getOrCreateByName('{}'): id {} is ready but getOrCreateDimension "
+                        "returned an empty reference, so the closure in mFactoryMap returned "
+                        "empty; check that the factory was in place before registration",
                         name, *id
                     );
                     return nullptr;
@@ -452,12 +477,12 @@ namespace pier::dimensions
             }
             catch (std::exception const& e)
             {
-                hostLogger().error("getOrCreateByName('{}') 抛异常：{}", name, e.what());
+                hostLogger().error("[dim] getOrCreateByName('{}') threw: {}", name, e.what());
                 return nullptr;
             }
             catch (...)
             {
-                hostLogger().error("getOrCreateByName('{}') 抛未知异常", name);
+                hostLogger().error("[dim] getOrCreateByName('{}') threw an unknown exception", name);
                 return nullptr;
             }
         }

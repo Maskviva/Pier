@@ -1,18 +1,18 @@
 /**
- * ModControl.cpp —— pier 模组的运行期装 / 卸 / 重载，以及驱动它的 /pier 命令。
+ * ModControl.cpp: runtime load, unload and reload of pier mods, and the /pier command
+ * that drives them.
  *
- * 三个约束塑造了这份文件。一、LeviLamina 没有公开的运行期装载 API，
- * ModManagerRegistry 的 loadMod/unloadMod/enableMod/disableMod 全是 private，够得
- * 着的只有继承来的 protected ModManager 接口（包在 ModHost::controlLoad/
- * controlUnload 里）；因此这里拉起来的模组活在本宿主管理器自己的表里、不在
- * LeviLamina 的依赖图里，依赖检查只能自己翻 manifest 做。
- *
- * 二、不拷 dll。reload 是状态重置（重跑 pier_main、重读配置），不是代码热替换；换
- * 新编译的 dll 走 unload → 重编 → load，而这条路还受 Windows FreeLibrary 引用计数
- * 的摆布，见 checkImageSwapped()。
- *
- * 三、reload 只对声明了 "reload_safe": true 的模组开放；unload 在有依赖方时拒绝，
- * 除非给 --cascade。
+ * Three constraints shape this file. First, LeviLamina has no public runtime load API.
+ * loadMod, unloadMod, enableMod and disableMod on ModManagerRegistry are all private
+ * and only the inherited protected ModManager interface is reachable, wrapped in
+ * ModHost::controlLoad and controlUnload. A mod brought up here lives in this manager's
+ * own table and not in the LeviLamina dependency graph, so dependency checking reads
+ * manifests directly. Second, no dll is copied. A reload is a state reset that reruns
+ * pier_main and rereads config, not a hot code swap. Replacing a rebuilt dll goes
+ * through unload, rebuild, load, and that path is subject to Windows FreeLibrary
+ * reference counting, see checkImageSwapped(). Third, reload is open only to mods
+ * declaring "reload_safe": true, and unload is refused while dependents exist unless
+ * --cascade is given.
  */
 #include "pier/host/mod_control.h"
 
@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-#include "ll/api/Config.h" // 带进 nlohmann/json.hpp
+#include "ll/api/Config.h" // Pulls in nlohmann/json.hpp
 #include "ll/api/io/FileUtils.h"
 #include "ll/api/mod/Mod.h"
 #include "ll/api/mod/ModManagerRegistry.h"
@@ -63,7 +63,7 @@ namespace pier::mod_control
             return ll::mod::getModsRoot() / ll::string_utils::sv2u8sv(name) / u8"manifest.json";
         }
 
-        /** 把一份 manifest.json 解析成 Candidate；失败写 `problem`。 */
+        /** Parses one manifest.json into a Candidate. Failures go to `problem`. */
         Candidate parseCandidate(fs::path const& file, std::string const& dirName)
         {
             Candidate c;
@@ -72,30 +72,30 @@ namespace pier::mod_control
             auto text = ll::file_utils::readFile(file);
             if (!text)
             {
-                c.problem = "manifest.json 读不出来";
+                c.problem = "manifest.json could not be read";
                 return c;
             }
             nlohmann::json j;
             try
             {
-                // (text, cb, allow_exceptions, ignore_comments) —— 和
-                // LeviLamina 自己的配置装载器同一种调用形状。
+                // (text, cb, allow_exceptions, ignore_comments), the same call shape
+                // the LeviLamina config loader itself uses.
                 j = nlohmann::json::parse(*text, nullptr, true, true);
             }
             catch (std::exception const& e)
             {
-                c.problem = std::string{"manifest.json 不是合法 JSON: "} + e.what();
+                c.problem = std::string{"manifest.json is not valid JSON: "} + e.what();
                 return c;
             }
             if (!j.is_object())
             {
-                c.problem = "manifest.json 顶层不是对象";
+                c.problem = "manifest.json top level is not an object";
                 return c;
             }
             if (!j.contains("type") || !j["type"].is_string()
                 || j["type"].get<std::string>() != ModHostName)
             {
-                c.problem = "not-pier"; // 哨兵值：静默过滤，不当错误报
+                c.problem = "not-pier"; // Sentinel, filtered silently and not reported
                 return c;
             }
             if (j.contains("name") && j["name"].is_string())
@@ -108,16 +108,17 @@ namespace pier::mod_control
             }
             else
             {
-                c.problem = "manifest.json 缺少 entry";
+                c.problem = "manifest.json has no entry";
                 return c;
             }
             if (j.contains("version") && j["version"].is_string())
             {
                 c.version = j["version"].get<std::string>();
             }
-            // reload_safe：顶层的普通 bool。LeviLamina 的反序列化器只遍历
-            // Manifest 结构体的成员去 JSON 里找，从不遍历 JSON 的键 ——
-            // 所以这个额外字段对它不可见，不会影响正常启动装载。
+            // reload_safe is a plain bool at the top level. The LeviLamina
+            // deserializer walks the members of the Manifest struct and looks each one
+            // up in the JSON, never the keys of the JSON, so this extra field is
+            // invisible to it and does not affect normal startup loading.
             if (j.contains("reload_safe"))
             {
                 if (j["reload_safe"].is_boolean())
@@ -126,7 +127,7 @@ namespace pier::mod_control
                 }
                 else
                 {
-                    c.problem = "reload_safe 必须是 true/false";
+                    c.problem = "reload_safe must be true or false";
                 }
             }
             if (j.contains("dependencies") && j["dependencies"].is_array())
@@ -143,18 +144,19 @@ namespace pier::mod_control
                     }
                 }
             }
-            // getModsRoot()/<目录>/entry 是按目录名解析的，manifest 里的
-            // "name" 和目录不一致的模组按路径根本装不起来。在这里抓住它，
-            // 别让它变成后面一句摸不着头脑的「文件不存在」。
+            // getModsRoot()/<dir>/entry resolves by directory name, so a mod whose
+            // manifest "name" disagrees with its directory cannot be loaded by path at
+            // all. Catching it here keeps it from surfacing later as an opaque
+            // file-not-found.
             if (c.name != dirName)
             {
                 c.problem =
-                    "manifest 里的 name (\"" + c.name + "\") 和目录名 (\"" + dirName + "\") 不一致";
+                    "manifest name (\"" + c.name + "\") does not match directory (\"" + dirName + "\")";
             }
             return c;
         }
 
-        /** 每个已装载模组的名字 → 它声明的依赖。 */
+        /** Name of each loaded mod mapped to the dependencies it declares. */
         std::unordered_map<std::string, std::vector<std::string>> loadedDependencyMap()
         {
             std::unordered_map<std::string, std::vector<std::string>> out;
@@ -172,14 +174,15 @@ namespace pier::mod_control
                 }
             };
 
-            // 注册表覆盖 LeviLamina 启动时装的一切，原生 C++ 模组也在内 ——
-            // 这很要紧：C++ 模组依赖一个 pier 模组和别的 pier 模组一样容易。
+            // The registry covers everything LeviLamina loaded at startup, native C++
+            // mods included, which matters because a C++ mod can depend on a pier mod
+            // just as easily as another pier mod can.
             for (auto& mod : ll::mod::ModManagerRegistry::getInstance().mods())
             {
                 absorb(mod);
             }
-            // 和本宿主自己的表求并集：/pier load 拉起来的模组可能不在注册表
-            // 的视野里，这里绝不能把它弄丢。
+            // Union with this host's own table. A mod brought up by /pier load may be
+            // outside the registry's view and must not be lost here.
             if (auto* mgr = ModHost::instance())
             {
                 for (auto& mod : mgr->mods())
@@ -206,7 +209,7 @@ namespace pier::mod_control
 
             auto dirName = ll::string_utils::u8str2str(entry.path().filename().u8string());
             auto c = parseCandidate(file, dirName);
-            if (c.problem == "not-pier") continue; // 别的管理器的事
+            if (c.problem == "not-pier") continue; // Belongs to another manager
             found.push_back(std::move(c));
         }
         std::sort(found.begin(), found.end(),
@@ -216,19 +219,19 @@ namespace pier::mod_control
 
     ll::Expected<Candidate> readCandidate(std::string_view name)
     {
-        // 刻意绕过任何缓存：`/pier load` 必须看到磁盘上此刻的 manifest，
-        // 而不是上一次 `/pier list` 时的样子。
+        // Deliberately bypasses any cache. `/pier load` must see the manifest as it
+        // is on disk right now, not as it was at the last `/pier list`.
         auto file = manifestPathOf(name);
         std::error_code ec;
         if (!fs::is_regular_file(file, ec))
         {
-            return ll::makeStringError("找不到 mods/" + std::string(name) + "/manifest.json");
+            return ll::makeStringError("mods/" + std::string(name) + "/manifest.json not found");
         }
         auto c = parseCandidate(file, std::string(name));
         if (c.problem == "not-pier")
         {
             return ll::makeStringError(
-                "'" + std::string(name) + "' 不是 \"type\": \"" + std::string(ModHostName) + "\" 的模组"
+                "'" + std::string(name) + "' is not a \"type\": \"" + std::string(ModHostName) + "\" mod"
             );
         }
         if (!c.problem.empty())
@@ -244,7 +247,7 @@ namespace pier::mod_control
         auto text = ll::file_utils::readFile(file);
         if (!text)
         {
-            return ll::makeStringError("读不出 mods/" + std::string(name) + "/manifest.json");
+            return ll::makeStringError("mods/" + std::string(name) + "/manifest.json could not be read");
         }
         nlohmann::json j;
         try
@@ -253,11 +256,11 @@ namespace pier::mod_control
         }
         catch (std::exception const& e)
         {
-            return ll::makeStringError(std::string{"manifest.json 解析失败: "} + e.what());
+            return ll::makeStringError(std::string{"manifest.json could not be parsed: "} + e.what());
         }
         ll::mod::Manifest manifest;
-        // 复用 LeviLamina 自己的反射反序列化：热装载的模组拿到的 manifest
-        // 语义和启动装载的逐字节一致。
+        // Reuses the LeviLamina reflection deserializer, so a hot-loaded mod gets a
+        // manifest identical in meaning to one loaded at startup.
         if (auto e = ll::reflection::deserialize<ll::mod::Manifest>(manifest, j); !e)
         {
             return ll::forwardError(e.error());
@@ -282,7 +285,7 @@ namespace pier::mod_control
         auto deps = loadedDependencyMap();
         std::string const target{name};
 
-        // 反向边：被依赖者 → 依赖它的
+        // Reverse edges, from a dependency to the mods that depend on it
         std::unordered_map<std::string, std::vector<std::string>> dependedBy;
         for (auto const& [mod, list] : deps)
         {
@@ -292,7 +295,7 @@ namespace pier::mod_control
             }
         }
 
-        // 一切（间接）需要 target 的传递闭包
+        // Transitive closure of everything that needs target, directly or not
         std::unordered_set<std::string> affected;
         std::deque<std::string> queue{target};
         while (!queue.empty())
@@ -308,8 +311,9 @@ namespace pier::mod_control
             }
         }
 
-        // 排成「模组永远在它依赖的东西之前」的顺序 —— 也就是卸载必须遵守的
-        // 顺序。对诱导子图跑 Kahn；朴素 BFS 深度在菱形依赖上会排错。
+        // Order so that a mod always precedes what it depends on, which is the order
+        // an unload must follow. Kahn's algorithm on the induced subgraph. Naive BFS
+        // depth gets diamond dependencies wrong.
         std::unordered_map<std::string, int> indeg;
         for (auto const& m : affected) indeg[m] = 0;
         for (auto const& m : affected)
@@ -324,7 +328,7 @@ namespace pier::mod_control
         {
             if (n == 0) ready.push_back(m);
         }
-        std::sort(ready.begin(), ready.end()); // 输出确定性
+        std::sort(ready.begin(), ready.end()); // Deterministic output
 
         std::vector<std::string> ordered;
         while (!ready.empty())
@@ -338,8 +342,9 @@ namespace pier::mod_control
                 if (--indeg[d] == 0) ready.push_back(d);
             }
         }
-        // 依赖环会留下没吐出来的节点。补在队尾而不是静默丢掉 ——
-        // 调用方仍然需要知道它们的存在。
+        // A dependency cycle leaves nodes that were never emitted. They are appended
+        // at the end instead of dropped silently, because the caller still needs to
+        // know they exist.
         for (auto const& m : affected)
         {
             if (std::find(ordered.begin(), ordered.end(), m) == ordered.end())
@@ -354,23 +359,26 @@ namespace pier::mod_control
     namespace
     {
         /**
-         * 每个模组上一次被卸载时的基址。
+         * Base address of each mod at the time it was last unloaded.
          *
-         * 开发工作流是 `unload` → 重编 → `load`，横跨两条命令，reload 路径上
-         * 的检查看不见它。把地址存在这里，`/pier load` 才能回答重编之后唯一
-         * 要紧的问题：新 dll 真被映射进来了，还是 Windows 又把旧映像递了
-         * 回来？
+         * The development workflow is unload, rebuild, load, which spans two commands
+         * and is invisible to the checks on the reload path. Keeping the address here
+         * lets `/pier load` answer the one question that matters after a rebuild,
+         * whether the new dll was really mapped in or Windows handed back the old
+         * image.
          */
         std::unordered_map<std::string, void const*> gLastUnloadBase;
 
         /**
-         * Windows 的 FreeLibrary 是引用计数，不是硬 unmap。TLS 析构没跑完、
-         * COM 对象还活着、CRT 留着指进映像的指针 —— 任何一个都会让 dll 保持
-         * 映射，下一次 LoadLibrary 递回同一个基址：磁盘上新编译的 dll
-         * 根本没被读进来，服务器还在静默地跑旧代码。
+         * FreeLibrary on Windows is reference counted and does not force an unmap. An
+         * unfinished TLS destructor, a live COM object or a CRT pointer into the image
+         * each keep the dll mapped, and the next LoadLibrary hands back the same base
+         * address. The freshly built dll on disk is then never read and the server
+         * keeps running the old code silently.
          *
-         * 跨一次 unload/load 比较基址是抓住这件事唯一便宜的办法，而它正是
-         * 「重编然后 /pier load」工作流的确切故障模式。
+         * Comparing the base address across one unload and load is the only cheap way
+         * to catch this, and it is the exact failure mode of the rebuild-then-load
+         * workflow.
          */
         void checkImageSwapped(CommandOutput& output, std::string const& name, void const* before)
         {
@@ -380,10 +388,12 @@ namespace pier::mod_control
             if (after != nullptr && after == before)
             {
                 output.error(
-                    "⚠ '" + name + "' 重新加载后 dll 基址没变 —— Windows 没有真正卸载这个映像"
-                    "（FreeLibrary 是引用计数的）。如果你刚重新编译过，服务器现在跑的**还是旧代码**。"
-                    "常见原因：模组自己 spawn 的线程没 join、TLS 析构没跑完、还有 handle 没关。"
-                    "确认新代码生效的唯一可靠办法是重启服务器。"
+                    "'" + name + "' kept the same dll base address after reload; Windows "
+                    "did not truly unload the image, because FreeLibrary is reference "
+                    "counted. After a rebuild the server is still running the old code. "
+                    "Common causes are mod-spawned threads that were not joined, TLS "
+                    "destructors that did not finish, and handles left open. Restarting "
+                    "the server is the only reliable way to make new code take effect."
                 );
             }
         }
@@ -443,15 +453,15 @@ namespace pier::mod_control
 
         void cmdList(CommandOutput& output)
         {
-            // 明确是磁盘重扫，不是缓存倾倒：新加的 / 刚编好的模组目录
-            // 就是靠这条命令变得可见的。
+            // A real rescan of the disk and not a cache dump. A mod directory added or
+            // rebuilt after startup becomes visible through this command.
             auto found = rescan();
             auto* mgr = ModHost::instance();
 
-            output.success("── pier 模组（已重新扫描 mods/ 目录）──");
+            output.success("pier mods (mods/ rescanned)");
             if (found.empty())
             {
-                output.success("(没有找到任何 \"type\": \"" + std::string(ModHostName) + "\" 的模组)");
+                output.success("no \"type\": \"" + std::string(ModHostName) + "\" mod found");
                 return;
             }
             size_t loaded = 0;
@@ -462,19 +472,19 @@ namespace pier::mod_control
 
                 std::string line = c.name;
                 if (!c.version.empty()) line += " v" + c.version;
-                line += isLoaded ? "  [已加载" : "  [未加载";
+                line += isLoaded ? "  [loaded" : "  [not loaded";
                 if (isLoaded)
                 {
                     auto mod = mgr->getMod(c.name);
-                    line += (mod && mod->isEnabled()) ? "/已启用" : "/已禁用";
+                    line += (mod && mod->isEnabled()) ? "/enabled" : "/disabled";
                 }
                 line += "]";
-                line += c.reloadSafe ? "  [reload_safe]" : "  [不可 reload]";
-                if (!c.problem.empty()) line += "  ⚠ " + c.problem;
+                line += c.reloadSafe ? "  [reload_safe]" : "  [not reload_safe]";
+                if (!c.problem.empty()) line += "  problem: " + c.problem;
                 output.success(line);
             }
             output.success(
-                "共 " + std::to_string(found.size()) + " 个，已加载 " + std::to_string(loaded) + " 个"
+                "scanned " + std::to_string(found.size()) + " mod(s), " + std::to_string(loaded) + " loaded"
             );
         }
 
@@ -483,17 +493,17 @@ namespace pier::mod_control
             auto* mgr = ModHost::instance();
             if (!mgr)
             {
-                output.error("pier 宿主还没就绪");
+                output.error("pier host is not ready yet");
                 return;
             }
             if (mgr->hasMod(name))
             {
-                output.error("'" + name + "' 已经加载了。要换代码请先 /pier unload " + name);
+                output.error("'" + name + "' is already loaded; to replace its code run /pier unload " + name);
                 return;
             }
             if (isLoadedAnywhere(name))
             {
-                output.error("'" + name + "' 已被别的模组管理器加载，这里不接管");
+                output.error("'" + name + "' is already loaded by another mod manager and is not taken over here");
                 return;
             }
 
@@ -503,8 +513,9 @@ namespace pier::mod_control
                 output.error(cand.error().message());
                 return;
             }
-            // 依赖缺失就拒绝，而不是装上等它炸 —— 到时候错误从模组内部冒出
-            // 来，可读性远不如现在这一句。
+            // Refuse on a missing dependency instead of loading and waiting for the
+            // failure. The error would then surface from inside the mod and read far
+            // worse than this one line.
             std::vector<std::string> missing;
             for (auto const& d : cand->dependencies)
             {
@@ -518,7 +529,7 @@ namespace pier::mod_control
                     if (!list.empty()) list += ", ";
                     list += m;
                 }
-                output.error("'" + name + "' 的依赖还没加载: " + list);
+                output.error("'" + name + "' has dependencies that are not loaded: " + list);
                 return;
             }
 
@@ -530,12 +541,13 @@ namespace pier::mod_control
             }
             if (auto e = mgr->controlLoad(std::move(*manifest)); !e)
             {
-                output.error("加载 '" + name + "' 失败: " + e.error().message());
+                output.error("loading '" + name + "' failed: " + e.error().message());
                 return;
             }
-            output.success("已加载并启用 '" + name + "'");
-            // 这个名字要是在本次会话里卸载过，基址能判断重编的 dll 是
-            // 真换上了，还是 Windows 把旧的又递了回来。
+            output.success("loaded and enabled '" + name + "'");
+            // If this name was unloaded during this session, the base address tells
+            // whether the rebuilt dll really replaced the old one or Windows handed
+            // the old image back.
             if (auto it = gLastUnloadBase.find(name); it != gLastUnloadBase.end())
             {
                 checkImageSwapped(output, name, it->second);
@@ -544,20 +556,21 @@ namespace pier::mod_control
             if (!cand->reloadSafe)
             {
                 output.success(
-                    "提示：'" + name + "' 的 manifest 没写 \"reload_safe\": true，"
-                    "所以 /pier reload 对它不开放，只能 unload + load"
+                    "note: '" + name + "' does not declare \"reload_safe\": true in its "
+                    "manifest, so /pier reload is not available for it and unload plus "
+                    "load is the only path"
                 );
             }
         }
 
-        /** 共享卸载路径。什么都没做返回 false。 */
+        /** Shared unload path. Returns false when nothing was done. */
         bool doUnload(CommandOutput& output, std::string const& name, bool cascade,
                       std::vector<std::string>* unloadedOut)
         {
             auto* mgr = ModHost::instance();
             if (!mgr || !mgr->hasMod(name))
             {
-                output.error("'" + name + "' 没有被加载（pier 模组）");
+                output.error("'" + name + "' is not loaded as a pier mod");
                 return false;
             }
 
@@ -573,16 +586,18 @@ namespace pier::mod_control
                 }
                 if (!cascade)
                 {
-                    // 默认是拒绝：从依赖方脚下把它卸掉，依赖方手里攥着指向
-                    // 已释放 dylib 的函数指针，要到下次调进来才会发现。
+                    // Refusing is the default. Unloading it from under a dependent
+                    // leaves that dependent holding function pointers into a freed
+                    // dylib, which only shows up on the next call into it.
                     output.error(
-                        "拒绝卸载 '" + name + "'：还有模组依赖它 —— " + list
-                        + "。确认要一起卸载就加 --cascade。"
+                        "refusing to unload '" + name + "', mods still depend on it: " + list
+                        + ". Add --cascade to unload them together."
                     );
                     return false;
                 }
-                // 级联只能放倒本宿主管的模组。原生 C++ 模组归别的管理器，
-                // 这里没有任何途径卸载它。
+                // A cascade can only take down mods this host manages. A native C++
+                // mod belongs to another manager and there is no path to unload it
+                // from here.
                 std::vector<std::string> foreign;
                 for (auto const& d : dependents)
                 {
@@ -597,15 +612,16 @@ namespace pier::mod_control
                         flist += f;
                     }
                     output.error(
-                        "--cascade 也做不了：依赖方里有不归本宿主管的模组（" + flist
-                        + "），无权卸载它们。请先手动处理，或重启服务器。"
+                        "--cascade cannot proceed either, some dependents are not managed "
+                        "by this host (" + flist
+                        + ") and cannot be unloaded from here; handle them manually or restart."
                     );
                     return false;
                 }
             }
 
-            // 先依赖方、后目标：dependentsOf() 给出的顺序已经保证
-            // 模组在它依赖的一切之前。
+            // Dependents first, then the target. The order from dependentsOf() already
+            // places a mod ahead of everything it depends on.
             std::vector<std::string> order = dependents;
             order.push_back(name);
 
@@ -615,11 +631,11 @@ namespace pier::mod_control
                 gLastUnloadBase[m] = mgr->moduleBase(m);
                 if (auto e = mgr->controlUnload(m); !e)
                 {
-                    output.error("卸载 '" + m + "' 失败: " + e.error().message());
-                    output.error("已经卸载的部分不会自动恢复，请检查服务器状态。");
+                    output.error("unloading '" + m + "' failed: " + e.error().message());
+                    output.error("mods already unloaded are not restored automatically; check the server state.");
                     return false;
                 }
-                output.success("已卸载 '" + m + "'");
+                output.success("unloaded '" + m + "'");
                 if (unloadedOut) unloadedOut->push_back(m);
             }
             return true;
@@ -630,8 +646,8 @@ namespace pier::mod_control
             if (doUnload(output, name, cascade, nullptr))
             {
                 output.success(
-                    "提示：要换成新编译的 dll，现在把文件替换掉，然后 /pier list 刷新列表，"
-                    "再 /pier load " + name
+                    "note: to switch to a rebuilt dll, replace the file now, run /pier list "
+                    "to refresh, then /pier load " + name
                 );
             }
         }
@@ -641,7 +657,7 @@ namespace pier::mod_control
             auto* mgr = ModHost::instance();
             if (!mgr || !mgr->hasMod(name))
             {
-                output.error("'" + name + "' 没有被加载（pier 模组）");
+                output.error("'" + name + "' is not loaded as a pier mod");
                 return;
             }
 
@@ -651,35 +667,38 @@ namespace pier::mod_control
                 output.error(cand.error().message());
                 return;
             }
-            // 闸门：reload 只给声明了自己扛得住它的模组。其余走冷路径。
+            // The gate. reload is offered only to mods that declare they survive it.
+            // Everything else takes the cold path.
             if (!cand->reloadSafe)
             {
                 output.error(
-                    "'" + name + "' 没有在 manifest.json 里声明 \"reload_safe\": true，不允许 reload。"
+                    "'" + name + "' does not declare \"reload_safe\": true in manifest.json, so reload is refused."
                 );
                 output.error(
-                    "reload 会重跑 " PIER_MAIN_SYMBOL "，模组必须自己保证：on_unload 里 join 掉所有"
-                    "线程、关掉所有 handle、取消所有定时器（schedule_cancel），全局状态可重入。"
-                    "确认做到了再加这个字段。在那之前请用 /pier unload " + name
-                    + " 然后 /pier load " + name + "。"
+                    "reload reruns " PIER_MAIN_SYMBOL ", so the mod must join every thread, "
+                    "close every handle and cancel every timer through schedule_cancel in "
+                    "on_unload, and its global state must be re-enterable. Add the field "
+                    "only once that holds. Until then use /pier unload " + name
+                    + " followed by /pier load " + name + "."
                 );
                 return;
             }
 
-            // 级联会把依赖方一起 reload，它们经历的正是上面那道闸门要守的
-            // 同一种 reload —— 所以也得逐个查，别让没标记的模组从后门溜进来。
+            // A cascade reloads the dependents too, and what they go through is the
+            // same reload the gate above guards, so each one is checked as well and an
+            // unmarked mod cannot slip in through the back door.
             if (cascade)
             {
                 for (auto const& dep : dependentsOf(name))
                 {
-                    if (!isHostedMod(dep)) continue; // 稍后由 doUnload 报告
+                    if (!isHostedMod(dep)) continue; // Reported later by doUnload
                     auto dc = readCandidate(dep);
                     if (!dc || !dc->reloadSafe)
                     {
                         output.error(
-                            "级联里的 '" + dep + "' 没有声明 \"reload_safe\": true，"
-                            "不能跟着一起 reload。请改用 /pier unload " + name
-                            + " --cascade 再逐个 load。"
+                            "'" + dep + "' in the cascade does not declare \"reload_safe\": "
+                            "true and cannot be reloaded with it. Use /pier unload " + name
+                            + " --cascade instead, then load each one."
                         );
                         return;
                     }
@@ -689,7 +708,7 @@ namespace pier::mod_control
             std::vector<std::string> unloaded;
             if (!doUnload(output, name, cascade, &unloaded)) return;
 
-            // 按放倒顺序的逆序拉回来。
+            // Bring them back in the reverse of the order they went down.
             std::reverse(unloaded.begin(), unloaded.end());
             bool allOk = true;
             for (auto const& m : unloaded)
@@ -697,43 +716,44 @@ namespace pier::mod_control
                 auto manifest = readManifest(m);
                 if (!manifest)
                 {
-                    output.error("重新加载 '" + m + "' 失败: " + manifest.error().message());
+                    output.error("reloading '" + m + "' failed: " + manifest.error().message());
                     allOk = false;
                     break;
                 }
                 if (auto e = mgr->controlLoad(std::move(*manifest)); !e)
                 {
-                    output.error("重新加载 '" + m + "' 失败: " + e.error().message());
-                    output.error("'" + m + "' 现在处于未加载状态，修好后用 /pier load " + m + " 拉起来。");
+                    output.error("reloading '" + m + "' failed: " + e.error().message());
+                    output.error("'" + m + "' is now unloaded; fix it, then run /pier load " + m + " to bring it up.");
                     allOk = false;
                     break;
                 }
-                // reload 本来就是状态重置，这条路上基址不变是预期结果、
-                // 不是症状 —— 在这里跑 checkImageSwapped 会每次都告警。
-                // 那个检查只属于 unload → 重编 → load 的路径：在那条路上，
-                // 基址不变才真的意味着新 dll 没被读进来。把存的地址丢掉，
-                // 免得之后对同一个模组的 /pier load 拿它来比。
+                // A reload is a state reset, so an unchanged base address on this path
+                // is the expected result and not a symptom. Running checkImageSwapped
+                // here would warn every time. That check belongs to the unload,
+                // rebuild, load path, where an unchanged base address does mean the new
+                // dll was never read. The stored address is dropped so that a later
+                // /pier load of the same mod does not compare against it.
                 gLastUnloadBase.erase(m);
-                output.success("已重新加载 '" + m + "'");
+                output.success("reloaded '" + m + "'");
             }
             if (allOk)
             {
                 output.success(
-                    "'" + name + "' reload 完成（状态已重置、配置已重读；dll 代码没有更换）"
+                    "'" + name + "' reloaded: state reset and config reread, dll code unchanged"
                 );
             }
         }
 
-        /** /pier events —— 一站列出所有可订阅的事件 id：LeviLamina 动态
-         *  注册表里的，加上每个事件提供方（hooks、命令事件）合成的。旧版把
-         *  这两半拆在两条命令里，合成事件甚至列不出来 —— 排查「这个事件叫
-         *  什么」的人要的是一张完整的单子。 */
+        /** /pier events lists every subscribable event id in one place, both the ones
+         *  in the LeviLamina dynamic registry and the ones synthesized by each event
+         *  provider such as hooks and command events. Anyone tracking down what an
+         *  event is called needs the complete list. */
         void cmdEvents(CommandOutput& output)
         {
             size_t n = 0;
             for (auto&& [modName, id] : ll::event::EventBus::getInstance().events())
             {
-                output.success(std::string{id.name} + "  (来自 " + std::string{modName} + ")");
+                output.success(std::string{id.name} + "  (from " + std::string{modName} + ")");
                 n++;
             }
             struct Ctx
@@ -757,26 +777,26 @@ namespace pier::mod_control
                         {
                             auto* k = static_cast<SinkCtx*>(rawSink);
                             k->out->success(
-                                toString(s) + "  (合成，提供方 " + std::string(k->provider) + ")"
+                                toString(s) + "  (synthetic, provider " + std::string(k->provider) + ")"
                             );
                             (*k->n)++;
                         }
                     );
-                    return false; // 走完全部提供方
+                    return false; // Visit every provider
                 },
                 &ctx
             );
-            output.success("共 " + std::to_string(n) + " 个事件");
+            output.success("total " + std::to_string(n) + " event(s)");
         }
 
         void cmdAbi(CommandOutput& output)
         {
             auto const* api = bridgeApi();
             output.success(
-                "Pier ABI v" + std::to_string(PIER_ABI_VERSION) + "（下限 v"
-                + std::to_string(PIER_ABI_MIN_SUPPORTED) + "），表 "
-                + std::to_string(api->struct_size) + " 字节，目标："
-                + ((api->host_flags & PIER_FLAG_CLIENT) ? "客户端" : "服务端")
+                "Pier ABI v" + std::to_string(PIER_ABI_VERSION) + " (minimum v"
+                + std::to_string(PIER_ABI_MIN_SUPPORTED) + "), api table "
+                + std::to_string(api->struct_size) + " bytes, target "
+                + ((api->host_flags & PIER_FLAG_CLIENT) ? "client" : "server")
             );
         }
     } // namespace
@@ -786,7 +806,7 @@ namespace pier::mod_control
         using namespace ll::command;
         auto& handle = CommandRegistrar::getServerInstance().getOrCreateCommand(
             "pier",
-            "pier 模组控制：list / load / unload / reload / events / abi",
+            "pier mod control: list / load / unload / reload / events / abi",
             CommandPermissionLevel::Host
         );
         handle.runtimeOverload().optional("args", ParamKind::RawText).execute(
@@ -801,7 +821,7 @@ namespace pier::mod_control
 
                 if (args.unknownFlag)
                 {
-                    output.error("不认识的参数 " + args.unknownFlagText + "（只支持 --cascade）");
+                    output.error("unrecognized argument " + args.unknownFlagText + " (only --cascade is supported)");
                     return;
                 }
 
@@ -809,7 +829,7 @@ namespace pier::mod_control
                 {
                     if (args.name.empty())
                     {
-                        output.error(std::string{"用法: /pier "} + verb + " <mod_name>");
+                        output.error(std::string{"usage: /pier "} + verb + " <mod_name>");
                         return false;
                     }
                     return true;
@@ -821,7 +841,7 @@ namespace pier::mod_control
                     if (args.sub.empty())
                     {
                         output.success(
-                            "用法: /pier list | load <n> | unload <n> [--cascade] | "
+                            "usage: /pier list | load <n> | unload <n> [--cascade] | "
                             "reload <n> [--cascade] | events | abi"
                         );
                     }
@@ -849,14 +869,14 @@ namespace pier::mod_control
                 else
                 {
                     output.error(
-                        "未知子命令 '" + args.sub
-                        + "'。用法: /pier list | load <n> | unload <n> [--cascade] | "
+                        "unknown subcommand '" + args.sub
+                        + "'. usage: /pier list | load <n> | unload <n> [--cascade] | "
                           "reload <n> [--cascade] | events | abi"
                     );
                 }
             }
         );
-        hostLogger().debug("/pier 已注册");
+        hostLogger().debug("[host] /pier command registered");
     }
 #else
     void registerCommand() {}

@@ -1,31 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""跑齐契约 §九 的机器检查。任何一条红就以非零退出。
+"""Runs every machine check of contract §9. Any red exits non-zero.
 
-用法：
-    python3 tools/run-checks.py            # 全跑
-    python3 tools/run-checks.py abi        # 只跑名字里含 "abi" 的
+Usage:
+    python3 tools/run-checks.py            # everything
+    python3 tools/run-checks.py abi        # only names containing "abi"
 
-## 这个脚本能证明什么、不能证明什么
+## What this script proves and what it does not
 
-**能**：下面列出的每一条性质，在当前工作区的**文本**上成立。
+It does prove that each property listed below holds over the text of the current
+workspace.
 
-**不能**：它不构建任何东西。三条性质的充分判据需要真正的工具链，
-脚本只覆盖了它们的必要条件：
+It does not build anything. Three of the properties have a sufficient criterion that
+needs a real toolchain, and the script covers only their necessary condition:
 
-  - `optional-drops`  静态判据是「可选包的符号无人跨包引用」；
-                      充分判据是真的删掉那行 `includes(...)` 再 `xmake f`。
-  - `sys-mirrors-abi` 比对的是槽序与常量的**文本**；
-                      「镜像真的能编过」要 `cargo check`。
-  - `no-silent-fallback` 只覆盖 `catch` 块里的无歧义形状，见该脚本自己的说明。
+  - `optional-drops`  the static criterion is that no symbol of an optional package is
+                      referenced across packages; the sufficient one is really deleting
+                      that `includes(...)` line and running `xmake f`.
+  - `sys-mirrors-abi` compares the text of the slot order and the constants; whether the
+                      mirror actually compiles needs `cargo check`.
+  - `no-silent-fallback` covers only the unambiguous shapes inside a `catch` block, as
+                      that script explains itself.
 
-四个 surrogate（`link-` / `include-` / `rust-` / `ledger-count`）也不在这里，
-它们盯的东西编译器和链接器本来就会报，只是这个仓库有一段时间没有工具链。
-按 §九 的判据它们不该是契约的一部分，所以单独放在 `tools/` 下。
+The surrogates are not here either. They live under `tools/` because §9 says they are not
+part of the contract, and the ones duplicating the compiler and the linker have been
+removed now that a toolchain exists.
 
-契约 §九 说「脚本先行：一条性质没有脚本守着之前，交付说明里不许给它打 ✓」。
-这里再补一句同样重要的：**脚本 PASS 也只能给它覆盖到的那部分打 ✓**，
-每条检查自己的 note 里写了它覆盖到哪。
+Contract §9 says scripts come first: a property gets no checkmark in a delivery note
+before a script guards it. One equally important addition: a passing script only earns a
+checkmark for what it covers, and each check states its coverage in its own note.
 """
 
 import os
@@ -35,7 +38,8 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHECKS = os.path.join(HERE, "checks")
 
-# 顺序有意：先证明契约本体（abi.h）成立，再证明分包结构成立，最后是代码纪律。
+# The order is deliberate: first the contract itself in abi.h, then the package
+# structure, then code discipline.
 SCRIPTS = [
     ("abi_c_parse.py", ["abi-c-parse"]),
     ("abi_additive.py", ["abi-additive"]),
@@ -65,7 +69,7 @@ def main():
             continue
         path = os.path.join(CHECKS, script)
         if not os.path.exists(path):
-            print("  SKIP %s（脚本尚未写）" % "/".join(names))
+            print("  SKIP %s (the script is not written yet)" % "/".join(names))
             continue
         print("── %s" % " + ".join(names))
         p = subprocess.run([sys.executable, path])
@@ -76,11 +80,12 @@ def main():
 
     print("=" * 62)
     if failed:
-        print("FAIL —— %d 条不通过：%s" % (len(failed), "、".join(failed)))
+        print("FAIL: %d check(s) did not pass: %s" % (len(failed), ", ".join(failed)))
         return 1
-    print("PASS —— %d 个脚本全部通过。" % ran)
-    print("提醒：optional-drops 只过了静态必要条件（可选包符号无人跨包引用）；")
-    print("      交付前仍要真跑一次 xmake f 与 cargo clippy。")
+    print("PASS: all %d scripts passed." % ran)
+    print("Reminder: optional-drops passed only its static necessary condition, namely that "
+          "no optional-package symbol is referenced across packages;")
+    print("      a real xmake f and cargo clippy still have to run before delivery.")
     return 0
 
 

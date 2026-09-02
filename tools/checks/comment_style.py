@@ -1,22 +1,25 @@
 # -*- coding: utf-8 -*-
-"""comment-style —— `COMMENTS.md` 的机械部分。
+"""comment-style: the mechanical part of `COMMENTS.md`.
 
-盯的是什么：发布出去的注释里不许留下开发期的产物 —— 过程叙事、内部票号、
-对话人称、markdown 排版、超预算的长篇。这些东西对读者是负数：他要先读完
-一段与他无关的经过，才拿到那一句对他有用的结论。
+What it watches: a released comment must not carry the leftovers of development, meaning
+process narrative, internal ticket numbers, conversational person, markdown layout and
+over-budget essays. These are a negative for a reader, who has to read through a sequence
+of events that does not concern them before reaching the one sentence that does.
 
-判据全部是文本层面的，所以覆盖面**窄而确定**：
+Every criterion sits at the text level, so the coverage is narrow and certain:
 
-  · 注释块行数预算，L1/L2/L3 各一档（COMMENTS.md §一）
-  · 禁用词（§三 第 2/4 类：过程叙事、对话人称）
-  · 票号与阶段号（§三 第 3 类）
-  · 注释内 markdown 排版与 ASCII 分隔线（§三 第 5 类、§五）
-  · TODO/FIXME（§三 第 7 类）
-  · abi.h 注释内的中文（§六「注释用英文」）
-  · 行宽 100 列（§五）
+  * the line budget of a comment block, one tier each for L1, L2 and L3 (COMMENTS.md §1)
+  * banned wording (§3 items 2 and 4: process narrative and conversational person)
+  * ticket and stage numbers (§3 item 3)
+  * markdown layout and ASCII rules inside a comment (§3 item 5, and §5)
+  * TODO and FIXME (§3 item 7)
+  * CJK characters inside the abi.h comments (§6, comments in English)
+  * a line width of 100 columns (§5)
 
-**看不见的**：注释说的是不是真话（§七 归 comment-claims）、留下来的注释是不是
-§二 那五类、有没有复述代码。这三条要人读。按契约 §九，PASS 只等于机械规则成立。
+What it cannot see: whether a comment tells the truth, which belongs to comment-claims
+under §7; whether a surviving comment is one of the five kinds of §2; and whether it
+restates the code. Those three need a human. Per contract §9, a pass means only that the
+mechanical rules hold.
 """
 
 import os
@@ -29,40 +32,45 @@ from _abi import ROOT, Result  # noqa: E402
 PKGS = os.path.join(ROOT, "packages")
 ABI_REL = os.path.join("packages", "pier-abi", "include", "sdk", "abi.h")
 
-MAX_HEAD = 16  # §一 L1：文件头
-MAX_DOC = 14  # §一 L2：声明上方的 /** */
-MAX_LINE = 8  # §一 L3：语句上方的 // 连续行
-MAX_COL = 100  # §五
+MAX_HEAD = 16  # §1 L1: a file header
+MAX_DOC = 14  # §1 L2: a /** */ above a declaration
+MAX_LINE = 8  # §1 L3: consecutive // lines above a statement
+MAX_COL = 100  # §5
 
-# §三 第 2、4 类。词表只收**无歧义**的：一条天天误报的检查会被加进忽略列表，
-# 然后就再也不响了。「原来」「以前」这类在技术陈述里也用得着的词不进表。
+# §3 items 2 and 4. The list takes only unambiguous wording: a check that misreports daily
+# gets added to an ignore list and never speaks again. Words that a technical statement
+# also needs stay out of the list.
 BANNED = [
-    (r"第一版|第一次重写|最初(?:的)?(?:做法|版本|实现)|曾经声称|旧仓|老仓", "过程叙事"),
-    (r"重写了[一二三四五六七八九十\d]+(?:次|遍)|改了[一二三四五六七八九十\d]+(?:次|遍)", "过程叙事"),
-    (r"血买来的|下一个人|上一个人|花了.{0,6}才(?:发现|查出)", "修辞"),
-    (r"(?<![A-Za-z])我们(?![A-Za-z])|(?<![A-Za-z])咱(?:们)?(?![A-Za-z])", "对话人称"),
-    (r"实测[一二三四五六七八九十\d]+(?:次|遍)|试过[一二三四五六七八九十\d]+(?:次|遍)", "过程叙事"),
+    (r"第一版|第一次重写|最初(?:的)?(?:做法|版本|实现)|曾经声称|旧仓|老仓", "process narrative"),
+    (r"重写了[一二三四五六七八九十\d]+(?:次|遍)|改了[一二三四五六七八九十\d]+(?:次|遍)", "process narrative"),
+    (r"血买来的|下一个人|上一个人|花了.{0,6}才(?:发现|查出)", "rhetoric"),
+    (r"(?<![A-Za-z])我们(?![A-Za-z])|(?<![A-Za-z])咱(?:们)?(?![A-Za-z])", "conversational person"),
+    (r"实测[一二三四五六七八九十\d]+(?:次|遍)|试过[一二三四五六七八九十\d]+(?:次|遍)", "process narrative"),
 ]
 BANNED = [(re.compile(p), why) for p, why in BANNED]
 
-# §三 第 3 类：内部评审票号。指向读者拿不到的文档。
-# 不收 `stage N`：本仓的 stage 是 spi::TeardownReg 的拆除次序，是真实的代码概念。
+# §3 item 3: an internal review ticket number, pointing at a document the reader cannot get.
+# `stage N` is not taken: a stage here is the teardown order of spi::TeardownReg, a real
+# concept in the code.
 TICKET = re.compile(r"(?<![\w-])V-\d{2}(?![\w-])|(?<![\w])W\d{2}(?![\w])")
 
-# §三 第 7 类。
+# §3 item 7.
 TODO = re.compile(r"\b(TODO|FIXME|XXX|HACK)\b")
 
-# §五：ASCII 分隔线。三个及以上的重复框线字符。
+# §5: an ASCII rule, three or more repeated box-drawing characters.
 RULE_LINE = re.compile(r"[─═━╌]{3,}|-{6,}$|={6,}$")
 
 CJK = re.compile(r"[\u4e00-\u9fff]")
 
 
 def blocks_of(text):
-    """切出注释块，返回 (起始行号, 行列表, 是否块注释)。
+    """Cuts out comment blocks and returns (start line, list of lines, whether it is a block
+    comment).
 
-    连续的 `//` 行算**一个**块 —— 分开数会让一段 20 行的行注释每行都合规。
-    行尾注释（代码在前）不参与预算，只参与词表与行宽。
+    Consecutive `//` lines count as one block; counting them separately would make every
+    line of a 20-line run of line comments compliant on its own. A trailing comment, with
+    code before it, takes no part in the budget and only in the word list and the line
+    width.
     """
     lines = text.splitlines()
     out = []
@@ -89,8 +97,9 @@ def blocks_of(text):
 
 
 def prose_of(block_lines, is_block):
-    """剥掉注释记号，只留正文 —— 判 markdown 排版必须在剥掉 ` * ` 之后做，
-    否则每一行都以 `*` 开头，`**加粗**` 和普通续行分不开。"""
+    """Strips the comment markers and leaves the body. The markdown-layout test has to run
+    after ` * ` is stripped, otherwise every line starts with `*` and bold cannot be told
+    apart from an ordinary continuation."""
     out = []
     for ln in block_lines:
         s = ln.strip()
@@ -105,7 +114,7 @@ def prose_of(block_lines, is_block):
 
 
 def inline_comments(text):
-    """行尾注释：代码在前、`//` 在后。返回 (行号, 正文)。"""
+    """A trailing comment, with code before the `//`. Returns (line number, body)."""
     out = []
     for k, ln in enumerate(text.splitlines(), 1):
         m = re.search(r"(?<![:/])//(?!/)(.*)$", ln)
@@ -130,85 +139,89 @@ def run():
             with open(p, encoding="utf-8", errors="replace") as f:
                 text = f.read()
 
-            # ── 行宽（§五）。只卡真正的注释行；代码行归 clang-format。
-            # 行号取自 blocks_of + 行尾注释，不按行首字符猜：一行 `*ptr->f()` 是解
-            # 引用，不是块注释的续行，按字符猜会把它报成超宽的注释。
+            # Line width (§5). Only real comment lines are held to it; a code line belongs
+            # to clang-format. The line numbers come from blocks_of plus the trailing
+            # comments and are not guessed from the first character: a line such as
+            # `*ptr->f()` is a dereference and not the continuation of a block comment, and
+            # guessing by character would report it as an over-wide comment.
             cmt_lines = set()
             for start, lns, _ in blocks_of(text):
                 cmt_lines.update(range(start, start + len(lns)))
             cmt_lines.update(k for k, _ in inline_comments(text))
             for k, ln in enumerate(text.splitlines(), 1):
                 if k in cmt_lines and len(ln) > MAX_COL:
-                    r.fail("%s:%d 注释行宽 %d > %d 列（§五）" % (rel, k, len(ln), MAX_COL))
+                    r.fail("%s:%d comment line width %d exceeds %d columns (§5)" % (rel, k, len(ln), MAX_COL))
 
-            # ── 块级
+            # Block level
             for start, lns, is_block in blocks_of(text):
                 blocks += 1
                 body = prose_of(lns, is_block)
                 joined = "\n".join(body)
 
-                # 预算（§一）。abi.h 免除，它是产品文档（§六）。
+                # The budget (§1). abi.h is exempt, being product documentation (§6).
                 if start <= 5:
-                    cap, tier = MAX_HEAD, "L1 文件头"
+                    cap, tier = MAX_HEAD, "L1 file header"
                 elif is_block:
-                    cap, tier = MAX_DOC, "L2 声明注释"
+                    cap, tier = MAX_DOC, "L2 declaration comment"
                 else:
-                    cap, tier = MAX_LINE, "L3 体内注释"
+                    cap, tier = MAX_LINE, "L3 body comment"
                 if not is_abi and len(lns) > cap:
                     r.fail(
-                        "%s:%d %s %d 行 > %d 行预算：属于设计的进 CONTRACT.md，"
-                        "属于历史的进 git（§一）" % (rel, start, tier, len(lns), cap)
+                        "%s:%d %s is %d lines, over the %d-line budget: design goes in "
+                        "CONTRACT.md and history goes in git (§1)" % (rel, start, tier, len(lns), cap)
                     )
 
-                # markdown 排版（§三 第 5 类）
+                # Markdown layout (§3 item 5)
                 for off, line in enumerate(body):
                     if re.match(r"^#{1,6}\s", line):
-                        r.fail("%s:%d 注释里的 markdown 标题（§三.5）" % (rel, start + off))
+                        r.fail("%s:%d a markdown heading inside a comment (§3.5)" % (rel, start + off))
                     if line.startswith("```"):
-                        r.fail("%s:%d 注释里的 markdown 代码块（§三.5）" % (rel, start + off))
+                        r.fail("%s:%d a markdown code fence inside a comment (§3.5)" % (rel, start + off))
                     if re.match(r"^\|.*\|$", line) or re.match(r"^\|?[\s:-]*-{3,}[\s:|-]*$", line):
-                        r.fail("%s:%d 注释里的 markdown 表格（§三.5）" % (rel, start + off))
+                        r.fail("%s:%d a markdown table inside a comment (§3.5)" % (rel, start + off))
                     if re.search(r"\*\*\S(?:[^*]*\S)?\*\*", line):
-                        r.fail("%s:%d 注释里的 markdown 加粗（§三.5）" % (rel, start + off))
+                        r.fail("%s:%d markdown bold inside a comment (§3.5)" % (rel, start + off))
                     if RULE_LINE.search(line):
-                        r.fail("%s:%d 注释里的分隔线（§五）" % (rel, start + off))
+                        r.fail("%s:%d an ASCII rule inside a comment (§5)" % (rel, start + off))
 
-                # 词表 / 票号 / TODO
+                # Word list, ticket numbers, TODO
                 for pat, why in BANNED:
                     m = pat.search(joined)
                     if m:
-                        r.fail("%s:%d 禁用措辞 %r（%s，§三）" % (rel, start, m.group(0), why))
+                        r.fail("%s:%d banned wording %r (%s, §3)" % (rel, start, m.group(0), why))
                 m = TICKET.search(joined)
                 if m:
-                    r.fail("%s:%d 内部评审票号 %r（§三.3）" % (rel, start, m.group(0)))
+                    r.fail("%s:%d an internal review ticket number %r (§3.3)" % (rel, start, m.group(0)))
                 m = TODO.search(joined)
                 if m:
-                    r.fail("%s:%d %s 归 issue，不留在代码里（§三.7）" % (rel, start, m.group(0)))
+                    r.fail("%s:%d %s belongs in an issue and not in the code (§3.7)" % (rel, start, m.group(0)))
 
-                # abi.h 用英文（§六）
+                # abi.h is in English (§6)
                 if is_abi and CJK.search(joined):
-                    r.fail("%s:%d 契约头的注释必须用英文（§六）" % (rel, start))
+                    r.fail("%s:%d comments in the contract header must be in English (§6)" % (rel, start))
 
-            # ── 行尾注释：不参与预算，其余同管
+            # Trailing comments: no budget, everything else applies
             for k, body in inline_comments(text):
                 for pat, why in BANNED:
                     m = pat.search(body)
                     if m:
-                        r.fail("%s:%d 禁用措辞 %r（%s，§三）" % (rel, k, m.group(0), why))
+                        r.fail("%s:%d banned wording %r (%s, §3)" % (rel, k, m.group(0), why))
                 m = TICKET.search(body)
                 if m:
-                    r.fail("%s:%d 内部评审票号 %r（§三.3）" % (rel, k, m.group(0)))
+                    r.fail("%s:%d an internal review ticket number %r (§3.3)" % (rel, k, m.group(0)))
                 m = TODO.search(body)
                 if m:
-                    r.fail("%s:%d %s 归 issue，不留在代码里（§三.7）" % (rel, k, m.group(0)))
+                    r.fail("%s:%d %s belongs in an issue and not in the code (§3.7)" % (rel, k, m.group(0)))
                 if is_abi and CJK.search(body):
-                    r.fail("%s:%d 契约头的注释必须用英文（§六）" % (rel, k))
+                    r.fail("%s:%d comments in the contract header must be in English (§6)" % (rel, k))
 
-    r.note("扫描 %d 个源文件、%d 个注释块" % (files, blocks))
+    r.note("scanned %d source file(s) and %d comment block(s)" % (files, blocks))
     r.note(
-        "判据只覆盖 COMMENTS.md 的机械部分：预算、禁用词、票号、markdown 排版、"
-        "行宽、契约头语言。**注释是否真实、是否属于 §二 五类、是否复述代码，"
-        "文本层面看不见** —— PASS 不等于本规范成立，只等于机械规则成立。"
+        "The criteria cover only the mechanical part of COMMENTS.md: budgets, banned "
+        "wording, ticket numbers, markdown layout, line width and the language of the "
+        "contract header. Whether a comment is true, whether it is one of the five kinds of "
+        "§2 and whether it restates the code are invisible at the text level, so a pass does "
+        "not mean the standard holds, only that the mechanical rules do."
     )
     return [r]
 

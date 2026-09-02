@@ -1,12 +1,10 @@
-/** player/SleepEvent.cpp —— 玩家要睡床了。
- *
- * 拦得住的东西：别人家的床（跳过夜、设重生点都是「用了别人的地」）、
- * 起床战争这类不该有夜晚跳过的玩法、以及「床是爆炸陷阱」的下界/末地。
- *
- * 取消语义用引擎自己的 `BedSleepingResult::NotPossibleHere` —— 客户端会弹
- * 原版的「你不能在这里睡觉」，不需要模组自己发消息，也不会把玩家卡在
- * 半睡状态。
- */
+/** player/SleepEvent.cpp: a player is about to sleep in a bed.
+ * What it can stop: someone else's bed, where skipping the night and setting a spawn
+ * point both use another person's ground; game modes such as bed wars where the night
+ * must not be skipped; and the nether or the end, where a bed is an explosive trap.
+ * Cancelling uses the engine's own `BedSleepingResult::NotPossibleHere`, so the client
+ * shows the vanilla message that sleeping is not possible here, a mod sends no message of
+ * its own, and the player is not left half asleep. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -27,7 +25,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& sleepDef(); // 前向
+        HookEventDef& sleepDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             PlayerStartSleepHook,
@@ -62,7 +60,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[PlayerSleepEvent] Player::$startSleepInBed 的 detour 安装失败（code={}）。", r);
+                        "[hooks/SleepEvent] the Player::$startSleepInBed detour failed to install with code={}", r);
                 }
                 return r == 0;
             }

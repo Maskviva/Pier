@@ -1,18 +1,19 @@
-//! `levilamina_sys` —— Pier ABI v1 的裸 FFI 声明。
+//! `levilamina_sys`: the raw FFI declarations of Pier ABI v1.
+//! This crate is a cell-for-cell mirror of `packages/pier-abi/include/sdk/abi.h` and the reference
+//! implementation of the four steps contract §10 gives for adding a language:
+//! 1. read `sdk/abi.h` only;
+//! 2. declare the `PierApi` mirror, declaring every field unconditionally, with no
+//!    target branch anywhere;
+//! 3. export `pier_main` and fill the vtable with `struct_size`, `abi_version`,
+//!    `mod_flags` and the three lifecycle callbacks;
+//! 4. before calling a non-core slot, check that `struct_size` covers it and that the
+//!    slot is not NULL.
+//!    Another language follows those four steps rather than copying this crate: the
+//!    contract is that header.
 //!
-//! 这个 crate 是 `packages/pier-abi/include/sdk/abi.h` 的逐格镜像，
-//! 也是契约 §十「加一门语言」那四步的参考实现：
-//!
-//! 1. 只读 `sdk/abi.h`；
-//! 2. 声明 `PierApi` 镜像 —— **无条件声明每一个字段**，没有任何目标分支；
-//! 3. 导出 `pier_main`，vtable 填 `struct_size / abi_version / mod_flags`
-//!    和三个生命周期回调；
-//! 4. 每个非核心槽调用前查 `struct_size` 覆盖且槽非 NULL。
-//!
-//! 换一门语言照着这四步做，而不是照抄这个 crate —— 契约是那份头文件。
-//!
-//! 这一层**不提供安全性**：每个调用都是 `unsafe`，字符串生命周期靠调用方
-//! 保证。安全封装在 `pier-rs`（crate 名 `levilamina`），分层理由见 `types.rs`。
+//! This layer offers no safety. Every call is `unsafe` and string lifetimes rest on the caller. The
+//! safe wrapper is `pier-rs`, whose crate name is `levilamina`, and `types.rs` gives the reason for
+//! the split.
 
 #![no_std]
 #![allow(non_camel_case_types)]
@@ -27,61 +28,67 @@ pub use consts::*;
 pub use types::*;
 pub use vtable::{PierMainFn, PierModVTable};
 
-/// 本 crate 编译时对着的 ABI 版本。填进 `PierModVTable::abi_version`。
+/// The ABI version this crate is compiled against. Goes into `PierModVTable::abi_version`.
 pub const PIER_ABI_VERSION: u32 = 1;
 
-/// 宿主可接受的最老模组 ABI。兼容是**区间**不是相等：
-/// `MIN_SUPPORTED <= mod_abi <= VERSION`（契约 §2.2）。
+/// The oldest mod ABI the host accepts. Compatibility is a range and not an equality:
+/// `MIN_SUPPORTED <= mod_abi <= VERSION` (contract §2.2).
 ///
-/// 镜像里也留一份，是为了让模组能在装载失败时自己说清楚「我是按 v{N} 编的，
-/// 这个宿主要 v{A}..v{B}」，而不是只报一句「版本不符」。
+/// A copy lives in the mirror so that a mod can state for itself, when loading fails,
+/// that it was built against one version while the host wants a given range, rather than
+/// reporting only that the version does not match.
 pub const PIER_ABI_MIN_SUPPORTED: u32 = 1;
 
-/// 模组必须导出的入口符号名。
+/// The entry symbol name a mod must export.
 pub const PIER_MAIN_SYMBOL: &str = "pier_main";
 
-/// `host_flags` / `mod_flags` 的 bit 0：这一侧是客户端构建。
+/// Bit 0 of `host_flags` and `mod_flags`: this side is a client build.
 ///
-/// 两侧的 bit 0 必须相等，否则宿主拒绝装载并说明原因。其余位保留，必须为 0。
+/// Bit 0 must be equal on both sides, otherwise the host refuses to load and says why.
+/// The remaining bits are reserved and must be 0.
 pub const PIER_FLAG_CLIENT: u32 = 0x1;
 
-// ── 跨模组服务调用的结果码 ────────────────────────────────────────
+// Result codes for a cross-mod service call.
 //
-// 注意 `OK` 是 **0**。这一点对错误处理有实际后果：一个「出错就返回零值」的
-// 兜底会把失败报成成功，那正是契约 §5.1 反对的形状。C++ 侧的
-// `PIER_API_GUARD_END_VAL` 因此对这一族入口必须显式给失败值。
+// Note that `OK` is 0. That has a practical consequence for error handling: a fallback
+// returning zero on error reports a failure as a success, which is exactly the shape
+// contract §5.1 forbids. `PIER_API_GUARD_END_VAL` on the C++ side therefore has to give
+// an explicit failure value for this family of entry points.
 
 pub const PIER_SERVICE_OK: i32 = 0;
-/// 没人提供这个名字（没装那个模组，或者它被禁用/已卸载）。
+/// Nobody provides this name, because the mod is not installed, or is disabled, or has
+/// been unloaded.
 pub const PIER_SERVICE_NOT_FOUND: i32 = 1;
-/// 提供方跑了但返回失败，`reply` 里是它的错误信息。
+/// The provider ran and returned a failure, and `reply` holds its error message.
 pub const PIER_SERVICE_ERROR: i32 = 2;
-/// 名字非法、自己调自己、或者调用深度超限。
+/// The name is invalid, the call is to itself, or the call depth is exceeded.
 pub const PIER_SERVICE_REFUSED: i32 = 3;
 
-// ── 同工具链快车道 ────────────────────────────────────────────────
+// The same-toolchain fast lane.
 
-/// 车道协议版本。`PierLaneDesc::protocol` 必须等于它，否则发布被拒。
+/// The lane protocol version. `PierLaneDesc::protocol` must equal it or publishing is refused.
 pub const PIER_LANE_PROTOCOL: u32 = 1;
 
 pub const PIER_LANE_OK: i32 = 0;
-/// 没人发布这个名字（没装那个模组）。
+/// Nobody publishes this name, because the mod is not installed.
 pub const PIER_LANE_NOT_FOUND: i32 = 1;
-/// 发布了，但指纹不同 —— 降级走 `service_call`，**别递指针**。
+/// It is published with a different fingerprint. Fall back to `service_call` and pass no
+/// pointer.
 pub const PIER_LANE_FINGERPRINT: i32 = 2;
-/// 名字非法 / 自取 / 提供方被禁用 / 协议不符。
+/// The name is invalid, the lane is its own, the provider is disabled, or the protocol
+/// does not match.
 pub const PIER_LANE_REFUSED: i32 = 3;
 
-// ── 数据包方向与处置 ──────────────────────────────────────────────
+// Packet direction and disposition.
 
 pub const PIER_PKT_INBOUND: i32 = 0;
 pub const PIER_PKT_OUTBOUND: i32 = 1;
 pub const PIER_PKT_MASK_INBOUND: i32 = 1 << PIER_PKT_INBOUND;
 pub const PIER_PKT_MASK_OUTBOUND: i32 = 1 << PIER_PKT_OUTBOUND;
 
-/// 原样转发，`replace` 的输出被忽略。
+/// Forward unchanged; the output of `replace` is ignored.
 pub const PIER_PKT_PASS: i32 = 0;
-/// 转发交给 `replace` 的那份包体。
+/// Forward the body handed to `replace`.
 pub const PIER_PKT_REPLACE: i32 = 1;
-/// 整个吃掉这个包。
+/// Consume the packet entirely.
 pub const PIER_PKT_DROP: i32 = 2;

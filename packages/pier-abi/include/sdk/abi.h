@@ -236,7 +236,7 @@ typedef void* PierKvDbHandle;
 
 /**
  * Subscriber callback. `topic` and `payload` are borrowed for the duration of
- * the call — copy anything you keep.
+ * the call. Anything kept past it must be copied.
  *
  * The return value is a veto, and only for `bus_publish_vetoable`:
  *   true  = "refuse this",
@@ -363,7 +363,7 @@ typedef struct PierLaneDesc
     /** Must equal PIER_LANE_PROTOCOL or publish is refused. */
     uint32_t protocol;
     /** Build fingerprint. 0 is reserved (it would mean "anyone may connect") and
- *  must not be used. */
+     *  must not be used. */
     uint64_t fingerprint;
     /** The provider's state pointer, typically a raw pointer handed out by a
      *  reference-counted object. The loader does not interpret it. */
@@ -444,7 +444,7 @@ typedef struct PierLaneRef
 
 /**
  * One intercepted packet. Every pointer inside is borrowed and valid only for
- * the duration of the callback — copy anything you keep.
+ * the duration of the callback. Anything kept past it must be copied.
  */
 typedef struct PierPacketEvent
 {
@@ -1566,8 +1566,8 @@ typedef struct PierApi
      * wherever the connection is pumped and outbound ones wherever the send
      * originates. In practice that is the server thread, but async flush
      * means it is not guaranteed. Treat these as "not necessarily the game
-     * thread": keep them short, guard your own state, and route anything that
-     * touches the world through `schedule`.
+     * thread": a handler stays short, guards its own state, and routes anything
+     * that touches the world through `schedule`.
      *
      * Detours install lazily on the first subscriber and are never unpatched
      * (an unsubscribe can arrive from inside the hooked function). With no
@@ -1685,10 +1685,10 @@ typedef struct PierApi
      *  names yield -1, never VanillaDimensions::Undefined() (whose numeric
      *  value is mutated at runtime and looks like a valid id).
      *
-     *  Note this is rarely what you want. `md_add_simple_dimension` and
-     *  `md_add_plot_dimension` are idempotent — re-registering the same name
-     *  on a later boot returns the same persisted id — so callers should
-     *  register unconditionally at startup instead of probing first. */
+     *  This is rarely the right call. `md_add_simple_dimension` and
+     *  `md_add_plot_dimension` are idempotent, so re-registering the same name
+     *  on a later boot returns the same persisted id, and a caller registers
+     *  unconditionally at startup instead of probing first. */
     int32_t (*md_get_dimension_id)(PierStr name);
 
     /** Add a plot-world dimension: a custom dimension whose chunk generator
@@ -1992,9 +1992,9 @@ typedef struct PierApi
      *  id (> 0), withdrawn automatically at unload. */
     uint64_t (*lane_publish)(PierModHandle mod, PierStr name, PierLaneDesc const* desc);
 
-    /** Withdraw one of your own lanes. Calls release for every outstanding lease
-     *  and clears the liveness flag, so a consumer's next check sees the lane
-     *  gone instead of jumping through a dead pointer. */
+    /** Withdraw a lane owned by this mod. Calls release for every outstanding
+     *  lease and clears the liveness flag, so a consumer's next check sees the
+     *  lane gone instead of jumping through a dead pointer. */
     bool (*lane_unpublish)(PierModHandle mod, uint64_t pub_id);
 
     /** Acquire a lane. want_fingerprint must be the value the consumer computed
@@ -2012,9 +2012,9 @@ typedef struct PierApi
     int32_t (*lane_acquire)(
         PierModHandle mod, PierStr name, uint64_t want_fingerprint, PierLaneRef* out);
 
-    /** Return a lease. Only your own. Returns false when the provider is already
-     *  gone: the loader has called release on your behalf by then, and calling
-     *  it again would be a double free. */
+    /** Return a lease. Only a lease held by this mod. Returns false when the
+     *  provider is already gone, since the loader has called release for it by
+     *  then and calling again would be a double free. */
     bool (*lane_release)(PierModHandle mod, uint64_t lease);
 
     /** Every lane, as a JSON array:

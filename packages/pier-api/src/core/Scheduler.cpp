@@ -1,4 +1,5 @@
-/** core/Scheduler.cpp —— 计划任务：无主槽（历史）+ 按模组记账的槽 + 卸载清扫。 */
+/** core/Scheduler.cpp: scheduled tasks. The ownerless legacy slots, the slots
+ *  accounted per mod, and the sweep on unload. */
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -7,8 +8,9 @@
 
 #include "sdk/abi.h"
 
-// 服务端构建排进服务器线程，客户端构建排进客户端线程。两个执行器接口相同
-//（execute / executeAfter，继承自 ll::coro::Executor）。
+// The server build schedules onto the server thread and the client build onto the
+// client thread. Both executors share the same interface, execute and executeAfter,
+// inherited from ll::coro::Executor.
 #ifdef PIER_BUILD_CLIENT
 #include "ll/api/thread/ClientThreadExecutor.h"
 #define PIER_THREAD_EXEC ll::thread::ClientThreadExecutor
@@ -27,27 +29,29 @@
 
 namespace pier::api_impl
 {
-    /*  按模组记账的任务表
-     * 为什么存在：一个计划任务就是一根指进模组 dylib 的裸函数指针。模组在
-     * 任务触发前卸载，触发就跳进已释放的内存。历史的 `schedule` /
-     * `schedule_after` 槽治不了这个 —— 它们根本不知道任务是谁排的 ——
-     * 所以下面带模组的槽先把每个任务登记进宿主自己的表。
+    /*  Task table accounted per mod
+     * A scheduled task is a raw function pointer into a mod dylib. If the mod is
+     * unloaded before it fires, firing jumps into freed memory. The legacy `schedule`
+     * and `schedule_after` slots never learn who scheduled a task, so the mod-scoped
+     * slots below register every task in the host's own table first.
      *
-     * 纪律与表单回调完全一致：执行器闭包只捕获 weak_ptr<HostedMod> 和一个
-     * 整数票据，永远不捕获回调本身。触发时从表里取票；票没了（卸载时
-     * 清掉、或已取消）、模组没了、模组被禁用 —— 任何一种情况都不碰 dylib。
+     * The discipline matches form callbacks. The executor closure captures a
+     * weak_ptr<HostedMod> and an integer ticket, never the callback itself. A missing
+     * ticket, a missing mod or a disabled mod each mean the dylib is not touched.
      *
-     * 刻意不持有 executeAfter 返回的 CancellableCallback：在它自己的
-     * 调用里丢掉最后一个引用会析构正在运行的 std::function。让定时器对着
-     * 一张死票过期，代价是一次空唤醒，没有任何这类险。 */
+     * The CancellableCallback returned by executeAfter is deliberately not held.
+     * Dropping its last reference from inside its own invocation destroys the running
+     * std::function. Letting the timer expire against a dead ticket costs one empty
+     * wakeup instead. */
     namespace
     {
         struct PendingTask
         {
-            HostedMod* mod = nullptr; // 只作身份比对；永不盲目解引用
+            HostedMod* mod = nullptr; // Identity comparison only, never dereferenced
             PierTaskCb cb = nullptr;
             void* user = nullptr;
-            /** 仅旧槽任务：回调所在模块基址。 */
+            /** Legacy-slot tasks only. Base address of the module holding the
+             *  callback. */
             void const* legacyBase = nullptr;
         };
 
@@ -63,30 +67,33 @@ namespace pier::api_impl
             return id;
         }
 
-        /** 取票并恰好触发一次，或者静默丢弃。跑在服务器/客户端线程上。
-         *  锁在调进模组代码之前释放：模组完全可能在任务里重入 schedule_*。 */
+        /** Takes the ticket and fires exactly once, or drops it silently. Runs on the
+         *  server or client thread. The lock is released before calling into mod code,
+         *  because a mod may well re-enter schedule_* from inside a task. */
         void runTask(std::weak_ptr<HostedMod> const& weakMod, uint64_t id)
         {
             PendingTask task;
             {
                 std::lock_guard lock(gTaskMutex);
                 auto it = gPendingTasks.find(id);
-                if (it == gPendingTasks.end()) return; // 卸载清掉了，或已取消
+                if (it == gPendingTasks.end()) return; // Cleared on unload, or cancelled
                 task = it->second;
                 gPendingTasks.erase(it);
             }
             auto mod = weakMod.lock();
-            if (!mod || mod.get() != task.mod) return; // 模组没了；dylib 可能已 unmap
-            if (!mod->isEnabled()) return;             // 禁用期间静音
-            CallbackScope scope{mod.get()};            // 回调期间否决卸载
+            if (!mod || mod.get() != task.mod) return; // Mod gone, dylib may be unmapped
+            if (!mod->isEnabled()) return;             // Muted while disabled
+            CallbackScope scope{mod.get()};            // Veto unload during the callback
             if (task.cb) task.cb(task.user);
         }
 
-        /*  无主旧槽（schedule / schedule_after）的归属恢复
-         * 这两个槽没有模组句柄，旧实现「发后不管」：模组卸载后定时器照样触发，
-         * 跳进已 unmap 的代码段。现在它们也走 gPendingTasks（mod=nullptr），
-         * 并记下回调所在模块的基址；拆除时按基址清掉，触发时再查一次基址仍
-         * 属于某个活模组。 */
+    /*  Recovering ownership for the ownerless legacy slots
+     * `schedule` and `schedule_after` carry no mod handle. Left unaccounted, their
+     * timers still fire after the mod is unloaded and jump into an unmapped code
+     * section. They therefore also go through gPendingTasks with mod set to nullptr,
+     * recording the base address of the module holding the callback. Teardown clears
+     * by base address, and firing checks once more that the base still belongs to a
+     * live mod. */
         void const* moduleBaseOfCb(PierTaskCb cb)
         {
             auto* host = ModHost::instance();
@@ -105,13 +112,14 @@ namespace pier::api_impl
             {
                 std::lock_guard lock(gTaskMutex);
                 auto it = gPendingTasks.find(id);
-                if (it == gPendingTasks.end()) return; // 卸载清掉了
+                if (it == gPendingTasks.end()) return; // Cleared on unload
                 task = it->second;
                 gPendingTasks.erase(it);
             }
             if (!task.cb) return;
-            // 基址在登记时就查过；触发前再确认它仍属于某个活着的模组 —— 不属于
-            // 任何模组的回调（宿主自身或未知来源）照旧执行。
+            // The base address was resolved at registration. Before firing it is
+            // confirmed to still belong to a live mod. A callback belonging to no mod,
+            // meaning the host itself or an unknown source, still runs.
             if (task.legacyBase && moduleBaseOfCb(task.cb) != task.legacyBase) return;
             task.cb(task.user);
         }
@@ -136,7 +144,7 @@ namespace pier::api_impl
             }
         }
 
-        /** 两个入口的共享主体。 */
+        /** Shared body of the two entry points. */
         uint64_t submit(PierModHandle modHandle, PierTaskCb cb, void* user, bool delayed, uint64_t delayMs)
         {
             if (!cb || !modHandle) return 0;
@@ -150,7 +158,7 @@ namespace pier::api_impl
             }
             catch (...)
             {
-                return 0; // 还没被 shared_ptr 接管 —— 拒绝而不是赌
+                return 0; // Not yet owned by a shared_ptr, so refuse rather than gamble
             }
 
             uint64_t id = registerTask(raw, cb, user);
@@ -158,7 +166,8 @@ namespace pier::api_impl
 
             if (delayed)
             {
-                // Executor::Duration = steady_clock::duration；毫秒隐式转换。
+                // Executor::Duration is steady_clock::duration and milliseconds
+                // convert implicitly.
                 (void)PIER_THREAD_EXEC::getDefault().executeAfter(fire, std::chrono::milliseconds(delayMs));
             }
             else
@@ -171,8 +180,9 @@ namespace pier::api_impl
         void api_schedule(PierTaskCb cb, void* user)
         {
             PIER_API_GUARD_BEGIN
-                // 历史的无主槽：为 schedule_for 出现之前编译的模组保留。
-                // 跨卸载天然不安全 —— 这样的模组不许标 reload_safe。
+                // The ownerless legacy slots, kept for mods compiled before
+                // schedule_for existed. They are inherently unsafe across an unload, so
+                // such a mod must not declare reload_safe.
                 if (!cb) return;
                 submitLegacy(cb, user, /*delayed=*/false, 0);
             PIER_API_GUARD_END_VOID
@@ -207,7 +217,7 @@ namespace pier::api_impl
                 auto* raw = asMod(mod);
                 std::lock_guard lock(gTaskMutex);
                 auto it = gPendingTasks.find(taskId);
-                // 只限本人：一个模组不许取消别人的任务。
+                // Scoped to the caller. A mod may not cancel another mod's task.
                 if (it == gPendingTasks.end() || it->second.mod != raw) return false;
                 gPendingTasks.erase(it);
                 return true;
@@ -229,9 +239,10 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /** 拆除（stage 10，最先跑）：表里还剩的任务都会调进马上要 unmap 的
-         *  dylib，全部丢掉。`user` 载荷按设计泄漏 —— 唯一能释放它的代码就在
-         *  即将消失的那个 dylib 里。 */
+        /** Teardown at stage 10, which runs first. Every task left in the table would
+         *  call into a dylib about to be unmapped, so all of them are dropped. The
+         *  `user` payload leaks by design, because the only code that could free it
+         *  lives in the dylib that is about to disappear. */
         void teardown(HostedMod* mod)
         {
             size_t dropped = 0;
@@ -258,8 +269,9 @@ namespace pier::api_impl
             if (dropped > 0)
             {
                 hostLogger().warn(
-                    "[scheduler] '{}' 卸载时仍有 {} 个待执行任务被丢弃 —— "
-                    "该模组应在 on_disable/on_unload 里自己取消定时器（schedule_cancel）",
+                    "[scheduler] '{}' was unloaded with {} pending task(s), all dropped; "
+                    "a mod is expected to cancel its own timers through schedule_cancel "
+                    "in on_disable or on_unload",
                     mod ? mod->getName() : std::string{"?"},
                     dropped
                 );

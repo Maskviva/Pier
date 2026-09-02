@@ -1,9 +1,11 @@
-/** runtime/Commands.cpp —— 命令执行与注册（含参数化命令与枚举族）。
- *
- * Bedrock 的命令注册不可撤销，所以每个执行器闭包都归宿主所有、查一张
- * 可变的绑定表；模组卸载后它的绑定被置空，命令回答一句错误而不是悬垂。
- * 拆除（stage 50）只清绑定，不动 Bedrock 侧 —— 动不了。
-  * 命令族双目标编入（与旧构建矩阵一致；客户端上 CommandRegistrar 同样可用）。
+/** runtime/Commands.cpp: command execution and registration, including parameterized
+ *  commands and the enum family.
+ * A Bedrock command registration cannot be withdrawn, so every executor closure is
+ * owned by the host and consults a mutable binding table. Once a mod is unloaded its
+ * binding is cleared and the command answers with an error instead of dangling.
+ * Teardown at stage 50 clears bindings only and leaves the Bedrock side alone, since
+ * it cannot be touched. The family is compiled into both targets, and CommandRegistrar
+ * is available on the client as well.
  */
 #include <algorithm>
 #include <memory>
@@ -75,14 +77,15 @@ namespace pier::api_impl
                     "Server",
                     static_cast<ServerLevel&>(*level),
                     CommandPermissionLevel::Owner,
-                    0 // overworld；命令里的选择器/坐标自己能指到别的维度
+                    0 // Overworld. Selectors and coordinates in the command can reach elsewhere.
                 };
                 auto output =
                     ll::command::CommandRegistrar::getServerInstance().executeCommand(toString(cmd), origin);
                 if (sink)
                 {
-                    // 拼合输出走本地化消息的 id + 参数 —— 简单、稳定；
-                    // mSuccessCount 是成功判据。
+                    // Output is assembled from the localized message id plus its
+                    // parameters, which is simple and stable. mSuccessCount decides
+                    // success.
                     std::string text;
                     for (auto const& msg : output.mMessages)
                     {
@@ -105,12 +108,14 @@ namespace pier::api_impl
             HostedMod* mod = nullptr;
             PierCommandCb cb = nullptr;
             void* user = nullptr;
-            /** 最近一次注册声明的权限等级（0..4）。Bedrock 侧的命令建好
-             *  后改不了等级，所以执行闭包按这个值再复核一次 —— 重注册只能
-             *  收紧，不能放宽。 */
+            /** The permission level, 0..4, declared by the most recent registration.
+             *  A Bedrock command cannot change its level once built, so the executor
+             *  closure rechecks against this value, and a re-registration can only
+             *  tighten it, never loosen it. */
             int32_t permission = 0;
-            /** Bedrock 侧建命令时的等级与 overload 形状摘要；重注册若不
-             *  一致就拒绝，绝不静默沿用旧声明。 */
+            /** The level and the overload shape digest used when the Bedrock command
+             *  was built. A re-registration that disagrees is refused rather than
+             *  silently keeping the earlier declaration. */
             int32_t bedrockPermission = -1;
             std::string shape;
         };
@@ -118,8 +123,9 @@ namespace pier::api_impl
         std::mutex gCmdMutex;
         std::unordered_map<std::string, std::shared_ptr<CommandBinding>> gCommands;
 
-        /** 给 `mod` 占下 `cmdName`；被别的活模组占着返回 nullptr。
-         *  `freshlyRegistered` = Bedrock 侧的命令还没建过（头一次见这个名字）。 */
+        /** Claims `cmdName` for `mod`. Returns nullptr when a live mod already holds
+         *  it. `freshlyRegistered` means the Bedrock command has not been built yet,
+         *  so this is the first time the name is seen. */
         std::shared_ptr<CommandBinding> claimBinding(
             std::string const& cmdName, HostedMod* mod, PierCommandCb cb, void* user,
             int32_t permission, std::string const& shape, bool& freshlyRegistered)
@@ -128,22 +134,24 @@ namespace pier::api_impl
             auto [it, inserted] = gCommands.try_emplace(cmdName, std::make_shared<CommandBinding>());
             auto binding = it->second;
             bool rebind = !inserted && (binding->mod == nullptr || binding->mod == mod);
-            if (!inserted && !rebind) return nullptr; // 被别的活模组占着
+            if (!inserted && !rebind) return nullptr; // Held by another live mod
             if (!inserted && binding->bedrockPermission >= 0)
             {
-                // Bedrock 侧的命令不能注销也不能改等级/形状。重注册声明
-                // 的等级或 overload 与首次不一致时，旧行为是静默沿用首次声明
-                // —— 热修一个 permission 写错的 bug 会毫无提示地失效。
+                // A Bedrock command can neither be unregistered nor have its level or
+                // shape changed. When a re-registration declares a different level or
+                // overload set, keeping the first declaration silently would make a
+                // hot fix for a wrong permission fail without any sign of it.
                 if (binding->bedrockPermission != permission || binding->shape != shape)
                 {
                     if (mod)
                     {
                         mod->getLogger().error(
-                            "register_command('{}')：与本会话首次注册的声明不一致"
-                            "（等级 {} → {}，形状 {}），Bedrock 命令一旦建好就改不了。"
-                            "拒绝重绑定 —— 重启服务器以采用新声明。",
+                            "[api] register_command('{}') disagrees with the first "
+                            "registration of this session, level {} to {}, shape {}; a "
+                            "Bedrock command cannot change once built, so the rebind is "
+                            "refused, restart the server to adopt the new declaration",
                             cmdName, binding->bedrockPermission, permission,
-                            binding->shape == shape ? "相同" : "不同"
+                            binding->shape == shape ? "same" : "different"
                         );
                     }
                     return nullptr;
@@ -162,8 +170,9 @@ namespace pier::api_impl
             return binding;
         }
 
-        /** 执行前按当前声明的等级复核一次来源权限。Bedrock 侧的等级
-         *  是首次注册时定下的；这里只可能比它更严，不可能更松。 */
+        /** Rechecks the origin permission against the currently declared level before
+         *  execution. The Bedrock-side level was fixed at first registration, so this
+         *  can only be stricter, never looser. */
         bool originAllowed(CommandOrigin const& origin, CommandBinding const& b)
         {
             return static_cast<int32_t>(origin.getPermissionsLevel()) >= b.permission;
@@ -178,7 +187,7 @@ namespace pier::api_impl
             return origin.getName();
         }
 
-        /** 命令来源的身份 + 位置：{name,type,dim,x,y,z}。 */
+        /** Identity and position of the command origin: {name,type,dim,x,y,z}. */
         std::string originSnbt(CommandOrigin const& origin)
         {
             std::string out = "{name:\"" + snbtEscape(originIdentity(origin)) + "\"";
@@ -210,14 +219,18 @@ namespace pier::api_impl
                 bool fresh = false;
                 auto binding = claimBinding(cmdName, mod, cb, user, perm, "raw", fresh);
                 if (!binding) return false;
-                if (!fresh) return true; // Bedrock 侧已建过（重载后重新绑定，声明已核对一致）
+                // Already built on the Bedrock side. A rebind after a reload, with the
+                // declaration already verified as identical.
+                if (!fresh) return true;
 
                 try
                 {
                     using namespace ll::command;
-                    // 运行时重载刻意归宿主（NativeMod::current()）所有，不归
-                    // 那个模组 —— Bedrock 命令注销不了，执行器必须活得比任何
-                    // 模组久。经绑定表静音让卸载后的行为可预测。
+                    // The runtime overload is deliberately owned by the host through
+                    // NativeMod::current() and not by the mod. A Bedrock command cannot
+                    // be unregistered, so the executor must outlive any mod. Muting it
+                    // through the binding table makes post-unload behavior
+                    // predictable.
                     auto& handle = CommandRegistrar::getServerInstance().getOrCreateCommand(
                         cmdName,
                         toString(description),
@@ -234,12 +247,12 @@ namespace pier::api_impl
                             }
                             if (!local.mod || local.mod->commandsMuted || !local.cb)
                             {
-                                output.error("命令 '" + cmdName + "' 当前不可用（模组已禁用）");
+                                output.error("command '" + cmdName + "' is currently unavailable, its mod is disabled");
                                 return;
                             }
                             if (!originAllowed(origin, local))
                             {
-                                output.error("命令 '" + cmdName + "' 需要更高的权限等级");
+                                output.error("command '" + cmdName + "' requires a higher permission level");
                                 return;
                             }
                             std::string args;
@@ -248,7 +261,7 @@ namespace pier::api_impl
                                 args = p.get<ParamKind::RawText>().mText;
                             }
                             std::string originName = originIdentity(origin);
-                            CallbackScope scope{local.mod}; // 回调期间否决卸载
+                            CallbackScope scope{local.mod}; // Veto unload during the callback
                             local.cb(
                                 local.user,
                                 ps(args),
@@ -273,14 +286,14 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /*  参数化命令  */
+        /*  Parameterized commands  */
 
-        /** 声明的参数，从 overloads SNBT 解码而来。 */
+        /** A declared parameter, decoded from the overloads SNBT. */
         struct ParamDecl
         {
             std::string name;
             ll::command::ParamKind::Kind kind;
-            std::string enumName; // Enum / SoftEnum 用
+            std::string enumName; // For Enum and SoftEnum
             bool optional = false;
         };
 
@@ -311,7 +324,8 @@ namespace pier::api_impl
             return std::nullopt;
         }
 
-        /** 把一个解析好的参数序列化进 `out`（"name":value,），没给就跳过。 */
+        /** Serializes one parsed parameter into `out` as "name":value, and skips it
+         *  when it was not supplied. */
         void appendParsedParam(
             std::string& out,
             ParamDecl const& decl,
@@ -320,7 +334,7 @@ namespace pier::api_impl
         {
             using K = ll::command::ParamKind::Kind;
             auto const& p = rt[decl.name];
-            if (!p.has_value()) return; // 可选参数没给
+            if (!p.has_value()) return; // An optional parameter was not supplied
 
             auto key = [&](std::string const& v)
             {
@@ -388,7 +402,7 @@ namespace pier::api_impl
             case K::BlockPos:
                 if (p.hold(K::BlockPos))
                 {
-                    // 0x7FFFFFFF 选中最新的坐标语义。
+                    // 0x7FFFFFFF selects the newest coordinate semantics.
                     auto bp = p.get<K::BlockPos>().getBlockPos(0x7FFFFFFF, origin, Vec3::ZERO());
                     key("{x:" + snbtNum(bp.x) + ",y:" + snbtNum(bp.y) + ",z:" + snbtNum(bp.z) + "}");
                 }
@@ -455,12 +469,12 @@ namespace pier::api_impl
                 if (p.hold(K::Command) && p.get<K::Command>()) key("1b");
                 break;
             default:
-                // kindFromString 吐出的每一种上面都有分支 —— 走到这里说明有人
-                // 给 ParamDecl 加了新 kind 却没加序列化。吼出来而不是静默丢字
-                // 段（§5.1）。旧注释声称 json/message/item 等「未序列化」，而
-                // 它们分明都有分支 —— 注释撒谎（§5.4），已订正。
+                // Every kind kindFromString can produce has a branch above, so
+                // reaching here means a new kind was added to ParamDecl without a
+                // serialization branch. It is reported rather than dropping the field
+                // silently (§5.1).
                 hostLogger().warn(
-                    "命令参数 '{}'：kind {} Bedrock 解析了但没有序列化分支",
+                    "[api] command parameter '{}': Bedrock parsed kind {} but it has no serialization branch",
                     decl.name, static_cast<int>(decl.kind));
                 break;
             }
@@ -480,12 +494,13 @@ namespace pier::api_impl
                 if (!mod || !cb) return false;
                 std::string cmdName = toString(name);
 
-                // 先把 {overloads:[[{name,kind,enum?,optional?},…],…]} 解完 ——
-                // 畸形声明要在任何东西注册进 Bedrock 之前失败。
+                // The whole {overloads:[[{name,kind,enum?,optional?},...],...]} is
+                // decoded first, so a malformed declaration fails before anything is
+                // registered with Bedrock.
                 auto tag = CompoundTag::fromSnbt(sv(overloadsSnbt));
                 if (!tag || !tag->contains("overloads") || !tag->at("overloads").is_array())
                 {
-                    mod->getLogger().error("register_command_ex('{}')：overloads SNBT 不合法", cmdName);
+                    mod->getLogger().error("[api] register_command_ex('{}'): the overloads SNBT is not valid", cmdName);
                     return false;
                 }
                 std::vector<std::vector<ParamDecl>> overloads;
@@ -504,7 +519,7 @@ namespace pier::api_impl
                         if (!kind)
                         {
                             mod->getLogger().error(
-                                "register_command_ex('{}')：不认识的参数 kind '{}'",
+                                "[api] register_command_ex('{}'): unknown parameter kind '{}'",
                                 cmdName,
                                 std::string_view{po.at("kind")}
                             );
@@ -520,11 +535,12 @@ namespace pier::api_impl
                 }
                 if (overloads.empty())
                 {
-                    mod->getLogger().error("register_command_ex('{}')：没有声明任何 overload", cmdName);
+                    mod->getLogger().error("[api] register_command_ex('{}'): no overload was declared", cmdName);
                     return false;
                 }
 
-                // overload 形状摘要：每个 overload 的「name:kind[?]」序列。
+                // The overload shape digest: the "name:kind[?]" sequence of each
+                // overload.
                 std::string shape;
                 for (auto const& decls : overloads)
                 {
@@ -540,7 +556,9 @@ namespace pier::api_impl
                 bool fresh = false;
                 auto binding = claimBinding(cmdName, mod, cb, user, perm, shape, fresh);
                 if (!binding) return false;
-                if (!fresh) return true; // Bedrock 侧已存在（重载后重新绑定，声明已核对一致）
+                // Already exists on the Bedrock side. A rebind after a reload, with the
+                // declaration already verified as identical.
+                if (!fresh) return true;
 
                 try
                 {
@@ -557,12 +575,13 @@ namespace pier::api_impl
                         for (auto const& d : decls)
                         {
                             bool isEnum = d.kind == ParamKind::Enum || d.kind == ParamKind::SoftEnum;
-                            // required()/optional() 返回 RuntimeOverload&（就是
-                            // `ovl` 自己，为链式调用），且标了 [[nodiscard]]。
-                            // RuntimeOverload 没有 operator=（只声明了移动构造
-                            // 和析构），没法把返回值赋回 `ovl` —— 用
-                            // static_cast<void> 显式丢弃，压掉 C4834 /
-                            // -Wunused-result 而不改行为。
+                            // required() and optional() return RuntimeOverload&, which
+                            // is `ovl` itself for chaining, and are marked
+                            // [[nodiscard]]. RuntimeOverload has no operator=, only a
+                            // move constructor and a destructor, so the result cannot
+                            // be assigned back to `ovl`. static_cast<void> discards it
+                            // explicitly and silences C4834 and -Wunused-result without
+                            // changing behavior.
                             if (isEnum)
                             {
                                 if (d.optional)
@@ -589,15 +608,15 @@ namespace pier::api_impl
                                 }
                                 if (!local.mod || local.mod->commandsMuted || !local.cb)
                                 {
-                                    output.error("命令 '" + cmdName + "' 当前不可用（模组已禁用）");
+                                    output.error("command '" + cmdName + "' is currently unavailable, its mod is disabled");
                                     return;
                                 }
                                 if (!originAllowed(origin, local))
                                 {
-                                    output.error("命令 '" + cmdName + "' 需要更高的权限等级");
+                                    output.error("command '" + cmdName + "' requires a higher permission level");
                                     return;
                                 }
-                                CallbackScope scope{local.mod}; // 回调期间否决卸载
+                                CallbackScope scope{local.mod}; // Veto unload during the callback
                                 std::string args = "{overload:" + snbtNum(idx) + ",args:{";
                                 for (auto const& d : decls)
                                 {
@@ -631,7 +650,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /** 解码 {values:[…]}，元素全是字符串。 */
+        /** Decodes {values:[...]} where every element is a string. */
         std::optional<std::vector<std::string>> decodeStringValues(PierStr snbt)
         {
             auto tag = CompoundTag::fromSnbt(sv(snbt));
@@ -648,7 +667,7 @@ namespace pier::api_impl
         bool api_register_command_enum(PierStr name, PierStr valuesSnbt)
         {
             PIER_API_GUARD_BEGIN
-                // {values:[["name",1L],…]} —— (展示名, 序号) 对。
+                // {values:[["name",1L],...]} is a list of (display name, ordinal) pairs.
                 auto tag = CompoundTag::fromSnbt(sv(valuesSnbt));
                 if (!tag || !tag->contains("values") || !tag->at("values").is_array()) return false;
                 std::vector<std::pair<std::string, uint64_t>> values;
@@ -679,7 +698,7 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // 调用方只看得到 false；原因进日志。
+                    // The caller only sees false; the reason goes to the log.
                     ll::error_utils::printCurrentException(hostLogger());
                     return false;
                 }
@@ -698,7 +717,7 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // 调用方只看得到 false；原因进日志。
+                    // The caller only sees false; the reason goes to the log.
                     ll::error_utils::printCurrentException(hostLogger());
                     return false;
                 }
@@ -727,16 +746,17 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // 旧版这里静默吞掉（连日志都没有）—— 三兄弟里唯一的哑巴，
-                    // 是遗漏不是设计。补上，与其余入口口径一致。
+                    // Logged like the other two entry points of this family. Swallowing
+                    // it silently would leave one of the three without any trace.
                     ll::error_utils::printCurrentException(hostLogger());
                     return false;
                 }
             PIER_API_GUARD_END
         }
 
-        /** 拆除（stage 50）：置空该模组的全部绑定。Bedrock 侧的命令留着 ——
-         *  注销不了 —— 之后被敲会回答「模组已禁用」而不是跳进已释放的 dylib。 */
+        /** Teardown at stage 50. Clears every binding of this mod. The Bedrock command
+         *  stays, since it cannot be unregistered, and answers that its mod is disabled
+         *  instead of jumping into a freed dylib. */
         void teardown(HostedMod* mod)
         {
             std::lock_guard lock(gCmdMutex);

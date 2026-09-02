@@ -1,5 +1,6 @@
-/** actors/Actors.cpp —— 实体枚举、快照、属性、动作与生成。
- *  实体句柄就是 ActorUniqueID，每次调用经 Level::fetchEntity 重新解析。 */
+/** actors/Actors.cpp: actor enumeration, snapshots, properties, actions and spawning.
+ *  An actor handle is an ActorUniqueID, re-resolved through Level::fetchEntity on
+ *  every call. */
 #include <string>
 
 #include "mc/deps/core/math/Vec2.h"
@@ -118,7 +119,7 @@ namespace pier::api_impl
                 case PIER_APROP_SPEED:
                     *out = static_cast<double>(actor->getSpeedInMetersPerSecond());
                     return true;
-                /*  追加：实体补漏  */
+                /*  Appended: actor gap fills  */
                 case PIER_APROP_VIEW_X:
                     *out = actor->getViewVector().x;
                     return true;
@@ -165,8 +166,9 @@ namespace pier::api_impl
                     *out = actor->isLeashed() ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_IS_INVULNERABLE:
-                    // Actor 只有 isInvulnerableTo(ActorDamageSource const&)，没有
-                    // 无参形式，ActorFlags::Invulnerable 也不存在。报「不支持」。
+                    // Actor offers only isInvulnerableTo(ActorDamageSource const&),
+                    // there is no argument-free form, and ActorFlags::Invulnerable does
+                    // not exist. Reported as unsupported.
                     return false;
                 case PIER_APROP_VARIANT:
                     *out = static_cast<double>(actor->getVariant());
@@ -175,7 +177,8 @@ namespace pier::api_impl
                     *out = static_cast<double>(actor->getMarkVariant());
                     return true;
                 case PIER_APROP_SCALE:
-                    // getScaleFactor(float) 在 #ifdef LL_PLAT_C 后面 —— 不可用。
+                    // getScaleFactor(float) sits behind #ifdef LL_PLAT_C and is
+                    // unavailable.
                     return false;
                 case PIER_APROP_BRIGHTNESS:
                     *out = static_cast<double>(actor->getBrightness());
@@ -196,9 +199,10 @@ namespace pier::api_impl
                     *out = actor->isInThunderstorm() ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_IS_FROZEN:
-                    // Actor 上没有 isFrozen()；ActorFlags::Frozen 也不存在。
-                    // isImmobile() 覆盖的不可动原因太宽，用它会假阳性，所以
-                    // 不用。报「不支持」。
+                    // Actor has no isFrozen() and ActorFlags::Frozen does not exist.
+                    // isImmobile() covers too many reasons for being unable to move and
+                    // would produce false positives, so it is not used. Reported as
+                    // unsupported.
                     return false;
                 case PIER_APROP_IS_IN_LOVE:
                     *out = actor->isInLove() ? 1.0 : 0.0;
@@ -228,17 +232,18 @@ namespace pier::api_impl
                 case PIER_ASTR_NAME_TAG:
                     sink(ctx, ps(actor->getNameTag()));
                     return true;
-                /*  追加  */
+                /*  Appended  */
                 case PIER_ASTR_SCORE_TAG:
-                    // getScoreTag() 在 #ifdef LL_PLAT_C 后面 —— 服务端拿不到。
-                    // setScoreTag() 存在，但 getter 是客户端专属。
+                    // getScoreTag() sits behind #ifdef LL_PLAT_C and is unavailable on
+                    // the server. setScoreTag() exists, but the getter is client only.
                     return false;
                 case PIER_ASTR_FILTERED_NAME:
-                    // getFilteredNameTag() 同样在 LL_PLAT_C 后面；直接读公开成员
-                    // mFilteredNameTag（TypedStorage<string>）。先绑到
-                    // std::string const&，让 string_view 的构造看到一个真正的
-                    // std::string —— TypedStorage → string → string_view 要显式
-                    // 中转一跳（两次隐式 UDC 不被允许）。
+                    // getFilteredNameTag() is likewise behind LL_PLAT_C, so the public
+                    // member mFilteredNameTag, a TypedStorage<string>, is read
+                    // directly. It is bound to a std::string const& first so that the
+                    // string_view constructor sees a real std::string. Going from
+                    // TypedStorage to string to string_view needs that explicit hop,
+                    // because two implicit user-defined conversions are not allowed.
                     {
                         std::string const& name = actor->mFilteredNameTag;
                         sink(ctx, ps(name));
@@ -292,10 +297,13 @@ namespace pier::api_impl
                             return false;
                         }
                     }
-                    // 与 player_teleport 同一道闸。维度桥必须能建出实例且
-                    // 引擎自报 id 与请求一致，否则区块线程抛未捕获异常 → fastfail。
+                    // The same gate player_teleport uses. The dimension bridge must be
+                    // able to build the instance and the id the engine reports must
+                    // match the request, otherwise a chunk thread throws an uncaught
+                    // exception and the process fastfails.
                     if (!bridge::blockSourceOf(dim)) return false;
-                    // teleport(pos, dim, rotation) —— 保留实体当前朝向。
+                    // teleport(pos, dim, rotation) keeps the actor's current
+                    // orientation.
                     actor->teleport(
                         Vec3{(float)a, (float)b, (float)c}, DimensionType{dim}, actor->getRotation());
                     return true;
@@ -344,17 +352,19 @@ namespace pier::api_impl
                     return true;
                 case PIER_AACT_HURT:
                 {
-                    // 走 Actor::hurtByCause：它接受一个 ActorDamageCause，引擎侧
-                    // 的伤害记账照常。按 Actor* 打而不按名字，任何实体都行，也不必
-                    // 把玩家名拼进带引号的命令（名字里有引号就撕开命令）。Override
-                    // 是「不归因于任何具体来源」的通用伤害，正是这个槽位的语义：调
-                    // 用方只给了一个伤害值。
+                    // Through Actor::hurtByCause, which takes an ActorDamageCause and
+                    // keeps the engine's damage accounting intact. Damage is applied by
+                    // Actor* and not by name, so it works for any actor and no player
+                    // name has to be concatenated into a quoted command, where a quote
+                    // in the name would tear the command apart. Override is generic
+                    // damage attributed to no particular source, which is exactly the
+                    // meaning of this slot: the caller supplied only an amount.
                     return actor->hurtByCause(
                         static_cast<float>(a), ::SharedTypes::Legacy::ActorDamageCause::Override);
                 }
                 case PIER_AACT_ATTRIBUTE_GET:
-                    return false; // 预留：按名取通用属性（v1.0.0 之后）
-                /*  追加  */
+                    return false; // Reserved for generic attributes by name
+                /*  Appended  */
                 case PIER_AACT_SET_VARIANT:
                     actor->setVariant(static_cast<int>(a));
                     return true;
@@ -387,12 +397,12 @@ namespace pier::api_impl
                     actor->setOwner(ActorUniqueID{static_cast<int64_t>(a)});
                     return true;
                 case PIER_AACT_BURN:
-                    // burn(int damage, bool inFire) —— inFire=true 表示来源是火焰
-                    // 方块（相对于火焰附魔 / 岩浆 tick）。
+                    // burn(int damage, bool inFire), where inFire=true means the source
+                    // is a fire block rather than a fire enchantment or a lava tick.
                     actor->burn(static_cast<int>(a), true);
                     return true;
                 case PIER_AACT_STOP_FIRE:
-                    // Actor 没有 extinguishFire()；stopFire() 是 LL 暴露的接口。
+                    // Actor has no extinguishFire(). stopFire() is what LL exposes.
                     actor->stopFire();
                     return true;
                 case PIER_AACT_SET_VELOCITY:
@@ -417,16 +427,18 @@ namespace pier::api_impl
                     actor->removeAllPassengers(false, true);
                     return true;
                 case PIER_AACT_EXECUTE_EVENT:
-                    // 按名字触发行为包实体事件 —— 和 `/event entity <target>
-                    // <event>` 同一件事。模组要改任何只以组件组形式存在的东西
-                    //（体型、碰撞箱、AI 切换）只有这一条路：那些没有 setter，
-                    // 这个游戏版本里 scale 连 synched data id 都没有。
+                    // Fires a behavior pack entity event by name, the same thing
+                    // `/event entity <target> <event>` does. It is the only route a mod
+                    // has to anything that exists solely as a component group, such as
+                    // size, collision box or an AI switch. Those have no setter, and in
+                    // this game version scale has no synched data id at all.
                     if (sarg.len == 0) return false;
                     return actor->executeEvent(toString(sarg), VariantParameterList{});
                 case PIER_AACT_SET_ROTATION:
-                    // Vec2 是 (x = pitch, y = yaw) —— 与 ROT_* 属性读出的顺序一
-                    // 致。用 Wrapped 不用 Directly：setRotationDirectly 跳过
-                    // -180..180 的规整，yaw 给 400 会渲染成拧过头的脑袋。
+                    // Vec2 is (x = pitch, y = yaw), matching the order the ROT_*
+                    // properties read. Wrapped rather than Directly, because
+                    // setRotationDirectly skips normalization to -180..180 and a yaw of
+                    // 400 renders as an over-twisted head.
                     actor->setRotationWrapped(Vec2{static_cast<float>(a), static_cast<float>(b)});
                     return true;
                 default:

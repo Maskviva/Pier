@@ -1,15 +1,15 @@
-# 构建产物
+# Build artifacts
 /build/
 /bin/
 /target/
 /.xmake/
 Cargo.lock
 
-# 工具运行时
+# Tool runtime
 __pycache__/
 *.pyc
 compile_commands.json
 
-# 编辑器
+# Editors
 .vscode/
 .idea/

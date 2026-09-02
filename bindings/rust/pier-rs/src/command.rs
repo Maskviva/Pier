@@ -1,19 +1,19 @@
-//! 自定义命令。
+//! Custom commands.
+//! # Command registration is one way
+//! Bedrock offers no route to deregister a command, so a registered command lives until the server
+//! stops. While a mod is disabled the host mutes the callback rather than removing it, and re-
+//! enabling resumes it. There is therefore no `unregister` and no handle that deregisters on drop,
+//! since such a handle would suggest it can be undone when it cannot.
 //!
-//! # 命令注册是**单向**的
+//! It follows that registering a command inside `on_enable` has to survive being called several
+//! times, as a hot reload does. A re-registration under the same name only swaps the callback and
+//! does not rebuild the command.
 //!
-//! 基岩版没有反注册命令的路子，所以一条命令注册之后活到服务器结束。模组被
-//! 停用期间，宿主把回调**静音**（不是移除），重新启用就继续响应。因此这里
-//! 没有 `unregister`，也没有返回一个 Drop 就注销的句柄 —— 那种句柄会让人
-//! 以为它能撤销，而它不能。
+//! # Two shapes
 //!
-//! 推论：`on_enable` 里注册命令要能承受被调用多次（热重载）。宿主对同名
-//! 重注册只换回调，不重建命令。
-//!
-//! # 两种形状
-//!
-//! [`register`] 收整行原始文本，适合自己解析。[`CommandBuilder`] 声明带类型的
-//! overload，由引擎解析并做补全 —— 玩家在客户端能看到参数提示。
+//! [`register`] takes the whole raw line, which suits parsing it yourself. [`CommandBuilder`]
+//! declares typed overloads that the engine parses and completes, so a player sees argument hints
+//! on the client.
 
 use core::ffi::c_void;
 
@@ -24,7 +24,7 @@ use crate::rt::logger::Logger;
 use crate::rt::runtime::rt;
 use crate::sys;
 
-/// 执行一条命令需要的权限。数值镜像 `CommandPermissionLevel`。
+/// The permission a command needs. The values mirror `CommandPermissionLevel`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandPermission {
     Any = 0,
@@ -40,10 +40,10 @@ impl CommandPermission {
     }
 }
 
-/// 一条 overload 里一个参数的类型。
+/// The type of one parameter inside one overload.
 ///
-/// `Enum` 和 `SoftEnum` 还要一个枚举名，用 [`OverloadBuilder::required_enum`]
-/// 那一对方法声明。
+/// `Enum` and `SoftEnum` also need an enum name, declared through the
+/// [`OverloadBuilder::required_enum`] pair of methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamType {
     Int,
@@ -69,7 +69,8 @@ pub enum ParamType {
 }
 
 impl ParamType {
-    /// ABI 上的拼法。宿主按这个字符串分发，拼错了整条 overload 被丢掉。
+    /// The spelling on the ABI. The host dispatches on this string and a typo drops the whole
+    /// overload.
     pub fn as_str(self) -> &'static str {
         match self {
             ParamType::Int => "int",
@@ -96,14 +97,14 @@ impl ParamType {
     }
 }
 
-/// 命令发起方。
+/// Where a command came from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandOrigin {
-    /// 玩家名，或者控制台的名字。
+    /// The player name, or the name of the console.
     pub name: String,
-    /// `CommandOriginType`。0 是玩家，7 是专用服务器控制台。
+    /// The `CommandOriginType`, where 0 is a player and 7 is the dedicated server console.
     pub kind: i32,
-    /// 发起方所在的位置。控制台没有位置，那时是 `None`。
+    /// Where the origin is. A console has no position and gives `None`.
     pub at: Option<(i32, f64, f64, f64)>,
 }
 
@@ -115,10 +116,10 @@ impl CommandOrigin {
         self.kind == Self::DEDICATED_SERVER
     }
 
-    /// 发起方是玩家时给出他的名字。
+    /// The player name when the origin is a player.
     ///
-    /// 注意这是**名字**，不是身份：做权限判断请用 `kind` 加上自己那一套
-    /// 玩家表，理由见 [`crate::sel`]。
+    /// Note this is a name and not an identity: a permission decision uses `kind` plus a
+    /// own player table, for the reason [`crate::sel`] gives.
     pub fn player_name(&self) -> Option<&str> {
         if self.kind == Self::PLAYER {
             Some(&self.name)
@@ -128,9 +129,9 @@ impl CommandOrigin {
     }
 }
 
-/// 一次命令调用。
+/// One command invocation.
 pub struct Invocation<'a> {
-    /// 原始文本（`register`）或参数 SNBT（`CommandBuilder`）。
+    /// The raw text for `register`, or the argument SNBT for `CommandBuilder`.
     raw: &'a str,
     origin_raw: &'a str,
     parsed: Option<NbtValue>,
@@ -140,24 +141,27 @@ pub struct Invocation<'a> {
 }
 
 impl Invocation<'_> {
-    /// 原始参数文本。`CommandBuilder` 注册的命令这里是参数 SNBT。
+    /// The raw argument text. For a command registered through `CommandBuilder` this is the
+    /// argument SNBT.
     pub fn raw(&self) -> &str {
         self.raw
     }
 
-    /// 回一条成功输出。
+    /// Returns one success output.
     pub fn success(&self, msg: &str) {
         unsafe { (self.out_success)(self.ctx, s(msg)) };
     }
 
-    /// 回一条错误输出。**和成功是两条通道**，客户端显示颜色不同，
-    /// 而且失败的命令不该走成功通道 —— 那会让命令方块判断错。
+    /// Returns one error output. It is a separate channel from success, the client colors it
+    /// differently, and a failed command must not use the success channel, which would make a
+    /// command block decide wrongly.
     pub fn error(&self, msg: &str) {
         unsafe { (self.out_error)(self.ctx, s(msg)) };
     }
 
-    /// 发起方。解析失败时退回一个只有名字的 origin 并告警：命令处理器多半
-    /// 只想知道是谁发的，为一个位置字段让整条命令失败不值当。
+    /// The origin. A failed parse falls back to an origin carrying only a name, with a
+    /// warning: a command handler usually only wants to know who sent it, and failing the
+    /// whole command over one position field is not worth it.
     pub fn origin(&self) -> CommandOrigin {
         match NbtValue::parse(self.origin_raw) {
             Ok(v) => CommandOrigin {
@@ -173,8 +177,8 @@ impl Invocation<'_> {
                     _ => None,
                 },
             },
-            // 纯文本的那一路（`register` 走的是名字而不是 SNBT）走这里，
-            // 属于正常形状，不告警。
+            // The plain-text route, where `register` carries a name rather than SNBT, comes
+            // through here as a normal shape and is not warned about.
             Err(_) => CommandOrigin {
                 name: self.origin_raw.to_owned(),
                 kind: -1,
@@ -183,12 +187,12 @@ impl Invocation<'_> {
         }
     }
 
-    /// 命中的是第几条 overload。只有 `CommandBuilder` 注册的命令有。
+    /// Which overload matched. Only a command registered through `CommandBuilder` has one.
     pub fn overload(&mut self) -> Option<i32> {
         self.parse().and_then(|v| v.opt_i32("overload"))
     }
 
-    /// 取一个具名参数。没给（可选参数被省略）时是 `None`。
+    /// Reads a named argument. An omitted optional argument gives `None`.
     pub fn arg(&mut self, name: &str) -> Option<&NbtValue> {
         self.parse()?;
         self.parsed.as_ref()?.path(&format!("args.{name}"))
@@ -210,14 +214,14 @@ impl Invocation<'_> {
         self.arg(name).and_then(|v| v.as_bool())
     }
 
-    /// 惰性解析参数 SNBT，一次调用只解一次。
+    /// Parses the argument SNBT lazily, once per invocation.
     fn parse(&mut self) -> Option<&NbtValue> {
         if self.parsed.is_none() {
             match NbtValue::parse(self.raw) {
                 Ok(v) => self.parsed = Some(v),
                 Err(e) => {
                     Logger::get().warn(&format!(
-                        "命令参数 SNBT 解析失败：{e}（原文：{}）",
+                        "parsing the command argument SNBT failed: {e} (raw: {})",
                         self.raw
                     ));
                     return None;
@@ -230,16 +234,16 @@ impl Invocation<'_> {
 
 type Handler = dyn FnMut(&mut Invocation<'_>) + Send + 'static;
 
-/// 注册一条收整行原始文本的命令。
+/// Registers a command that takes the whole raw line.
 ///
-/// 回调里的 [`Invocation::raw`] 是 `/name` 后面那一整串，自己解析。
+/// [`Invocation::raw`] in the callback is everything after `/name`, parsed by you.
 pub fn register(
     name: &str,
     description: &str,
     permission: CommandPermission,
     handler: impl FnMut(&mut Invocation<'_>) + Send + 'static,
 ) -> Result<()> {
-    let f = crate::require_slot!(register_command, "注册命令");
+    let f = crate::require_slot!(register_command, "registering a command");
     let user = leak_handler(handler);
     let ok = unsafe {
         f(
@@ -254,15 +258,16 @@ pub fn register(
     if ok {
         Ok(())
     } else {
-        // 宿主没接管这个闭包，收回所有权 —— 泄漏一个失败的注册没有意义。
+        // The host did not take the closure, so ownership comes back: leaking a failed
+        // registration serves no purpose.
         drop(unsafe { Box::from_raw(user.cast::<Box<Handler>>()) });
         Err(Error(format!(
-            "注册命令 /{name} 失败（名字非法，或已被占用且形状不同）"
+            "registering command /{name} failed: the name is invalid, or it is taken with a different shape"
         )))
     }
 }
 
-/// 一条 overload 的声明。
+/// The declaration of one overload.
 #[derive(Debug, Clone, Default)]
 pub struct OverloadBuilder {
     params: Vec<NbtValue>,
@@ -305,16 +310,16 @@ impl OverloadBuilder {
     }
 }
 
-/// 带类型 overload 的命令。
+/// A command with typed overloads.
 ///
 /// ```ignore
-/// command::builder("plot", "地皮管理", CommandPermission::Any)
+/// command::builder("plot", "plot management", CommandPermission::Any)
 ///     .overload(|o| o.required("action", ParamType::String))
 ///     .overload(|o| o.required("action", ParamType::String).optional("who", ParamType::Player))
 ///     .register(|inv| {
 ///         match inv.arg_str("action") {
 ///             Some("info") => inv.success("……"),
-///             _ => inv.error("不认识的子命令"),
+///             _ => inv.error("unrecognized subcommand"),
 ///         }
 ///     })?;
 /// ```
@@ -325,7 +330,7 @@ pub struct CommandBuilder {
     overloads: Vec<NbtValue>,
 }
 
-/// 开始声明一条带 overload 的命令。
+/// Begins declaring a command with overloads.
 pub fn builder(
     name: impl Into<String>,
     description: impl Into<String>,
@@ -349,13 +354,14 @@ impl CommandBuilder {
         self
     }
 
-    /// 注册。至少要有一条 overload —— 一条都没有的话宿主直接拒绝，
-    /// 所以这里提前挡下并说明，省得对着「注册失败」猜原因。
+    /// Registers it. At least one overload is required, since the host refuses outright with
+    /// none, so this stops it earlier and says why rather than leaving a bare registration
+    /// failure to be guessed at.
     pub fn register(self, handler: impl FnMut(&mut Invocation<'_>) + Send + 'static) -> Result<()> {
-        let f = crate::require_slot!(register_command_ex, "注册带参数的命令");
+        let f = crate::require_slot!(register_command_ex, "registering a command with arguments");
         if self.overloads.is_empty() {
             return Err(Error(format!(
-                "命令 /{} 一条 overload 都没声明；不需要参数的话请用 command::register",
+                "command /{} declares no overload at all; use command::register when no argument is needed",
                 self.name
             )));
         }
@@ -377,16 +383,16 @@ impl CommandBuilder {
         } else {
             drop(unsafe { Box::from_raw(user.cast::<Box<Handler>>()) });
             Err(Error(format!(
-                "注册命令 /{} 失败（名字非法、已被占用且 overload 形状不同，或某个参数类型拼错了）",
+                "registering command /{} failed: the name is invalid, it is taken with a different overload shape, or a parameter type is misspelled",
                 self.name
             )))
         }
     }
 }
 
-/// 注册一个静态枚举，供 [`ParamType::Enum`] 参数引用。
+/// Registers a static enum for a [`ParamType::Enum`] parameter to reference.
 pub fn register_enum(name: &str, values: &[(&str, u64)]) -> Result<()> {
-    let f = crate::require_slot!(register_command_enum, "注册命令枚举");
+    let f = crate::require_slot!(register_command_enum, "registering a command enum");
     let list = NbtValue::list(
         values
             .iter()
@@ -397,25 +403,26 @@ pub fn register_enum(name: &str, values: &[(&str, u64)]) -> Result<()> {
         Ok(())
     } else {
         Err(Error(format!(
-            "注册命令枚举 {name} 失败（名字非法或已存在）"
+            "registering command enum {name} failed: the name is invalid or already exists"
         )))
     }
 }
 
-/// 注册一个可以在运行期改的软枚举，供 [`ParamType::SoftEnum`] 参数引用。
+/// Registers a soft enum that can change at runtime, for a [`ParamType::SoftEnum`]
+/// parameter to reference.
 pub fn register_soft_enum(name: &str, values: &[&str]) -> Result<()> {
-    let f = crate::require_slot!(register_command_soft_enum, "注册命令软枚举");
+    let f = crate::require_slot!(register_command_soft_enum, "registering a command soft enum");
     let spec = soft_enum_snbt(values);
     if unsafe { f(s(name), s(&spec)) } {
         Ok(())
     } else {
         Err(Error(format!(
-            "注册命令软枚举 {name} 失败（名字非法或已存在）"
+            "registering command soft enum {name} failed: the name is invalid or already exists"
         )))
     }
 }
 
-/// 改一个软枚举的取值。
+/// Changes the values of a soft enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoftEnumOp {
     Set = 0,
@@ -424,13 +431,13 @@ pub enum SoftEnumOp {
 }
 
 pub fn update_soft_enum(name: &str, op: SoftEnumOp, values: &[&str]) -> Result<()> {
-    let f = crate::require_slot!(update_command_soft_enum, "更新命令软枚举");
+    let f = crate::require_slot!(update_command_soft_enum, "updating a command soft enum");
     let spec = soft_enum_snbt(values);
     if unsafe { f(s(name), op as i32, s(&spec)) } {
         Ok(())
     } else {
         Err(Error(format!(
-            "更新命令软枚举 {name} 失败（这个名字没注册过）"
+            "updating command soft enum {name} failed: that name was never registered"
         )))
     }
 }
@@ -443,18 +450,19 @@ fn soft_enum_snbt(values: &[&str]) -> String {
     .to_snbt()
 }
 
-/// 把回调装箱交给宿主。
+/// Boxes the callback and hands it to the host.
 ///
-/// **刻意泄漏**：命令不能反注册，所以这个闭包必须活到进程结束。没有一个
-/// 「什么时候可以释放它」的时刻 —— 模组卸载之后宿主仍然持有这条命令，
-/// 只是把回调静音。释放它就是给静音期的一次误触留一个悬垂指针。
+/// Leaked on purpose: a command cannot be deregistered, so this closure has to live until
+/// the process ends. There is no moment at which it may be freed, since the host still
+/// holds the command after the mod unloads and only mutes the callback. Freeing it would
+/// leave a dangling pointer for a stray invocation during the muted period.
 fn leak_handler(handler: impl FnMut(&mut Invocation<'_>) + Send + 'static) -> *mut c_void {
     let boxed: Box<Box<Handler>> = Box::new(Box::new(handler));
     Box::into_raw(boxed).cast()
 }
 
 /// # Safety
-/// `user` 必须是 `leak_handler` 的产物。
+/// `user` must come from `leak_handler`.
 unsafe extern "C" fn trampoline(
     user: *mut c_void,
     args: sys::PierStr,
@@ -477,9 +485,9 @@ unsafe extern "C" fn trampoline(
     };
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut inv)));
     if outcome.is_err() {
-        // panic 穿过 extern "C" 是未定义行为。拦在这里，并且**告诉发命令的人**
-        // ——否则他看到的是一条什么都没回的命令。
-        Logger::get().error("命令处理器 panic 了。已就地拦下。");
-        out_error(out_ctx, s("命令处理器内部出错，详见服务器日志"));
+        // A panic crossing extern "C" is undefined behavior. It is caught here and the sender
+        // is told, otherwise they see a command that answered nothing.
+        Logger::get().error("a command handler panicked. It was caught here.");
+        out_error(out_ctx, s("the command handler failed internally; see the server log"));
     }
 }

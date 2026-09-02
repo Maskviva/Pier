@@ -1,18 +1,16 @@
-/**
- * hooks/protect/TakeEntityEvent.cpp —— 合成事件 "PlayerTakeEntityEvent"，可取消。
- *
- * 补 LeviLamina PlayerPickUpItemEvent 的缺口：那个事件只在 ActorCategory::Item
- * 上发布，而落地的箭矢与三叉戟仍是投射物实体，从不进入判定。两者覆盖面互补不
- * 重叠，掉落物归那个事件，箭矢和三叉戟归本事件，都要管就都订阅。
- *
- * 钩点取各投射物自己的 playerTouch 虚函数，不是 Player::take。Arrow 与
- * ThrownTrident 各有独立 playerTouch 实现，直接把物品塞进背包，不经过
- * Player::take。新增漏网投射物加一行 PIER_PICKUP_HOOK 即可。
- *
- * 载荷 {eventId, x, y, z, dim, entity, entityId, isItemActor, item, _player:{…}}。
- * isItemActor 在当前钩点集合下恒为 false，保留是为载荷形状稳定；x/y/z 取整，
- * 因为 LL 的反射把 Vec3 序列化成 JSON 数组。
- */
+/** hooks/protect/TakeEntityEvent.cpp: the synthetic, cancellable "PlayerTakeEntityEvent".
+ * It fills the gap in PlayerPickUpItemEvent from LeviLamina, which is published only for
+ * ActorCategory::Item while a landed arrow or trident is still a projectile actor and never
+ * reaches the decision. The two cover complementary sets with no overlap: dropped items belong to
+ * that event, arrows and tridents to this one, and covering both means subscribing to both.
+ * The hook points are the playerTouch virtual of each projectile and not Player::take. Arrow and
+ * ThrownTrident each implement playerTouch themselves and put the item straight into the
+ * inventory without going through Player::take. Covering another projectile that slips past takes
+ * one more PIER_PICKUP_HOOK line.
+ * Payload {eventId, x, y, z, dim, entity, entityId, isItemActor, item, _player:{...}}.
+ * isItemActor is always false with the current hook set and is kept so the payload shape stays
+ * stable. x, y and z are truncated to integers, because LL reflection serializes a Vec3 as a JSON
+ * array. / */
 #include "pier/hooks/hook_events.h"
 
 #include <set>
@@ -36,9 +34,10 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& takeDef(); // 前向；gDef 定义在本文件末尾
+        HookEventDef& takeDef(); // Forward declaration; gDef is defined at the end of this file
 
-        /** 被捡实体的类型名。取不到就给空串而不是猜。 */
+        /** The type name of the actor being picked up. An empty string when it cannot be
+         *  read, never a guess. */
         std::string safeActorType(Actor const& a)
         {
             try
@@ -51,7 +50,7 @@ namespace pier::hooks
             }
         }
 
-        /** 掉落物里装的是什么。非掉落物返回空串。 */
+        /** What a dropped item contains. An empty string for anything else. */
         std::string carriedItemName(Actor const& a, bool isItem)
         {
             if (!isItem) return {};
@@ -81,28 +80,32 @@ namespace pier::hooks
                 + "\"," + playerRefSnbt(p) + "}";
         }
 
-        /** 每种实体类型打一次到达证明。「钩子没装上」「挂错了函数」「装对了但
-         *  判定放行」三种情况的现象完全一样，这条日志是区分它们的唯一凭据。 */
+        /** Proof of arrival, once per actor type. A hook that never installed, one
+         *  attached to the wrong function, and one installed correctly whose decision
+         *  allows the action all look identical, and this line is the only thing that
+         *  tells them apart. */
         void logFirstTouch(Actor const& a)
         {
             static std::set<std::string> seen;
             std::string const key = safeActorType(a);
             if (seen.insert(key).second)
             {
-                hostLogger().debug("[TakeEntityEvent] 首次触碰 '{}'", key);
+                hostLogger().debug("[hooks/TakeEntityEvent] first touch of '{}'", key);
             }
         }
 
         /**
-         * 拦一类投射物的拾取。
+         * Intercepts the pickup of one projectile kind.
          *
-         * playerTouch 返回 void，没有取消位，拦截方式是不调用 origin：这次触碰
-         * 等于没发生，实体留在原地，下次走过去还能再试。
+         * playerTouch returns void and carries no cancel bit, so interception means not
+         * calling origin: the touch did not happen, the actor stays where it is, and
+         * walking over it again retries.
          */
 #define PIER_PICKUP_HOOK(HookName, ActorClass)                                                  \
     LL_TYPE_INSTANCE_HOOK(                                                                      \
-        /* 虚函数必须挂 $ 前缀那份，LeviLamina 用它绕开 vtable 派发；直接取                     \
-         * &Cls::playerTouch 会被 static_assert 拦下。同 DropItemEvent。 */                     \
+        /* A virtual must be hooked through the $ prefixed alias, which LeviLamina uses    \
+         * to bypass vtable dispatch; taking &Cls::playerTouch directly is stopped by a     \
+         * static_assert. Same as DropItemEvent. */                                         \
         HookName, ll::memory::HookPriority::Normal, ActorClass, &ActorClass::$playerTouch, void, \
         ::Player& player)                                                                       \
     {                                                                                           \
@@ -115,7 +118,7 @@ namespace pier::hooks
         logFirstTouch(*this);                                                                   \
         if (dispatchHookEventCancellable(def, buildSnbt(player, *this, false)))                 \
         {                                                                                       \
-            /* 不调 origin：这次触碰等于没发生，实体留在原地，可以再试。 */                     \
+            /* origin is not called: the touch did not happen, the actor stays, retryable. */ \
             return;                                                                             \
         }                                                                                       \
         origin(player);                                                                         \
@@ -130,24 +133,28 @@ namespace pier::hooks
             "PlayerTakeEntityEvent",
             []
             {
-                // 显式装、显式报状态（0 == 成功）。没装上的保护和「装上了但从
-                // 不拦」在行为上完全一样，装失败必须看得见。
+                // Installed explicitly and the status reported explicitly, where 0 is
+                // success. Protection that never installed and protection that installed
+                // but never blocks behave identically, so a failed install must be
+                // visible.
                 int ra = ArrowPickupHook::hook();
                 int rt = TridentPickupHook::hook();
                 auto& log = hostLogger();
                 log.debug(
-                    "[TakeEntityEvent] 安装 detour：Arrow::$playerTouch={} (code={})，"
+                    "[hooks/TakeEntityEvent] installing detours: Arrow::$playerTouch={} (code={}), "
                     "ThrownTrident::$playerTouch={} (code={})",
-                    ra == 0 ? "成功" : "失败", ra,
-                    rt == 0 ? "成功" : "失败", rt);
+                    ra == 0 ? "ok" : "failed", ra,
+                    rt == 0 ? "ok" : "failed", rt);
                 if (ra != 0 || rt != 0)
                 {
                     log.error(
-                        "[TakeEntityEvent] 原生 detour 安装失败（非 0 状态码）。"
-                        "结果：拾取保护对**箭矢、三叉戟等投射物**完全不生效"
-                        "（掉落物仍由 PlayerPickUpItemEvent 覆盖）。"
-                        "最常见原因是本宿主链接的 BDS/LeviLamina 版本与服务器"
-                        "实际运行的版本不一致，导致 $playerTouch 的符号地址解析错误。");
+                        "[hooks/TakeEntityEvent] a native detour failed to install with a "
+                        "non-zero status, so pickup protection is entirely inactive for "
+                        "projectiles such as arrows and tridents, while dropped items are "
+                        "still covered by PlayerPickUpItemEvent. The usual cause is a "
+                        "mismatch between the BDS or LeviLamina version this host was linked "
+                        "against and the one the server runs, so the symbol address of "
+                        "$playerTouch resolved wrongly.");
                 }
                 return ra == 0 && rt == 0;
             }

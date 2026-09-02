@@ -1,10 +1,10 @@
-/** pier-client/Client.cpp —— 仅客户端的能力组（PIER_BUILD_CLIENT）。
+/** pier-client/Client.cpp: the client-only capability group (PIER_BUILD_CLIENT).
  *
- * 所有回调都跑在客户端线程上（KeyRegistry 在那里派发）。
+ * Every callback runs on the client thread, where KeyRegistry dispatches.
  *
- * 键绑定生命周期：KeyRegistry 拥有 KeyHandle；本包在 ClientKeyEntry 里持
- * 一个指向它的裸指针。「反注册」把条目标记为死（handler 变 no-op）并释放
- * 条目。
+ * Key binding lifetime: KeyRegistry owns the KeyHandle and this package holds a raw
+ * pointer to it inside ClientKeyEntry. Unregistering marks the entry dead, which
+ * turns the handler into a no-op, and frees the entry.
  */
 #ifdef PIER_BUILD_CLIENT
 
@@ -43,22 +43,24 @@ namespace pier::api_impl
             PierKeyCb up_cb;
             void* user;
             std::shared_ptr<bool> alive;
-            /** 只作身份用，绝不解引用 —— 用来在它的模组卸载时摘掉这个绑定。 */
+            /** Identity only, never dereferenced. Used to drop this binding when its
+             *  mod is unloaded. */
             HostedMod* owner = nullptr;
         };
 
         /**
-         * 所有还活着的绑定，好让卸载能够到那些模组忘了反注册的。
+         * Every live binding, so that an unload can reach the ones a mod forgot to
+         * unregister.
          *
-         * KeyRegistry 的 handler 比模组的 dylib 活得久：它捕获的是裸的
-         * down_cb/up_cb 函数指针，而且注册之后没有任何办法摘掉。`alive` 是让
-         * 它们变成 no-op 的唯一手段，而在这张表之前，除了显式
-         * client_unregister_key 之外没有任何东西会把它置 false。一个注册了热
-         * 键然后被卸载的模组，会留下一个仍然武装着、指向未映射内存的
-         * handler。
+         * A KeyRegistry handler outlives the mod's dylib. It captures the raw down_cb
+         * and up_cb function pointers and nothing can detach it after registration.
+         * `alive` is the only way to turn such a handler into a no-op, and this table
+         * is what sets it to false outside an explicit client_unregister_key. A mod
+         * that registers a hotkey and is then unloaded would otherwise leave behind an
+         * armed handler pointing into unmapped memory.
          *
-         * 仅客户端线程（KeyRegistry 在那里派发，注册也来自同一线程），无需加
-         * 锁。
+         * Client thread only, since KeyRegistry dispatches there and registration
+         * comes from the same thread, so no lock is needed.
          */
         std::vector<ClientKeyEntry*>& liveEntries()
         {
@@ -66,7 +68,7 @@ namespace pier::api_impl
             return entries;
         }
 
-        /** 拆一个：让 handler 变 no-op，释放条目。 */
+        /** Tears one down. Turns the handler into a no-op and frees the entry. */
         void destroyEntry(ClientKeyEntry* entry)
         {
             *entry->alive = false;
@@ -101,8 +103,8 @@ namespace pier::api_impl
         bool api_client_get_screen_name(void* ctx, PierStrSink sink)
         {
             PIER_API_GUARD_BEGIN
-                // 当前 LL 头里 ClientInstance 没有稳定的 getScreenName() 访问
-                // 器。报「不支持」。
+                // The current LL headers expose no stable getScreenName() accessor on
+                // ClientInstance, so this reports unsupported.
                 (void)ctx;
                 (void)sink;
                 return false;
@@ -131,10 +133,11 @@ namespace pier::api_impl
                 entry->alive = std::make_shared<bool>(true);
 
                 std::vector<int> keys(keyCodes, keyCodes + keyCount);
-                // KeyRegistry 想要一个 ll::mod::Mod 的 weak_ptr 做归属标注。托
-                // 管模组不是 LL 模组（它们是宿主自己的孩子），所以把宿主
-                // （pier 这个 NativeMod）报给它 —— 对 LL 来说键就是 pier 注册
-                // 的；按托管模组清理由本包负责（liveEntries + owner）。
+                // KeyRegistry wants a weak_ptr to an ll::mod::Mod for attribution. A
+                // hosted mod is not an LL mod, it is a child of the host, so the host
+                // NativeMod named pier is reported instead. To LL the key is
+                // registered by pier, while cleanup per hosted mod is this package's
+                // job through liveEntries and owner.
                 auto modWeak =
                     std::weak_ptr<ll::mod::Mod>(ll::mod::NativeMod::current()->shared_from_this());
 
@@ -177,8 +180,9 @@ namespace pier::api_impl
                 auto* entry = reinterpret_cast<ClientKeyEntry*>(handle);
                 auto& live = liveEntries();
                 auto it = std::find(live.begin(), live.end(), entry);
-                // 不在表里说明已经拆过了（重复反注册，或者它的模组先卸载了）。
-                // 早先这里是无条件 delete —— 重复反注册就是 double free。
+                // Absence from the table means it was already torn down, either by a
+                // repeated unregister or because its mod was unloaded first. Deleting
+                // unconditionally here would make a repeated unregister a double free.
                 if (it == live.end()) return false;
                 live.erase(it);
                 destroyEntry(entry);
@@ -205,7 +209,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /** 拆除（stage 110）：摘掉该模组名下的全部键绑定。 */
+        /** Teardown at stage 110. Drops every key binding held under this mod. */
         void teardown(HostedMod* mod)
         {
             if (!mod) return;

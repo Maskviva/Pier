@@ -1,30 +1,31 @@
-//! 事件：订阅、读载荷、改载荷、取消。
+//! Events: subscribing, reading a payload, editing it, cancelling.
 //!
-//! # 「没有这个键」和「它是 0」必须分开
+//! # A missing key and a value of 0 must stay apart
 //!
-//! 契约 §5.1 记着一次土地保护绕过：自定义维度的事件读不到 `dim`，消费方
-//! `unwrap_or(0)` 把它当成主世界，零日志放行。所以 [`Event`] 给的是**类型化
-//! 取值**，缺键和类型不符是两种不同的错误。
+//! Contract §5.1 records a land-protection bypass: an event in a custom dimension could
+//! not read `dim`, the consumer wrote `unwrap_or(0)` and treated it as the overworld, and
+//! it was allowed with nothing logged. [`Event`] therefore offers typed access, where a
+//! missing key and a type mismatch are two different errors.
 //!
-//! 还要认 `_unresolved`：宿主解不出事件来源时会注入这个标记，[`Event::dim`]
-//! 一类方法遇到它返回 `Err`，安全判定据此 fail-closed，而不是拿一个编出来的
-//! 0 继续走。
+//! It also recognizes `_unresolved`, a marker the host injects when it cannot resolve the
+//! source of an event. Methods such as [`Event::dim`] return `Err` on it, so a protection
+//! decision fails closed instead of continuing with an invented 0.
 //!
-//! [`Wiring`] 做链式批量订阅，句柄由它统一持有。
+//! [`Wiring`] does chained batch subscription and holds the handles together.
 
 pub mod names;
-
-use std::collections::BTreeMap;
-use std::ffi::c_void;
 
 use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{r, s};
+use crate::rt::handle::Handle;
 use crate::rt::logger::Logger;
 use crate::rt::runtime::rt;
 use crate::sys;
+use std::collections::BTreeMap;
+use std::ffi::c_void;
 
-/// 派发优先级。数值小的先跑（与 ABI 的 0..4 对齐）。
+/// Dispatch priority. A lower value runs first, aligned with 0..4 in the ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Priority {
     Highest = 0,
@@ -41,13 +42,15 @@ impl Priority {
     }
 }
 
-/// 事件里的玩家身份。
+/// The player identity inside an event.
 ///
-/// 三个字段各有各的用处，别混：
-/// * `xuid` —— **唯一且不可改**，做权限/经济的键只能用它（离线模式下可能为空）；
-/// * `uuid` —— 同样稳定，适合做存档键；
-/// * `name` —— 展示用。玩家可以改显示名，宿主的名字解析在账号名落空时会退到
-///   显示名（见 `bridge::resolvePlayer`），所以**不要拿它当身份**。
+/// The three fields each have their own use and must not be mixed:
+/// * `xuid` is unique and cannot be changed, and is the only key for permissions or
+///   economy. It may be empty in offline mode.
+/// * `uuid` is equally stable and suits a save key.
+/// * `name` is for display. A player can change their display name, and host name
+///   resolution falls back to the display name when the account name misses (see
+///   `bridge::resolvePlayer`), so it must not be used as an identity.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PlayerIdentity {
     pub name: String,
@@ -56,11 +59,12 @@ pub struct PlayerIdentity {
 }
 
 impl PlayerIdentity {
-    /// 拿一个能用来调 API 的选择器。
+    /// Returns a selector usable for calling the API.
     ///
-    /// **优先 xuid**：它不可伪造。xuid 空（离线模式）才退到 uuid，再退到名字。
-    /// 退到 `Name` 时 [`PlayerSel::is_stable`] 会是 false —— 权限/经济判定
-    /// 看到它应当提高警惕（名字会走显示名回退，见 `sel` 模块文档）。
+    /// The xuid comes first, since it cannot be forged. An empty xuid, in offline mode, falls
+    /// back to the uuid and then to the name. On a fall back to `Name`,
+    /// [`PlayerSel::is_stable`] is false, which a permission or economy decision should treat
+    /// with care, since a name goes through the display-name fallback; see the `sel` module.
     pub fn selector(&self) -> crate::sel::PlayerSel {
         use crate::sel::PlayerSel;
         if !self.xuid.is_empty() {
@@ -72,19 +76,22 @@ impl PlayerIdentity {
         }
     }
 
-    /// 有没有可靠身份（xuid 或 uuid）。做权限键之前先问这个。
+    /// Whether there is a reliable identity, an xuid or a uuid. Ask this before using one as
+    /// a permission key.
     pub fn is_identified(&self) -> bool {
         !self.xuid.is_empty() || !self.uuid.is_empty()
     }
 }
 
-/// 一次事件派发。回调里拿到的就是它。
+/// One event dispatch. This is what a callback receives.
 ///
-/// 生命周期只在回调期间有效 —— 不要把它存起来（也存不住，带着生命周期参数）。
+/// It lives only for the duration of the callback and must not be stored, which the
+/// lifetime parameter also prevents.
 pub struct Event<'a> {
     id: &'a str,
     snbt: &'a str,
-    /// 懒解析：只观察 id 的监听器（很多）不该为解析 SNBT 付钱。
+    /// Parsed lazily: the many listeners that only watch the id should not pay for
+    /// parsing SNBT.
     parsed: Option<NbtValue>,
     edited: Option<NbtValue>,
     write_ctx: *mut c_void,
@@ -92,34 +99,34 @@ pub struct Event<'a> {
 }
 
 impl<'a> Event<'a> {
-    /// 事件 id，例如 `"ll::event::player::PlayerChatEvent"` 或合成事件
-    /// `"BlockDestroyEvent"`。
+    /// The event id, such as `"ll::event::player::PlayerChatEvent"` or the synthetic
+    /// `"BlockDestroyEvent"`.
     pub fn id(&self) -> &str {
         self.id
     }
 
-    /// 原始载荷 SNBT。调试时最直接。
+    /// The raw payload SNBT. The most direct thing while debugging.
     pub fn snbt(&self) -> &str {
         self.snbt
     }
 
-    /// 解析后的载荷。第一次调用时解析，之后复用。
+    /// The parsed payload. Parsed on the first call and reused afterwards.
     pub fn value(&mut self) -> Result<&NbtValue> {
         if self.parsed.is_none() {
             self.parsed = Some(NbtValue::parse(self.snbt).map_err(Error::from)?);
         }
-        Ok(self.parsed.as_ref().expect("刚刚填过"))
+        Ok(self.parsed.as_ref().expect("just filled in"))
     }
 
-    /// 载荷解析不了时返回 `None` 而不是报错 —— 给「解不出来就当没这个事件」
-    /// 的观察型监听器用。
+    /// Returns `None` rather than an error when the payload cannot be parsed, for an
+    /// observing listener that treats an unparsable payload as no event at all.
     pub fn value_opt(&mut self) -> Option<&NbtValue> {
         self.value().ok()
     }
 
-    /* ───────────── 类型化取值：把 rsw 的 payload.rs 收进来 ───────────── */
+    /* Typed access, absorbing what payload.rs used to do */
 
-    /// 按路径取字符串。缺键/类型不符都会说清楚是哪个键。
+    /// Reads a string by path. A missing key and a type mismatch both name the key.
     pub fn str_at(&mut self, path: &str) -> Result<&str> {
         let v = self.value()?;
         v.get_str(path).map_err(Error::from)
@@ -145,7 +152,8 @@ impl<'a> Event<'a> {
         v.get_bool(path).map_err(Error::from)
     }
 
-    /// 宽松版：拿不到就 `None`，不解释原因。只在「拿不到也无所谓」时用。
+    /// The lenient form: `None` when it cannot be read, with no explanation. Only for cases
+    /// where not reading it does not matter.
     pub fn opt_str(&mut self, path: &str) -> Option<String> {
         self.value_opt()?.opt_str(path).map(str::to_owned)
     }
@@ -154,13 +162,13 @@ impl<'a> Event<'a> {
         self.value_opt()?.opt_i64(path)
     }
 
-    /* ───────────── 常用字段：形状差异在这里收口 ───────────── */
+    /* Common fields, where the shape differences are absorbed */
 
-    /// 宿主解不出来的字段名单（`_unresolved`）。
+    /// The list of fields the host could not resolve, `_unresolved`.
     ///
-    /// 宿主在事件里带 Actor 桩、但那个桩既不是在线玩家、也不在运行时实体表里
-    /// 时，会把字段名记在这里（宿主侧 V-04）。**它不为空就意味着这条载荷不完整**，
-    /// 安全判定应当拒绝而不是猜。
+    /// When an event carries an Actor stub that is neither an online player nor present in
+    /// the runtime actor table, the host records the field name here. A non-empty list means
+    /// the payload is incomplete, and a protection decision should refuse rather than guess.
     pub fn unresolved(&mut self) -> Vec<String> {
         let Some(v) = self.value_opt() else {
             return Vec::new();
@@ -175,31 +183,35 @@ impl<'a> Event<'a> {
             .unwrap_or_default()
     }
 
-    /// 检查载荷是否完整（`_unresolved` 为空）。
+    /// Checks whether the payload is complete, meaning `_unresolved` is empty.
     pub fn check_complete(&mut self) -> bool {
         self.unresolved().is_empty()
     }
 
-    /// 事件发生在哪个维度。
+    /// Which dimension the event happened in.
     ///
-    /// **读不到就是 `Err`，绝不返回 0。** 这一条是整个模块存在的理由：上一代
-    /// 让调用方写 `payload.i32_at("dim").unwrap_or(0)`，于是自定义维度（id ≥ 3）
-    /// 的事件全被判成主世界，土地保护「主世界拒绝、别处放行」被绕过且零日志。
+    /// An unreadable value is an `Err` and never a 0. That rule is why this module exists: an
+    /// earlier design had callers write `payload.i32_at("dim").unwrap_or(0)`, so every event
+    /// in a custom dimension, whose id is 3 or above, was judged to be in the overworld, and
+    /// land protection refusing in the overworld and allowing elsewhere was bypassed with
+    /// nothing logged.
     pub fn dim(&mut self) -> Result<i32> {
         if !self.check_complete() {
             let miss = self.unresolved().join(", ");
             return Err(Error(format!(
-                "事件 `{}` 的载荷不完整（宿主解不出 {miss}），维度未知 —— 拒绝按主世界处理",
+                "the payload of event `{}` is incomplete, the host could not resolve {miss}, so the \
+                             dimension is unknown and treating it as the overworld is refused",
                 self.id
             )));
         }
         self.i32_at("dim")
     }
 
-    /// 事件里的玩家身份。
+    /// The player identity inside an event.
     ///
-    /// 兼容三种形状：合成事件的 `_player:{name,xuid,uuid}`、宿主富化后的
-    /// `_player`、以及只带一个名字的老事件。三者的差异以前要调用方自己知道。
+    /// Handles three shapes: the `_player:{name,xuid,uuid}` of a synthetic event, the
+    /// `_player` the host enriched, and an older event carrying only a name. Callers used to
+    /// have to know the differences themselves.
     pub fn player(&mut self) -> Option<PlayerIdentity> {
         let v = self.value_opt()?;
         if let Some(p) = v.path("_player") {
@@ -209,7 +221,7 @@ impl<'a> Event<'a> {
                 uuid: p.opt_str("uuid").unwrap_or_default().to_owned(),
             });
         }
-        // 退路：只带名字的事件。
+        // The fallback: an event carrying only a name.
         let name = v.first_str(&["playerName", "player", "name"])?;
         Some(PlayerIdentity {
             name: name.to_owned(),
@@ -217,7 +229,8 @@ impl<'a> Event<'a> {
         })
     }
 
-    /// 事件里的方块/位置坐标。`x`/`y`/`z` 三个平铺字段（合成事件的形状）。
+    /// The block or position coordinates in an event, as the three flat fields `x`, `y` and
+    /// `z`, which is the shape of a synthetic event.
     pub fn pos(&mut self) -> Result<(i32, i32, i32)> {
         let x = self.i32_at("x")?;
         let y = self.i32_at("y")?;
@@ -225,7 +238,7 @@ impl<'a> Event<'a> {
         Ok((x, y, z))
     }
 
-    /// 同上但要浮点（玩家位置一类）。
+    /// As above but as floating point, for a player position and the like.
     pub fn pos_f64(&mut self) -> Result<(f64, f64, f64)> {
         let x = self.f64_at("x")?;
         let y = self.f64_at("y")?;
@@ -233,33 +246,41 @@ impl<'a> Event<'a> {
         Ok((x, y, z))
     }
 
-    /* ───────────── 改写与取消 ───────────── */
+    /* Editing and cancelling */
 
-    /// 这个事件能不能取消。
+    /// Whether this event can be cancelled.
     ///
-    /// * `Some(true)` —— 能；
-    /// * `Some(false)` —— 不能，[`Event::cancel`] 会返回 `Err`；
-    /// * `None` —— 查不到（第三方模组自己发的事件，或本表还没跟上的上游新事件）。
-    ///   这时 `cancel()` 会照常写回，但没人能替你确认它生效了。
+    /// * `Some(true)`: it can;
+    /// * `Some(false)`: it cannot, and [`Event::cancel`] returns `Err`;
+    /// * `None`: it is not in the tables, being an event a third-party mod emits itself or a
+    ///   new upstream event the tables have not caught up with. `cancel()` then writes back as
+    ///   usual and nobody can confirm for you that it took effect.
     pub fn can_cancel(&self) -> Option<bool> {
         names::is_cancellable(self.id)
     }
 
-    /// 取消这个事件。
+    /// Cancels this event.
     ///
-    /// 不可取消的事件返回 `Err`，并**告诉你该去拦哪个**（`PlayerStartDestroy
-    /// BlockEvent` → `PlayerDestroyBlockEvent`）。返回 `()` 会让保护类模组
-    /// 以为自己拦住了，而「以为拦住了」比崩溃危险 —— 崩溃至少看得见。
+    /// An event that cannot be cancelled returns `Err` and says which event to block instead,
+    /// such as `PlayerStartDestroyBlockEvent` pointing at `PlayerDestroyBlockEvent`. Returning
+    /// `()` would let a protection mod believe it had blocked something, and that belief is
+    /// more dangerous than a crash, since a crash is at least visible.
     ///
-    /// 查不到的事件（`can_cancel()` 为 `None`）**不拦着你**：照常写回并返回
-    /// `Ok`。SDK 不知道的事，不假装知道。
+    /// An event that is not in the tables, where `can_cancel()` is `None`, does not stand in
+    /// the way: it writes back as usual and returns `Ok`. The SDK does not pretend to know
+    /// what it does not know.
     ///
-    /// `Ok` 只代表取消位已经写回宿主，不代表引擎停下了 —— 有些钩点在半更新
-    /// 的位置，宿主对这类点本就不接受取消。这条边界只能靠事件文档。
+    /// An `Ok` means only that the cancel bit was written back to the host and not that the
+    /// engine stopped: some hook points sit half updated and the host does not accept a cancel
+    /// there at all. That boundary rests on the event documentation alone.
     pub fn cancel(&mut self) -> Result<()> {
         if self.can_cancel() == Some(false) {
-            let why = names::why_not_cancellable(self.id).unwrap_or("这个事件不支持取消");
-            return Err(Error(format!("事件 `{}` 不可取消：{why}", self.id)));
+            let why = names::why_not_cancellable(self.id)
+                .unwrap_or("this event does not support cancelling");
+            return Err(Error(format!(
+                "event `{}` cannot be cancelled: {why}",
+                self.id
+            )));
         }
         self.edit(|v| {
             v.insert("cancelled", NbtValue::Byte(1));
@@ -267,10 +288,11 @@ impl<'a> Event<'a> {
         Ok(())
     }
 
-    /// 取消，但不在乎能不能取消。
+    /// Cancels without caring whether cancelling is possible.
     ///
-    /// 只有一种正当用法：你在写一个**转发/代理**类的通用组件，事件 id 是运行期
-    /// 传进来的，拦不住也只能算了。业务代码请用 [`Event::cancel`] 并处理 `Err`。
+    /// There is one legitimate use: a generic forwarding or proxy component where the event id
+    /// arrives at runtime and failing to block simply has to be accepted. Business code uses
+    /// [`Event::cancel`] and handles the `Err`.
     pub fn cancel_lenient(&mut self) -> bool {
         if self.can_cancel() == Some(false) {
             return false;
@@ -281,21 +303,23 @@ impl<'a> Event<'a> {
         true
     }
 
-    /// 撤销之前的取消（把 `cancelled` 写回 0）。
+    /// Undoes an earlier cancel by writing `cancelled` back to 0.
     ///
-    /// 用于「我先拦下、再判、发现可以放行」这种两段式判定。注意它只能撤销
-    /// **本次回调里自己写的**取消 —— 别的模组在更早的优先级上取消了的，
-    /// 你撤不回来（宿主侧的总线也不允许把否决翻回批准）。
+    /// For a two-stage decision that blocks first, decides, and then finds it may allow. Note
+    /// that it undoes only a cancel written by this callback itself: a cancel another mod made
+    /// at an earlier priority cannot be undone, and the host bus does not allow a veto to be
+    /// turned back into an approval either.
     pub fn uncancel(&mut self) {
         self.edit(|v| {
             v.insert("cancelled", NbtValue::Byte(0));
         });
     }
 
-    /// 改载荷里的一个字段。
+    /// Edits one field of the payload.
     ///
-    /// 写回是**差量**的：只有你真的动过的键会被送回宿主，没碰的保持原样。
-    /// 这让两个模组挂同一个事件时不会互相把对方的编辑抹掉。
+    /// The write-back is a difference: only the keys really touched go back to the host and
+    /// untouched ones stay as they are, so two mods on the same event do not erase each
+    /// other's edits.
     pub fn set(&mut self, path: &str, value: NbtValue) {
         let key = path.to_owned();
         self.edit(move |v| {
@@ -303,13 +327,14 @@ impl<'a> Event<'a> {
         });
     }
 
-    /// 任意改写。闭包拿到的是载荷的可变副本。
+    /// An arbitrary rewrite. The closure receives a mutable copy of the payload.
     pub fn edit(&mut self, f: impl FnOnce(&mut NbtValue)) {
         if self.edited.is_none() {
-            // 以当前载荷为基准；解析不了就从空复合标签起步（至少能写 cancelled）。
+            // Based on the current payload; an unparsable one starts from an empty compound tag,
+            // which is at least enough to write cancelled.
             //
-            // 先克隆到局部再赋值：`self.value()` 借着 `self`，同一条语句里再写
-            // `self.edited` 就是借用冲突。
+            // Cloned into a local before assigning: `self.value()` borrows `self`, and writing
+            // `self.edited` in the same statement is a borrow conflict.
             let base = match self.value() {
                 Ok(v) => v.clone(),
                 Err(_) => NbtValue::compound(),
@@ -321,51 +346,58 @@ impl<'a> Event<'a> {
         }
     }
 
-    /// 回调结束时由蹦床调用：把编辑过的载荷送回宿主。
+    /// Called by the trampoline when the callback ends, sending the edited payload back to
+    /// the host.
     fn flush(&mut self) {
         let Some(edited) = self.edited.take() else {
             return;
         };
         let text = edited.to_snbt();
-        // 宿主侧（Events.cpp）会把这份和它自己那份快照做差量：只有真的变了的
-        // 键才写回事件对象，缺席的键**不会**被删除（宿主侧 V-02 修的正是
-        // 「缺席即删除」导致整次编辑丢失）。
+        // The host side, in Events.cpp, diffs this against its own snapshot: only keys that
+        // really changed are written back into the event object and an absent key is not
+        // deleted. Treating absence as deletion loses the whole edit.
         unsafe { (self.write_back)(self.write_ctx, s(&text)) };
     }
 }
 
-/// 订阅句柄。**Drop 即退订。**
+/// A subscription handle. Dropping it unsubscribes.
 ///
-/// 想让它活到模组卸载就调 [`Listener::forget`]。宿主在卸载时会统一摘掉剩下的
-/// （它现在会真的调 `removeListener` 并在失败时报错，不再静默）。
+/// [`Listener::forget`] keeps it alive until the mod unloads. The host removes whatever
+/// remains at unload, really calling `removeListener` and reporting a failure rather than
+/// staying silent.
 pub struct Listener {
-    handle: sys::PierListenerHandle,
-    /// 闭包的所有权。退订之后才能释放，否则宿主可能正在调它。
+    handle: Handle,
+    forgotten: bool,
+    /// Ownership of the closure. It may be freed only after unsubscribing, since the host may
+    /// otherwise be calling it.
     ///
-    /// 只用来「持有 + 析构」，从不取出来用，所以 `Any` 够了。这里**不能**要
-    /// `Sync`：装进去的是 `Box<Handler>`，而 `Handler` 只保证 `Send`。
+    /// It is only held and dropped and never taken out, so `Any` suffices. `Sync` must not be
+    /// required here: what goes in is a `Box<Handler>` and `Handler` guarantees only `Send`.
     owned: Option<Box<dyn std::any::Any + Send>>,
     id: String,
 }
 
 impl Listener {
-    /// 订阅的事件 id。
+    /// The id of the subscribed event.
     pub fn event_id(&self) -> &str {
         &self.id
     }
 
-    /// 放弃自动退订。闭包随之泄漏（活到进程结束）。
+    /// Gives up automatic unsubscription. The closure leaks with it and lives until the
+    /// process ends.
     pub fn forget(mut self) {
-        self.handle = std::ptr::null_mut();
         if let Some(owned) = self.owned.take() {
             std::mem::forget(owned);
         }
+        self.forgotten = true;
     }
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        if self.handle.is_null() {
+        // `forget` no longer nulls the handle, since `Handle` has no setter, so the flag
+        // is what tells a given-up subscription from a live one.
+        if self.forgotten || self.handle.is_null() {
             return;
         }
         if !crate::has_slot!(unsubscribe_event) {
@@ -374,16 +406,17 @@ impl Drop for Listener {
         let Some(f) = rt().api.unsubscribe_event else {
             return;
         };
-        // 退订失败要说话：宿主侧同样的纪律（W-EV2）。静默失败的后果是回调
-        // 还挂着、而闭包马上要被释放。
-        let ok = unsafe { f(rt().handle(), self.handle) };
+        // A failed unsubscribe has to speak, following the same discipline as the host side.
+        // The consequence of a silent failure is a callback still attached while its closure is
+        // about to be freed.
+        let ok = unsafe { f(rt().handle(), self.handle.get()) };
         if !ok {
             Logger::get().error(&format!(
-                "退订事件 `{}` 失败 —— 监听器可能还挂在宿主上，而它的闭包即将释放。\
-                 这条一定要查，不要当噪音。",
+                "unsubscribing from event `{}` failed; the listener may still be attached to the host \
+                 while its closure is about to be freed. This has to be investigated and is not noise.",
                 self.id
             ));
-            // 宁可泄漏闭包也不能让宿主调进已释放的内存。
+            // Leaking the closure is preferable to letting the host call into freed memory.
             if let Some(owned) = self.owned.take() {
                 std::mem::forget(owned);
             }
@@ -393,15 +426,15 @@ impl Drop for Listener {
 
 type Handler = dyn FnMut(&mut Event<'_>) + Send + 'static;
 
-/// 订阅一个事件。
+/// Subscribes to an event.
 ///
 /// ```ignore
 /// let l = event::subscribe(names::PLAYER_CHAT, |ev| {
 ///     let Ok(msg) = ev.str_at("message") else { return };
 ///     if !msg.contains("badword") { return; }
-///     // cancel() 返回 Result：拦不住的事件会告诉你原因和该去拦哪个。
+///     // cancel() returns a Result: an event that cannot be blocked says why and where.
 ///     if let Err(e) = ev.cancel() {
-///         Logger::get().error(&format!("聊天过滤没生效：{e}"));
+///         Logger::get().error(&format!("the chat filter did not take effect: {e}"));
 ///     }
 /// })?;
 /// ```
@@ -412,13 +445,13 @@ pub fn subscribe(
     subscribe_with(id, Priority::Normal, handler)
 }
 
-/// 带优先级的订阅。
+/// Subscribes with a priority.
 pub fn subscribe_with(
     id: &str,
     priority: Priority,
     handler: impl FnMut(&mut Event<'_>) + Send + 'static,
 ) -> Result<Listener> {
-    let f = crate::require_slot!(subscribe_event, "订阅事件");
+    let f = crate::require_slot!(subscribe_event, "subscribing to an event");
     let boxed: Box<Box<Handler>> = Box::new(Box::new(handler));
     let user = Box::into_raw(boxed);
 
@@ -432,23 +465,24 @@ pub fn subscribe_with(
         )
     };
     if handle.is_null() {
-        // 宿主拒绝了：闭包还没交出去，收回所有权。
+        // The host refused. The closure was not handed over, so ownership comes back.
         drop(unsafe { Box::from_raw(user) });
         return Err(Error(format!(
-            "订阅 `{id}` 失败。宿主日志里会列出它认得的相近 id —— \
-             多半是事件名拼错，或者这个 BDS 版本上没有这个事件。"
+            "subscribing to `{id}` failed. The host log lists the nearby ids it knows, and the \
+             cause is usually a misspelled event name or an event this BDS version does not have."
         )));
     }
     Ok(Listener {
-        handle,
+        handle: Handle::new(handle),
+        forgotten: false,
         owned: Some(unsafe { Box::from_raw(user) }),
         id: id.to_owned(),
     })
 }
 
-/// 宿主认得的全部事件 id（注册表里的 + 全部合成事件）。
+/// Every event id the host knows, from the registry plus every synthetic event.
 ///
-/// 拼错事件名时先看这个，比猜快。
+/// Reading it beats guessing when an event name is misspelled.
 pub fn list() -> Vec<String> {
     if !crate::has_slot!(list_events) {
         return Vec::new();
@@ -459,13 +493,14 @@ pub fn list() -> Vec<String> {
     crate::rt::ffi::collect_strs(|ctx, sink| unsafe { f(ctx, sink) })
 }
 
-/// 这个宿主认不认得某个事件 id。
+/// Whether this host knows a given event id.
 pub fn exists(id: &str) -> bool {
     list().iter().any(|e| e == id)
 }
 
 /// # Safety
-/// `user` 必须是 `Box<Box<Handler>>::into_raw` 的产物，且在监听器存活期间有效。
+/// `user` must come from `Box<Box<Handler>>::into_raw` and stay valid while the listener
+/// lives.
 unsafe extern "C" fn trampoline(
     user: *mut c_void,
     event_id: sys::PierStr,
@@ -489,35 +524,35 @@ unsafe extern "C" fn trampoline(
         write_back,
     };
 
-    // panic 不许穿过 extern "C"（那是 UB）。就地拦下并打日志；**编辑不写回** ——
-    // 一个 panic 到一半的判定写回去的东西没有意义。
+    // A panic must not cross an extern "C" boundary, which is undefined behavior. It is
+    // caught here and logged, and the edit is not written back, since what a half-panicked
+    // decision would write back means nothing.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         f(&mut ev);
         ev.flush();
     }));
     if result.is_err() {
         Logger::get().error(&format!(
-            "事件 `{id}` 的监听器 panic 了。已就地拦下，这次的编辑被丢弃。"
+            "a listener for event `{id}` panicked. It was caught here and this edit was discarded."
         ));
     }
 }
 
 /* ═══════════════════════════ Wiring ═══════════════════════════ */
 
-/// 批量订阅，句柄统一持有。
+/// Batch subscription, holding the handles together.
 ///
-/// 业务侧本来就在自己写这个东西（`Wiring::new("worldedit").on(...).at(...)`），
-/// 所以把它收进 SDK。相对手写版多两样：**订阅失败不会静默**（失败的条目会
-/// 记在 [`Wiring::failures`] 里，`arm()` 时可以选择整体失败），以及标签会进
-/// 日志，便于定位是哪一条挂的。
+/// Business code was already writing this itself, as `Wiring::new("worldedit").on(...).at(...)`, so
+/// it moved into the SDK. It adds two things over a hand-written version: a failed subscription is
+/// not silent, since failures are recorded in [`Wiring::failures`] and `arm()` can fail as a whole,
+/// and the tag goes into the log so the failing entry can be located.
 ///
-/// ```ignore
-/// let wiring = Wiring::new("plots")
+/// ```ignore let wiring = Wiring::new("plots")
 ///     .on(names::PLAYER_DESTROY_BLOCK, "protect-break", |ev| { ... })
 ///     .at(names::PLAYER_DISCONNECT, Priority::Low, "forget", |ev| { ... })
-///     .arm()?;                       // 任一失败即整体失败
-/// // wiring 掉出作用域 = 全部退订
-/// ```
+///     .arm()?;                       // any failure fails the whole thing
+///
+/// // wiring going out of scope unsubscribes everything ```
 pub struct Wiring {
     owner: String,
     pending: Vec<(String, Priority, String, Box<Handler>)>,
@@ -535,7 +570,7 @@ impl Wiring {
         }
     }
 
-    /// 加一条 Normal 优先级的订阅。`tag` 只用于日志。
+    /// Adds a subscription at Normal priority. `tag` is used only for logging.
     #[must_use]
     pub fn on(
         self,
@@ -546,7 +581,7 @@ impl Wiring {
         self.at(id, Priority::Normal, tag, handler)
     }
 
-    /// 加一条指定优先级的订阅。
+    /// Adds a subscription at a given priority.
     #[must_use]
     pub fn at(
         mut self,
@@ -560,13 +595,15 @@ impl Wiring {
         self
     }
 
-    /// 真正去订阅。**任何一条失败即整体失败**，已成功的那些会在返回前退订 ——
-    /// 半挂着的保护比完全没挂更危险（有些点拦得住、有些拦不住，而且没人知道
-    /// 是哪些）。
+    /// Performs the subscriptions. Any failure fails the whole thing and the ones that
+    /// succeeded are unsubscribed before returning, because half-attached protection is more
+    /// dangerous than none: some points block and some do not, and nobody knows which.
     pub fn arm(mut self) -> Result<Wiring> {
         let pending = std::mem::take(&mut self.pending);
         for (id, prio, tag, handler) in pending {
-            // `Box<Handler>` 自己就实现 FnMut，直接递进去 —— 不用再套一层闭包。
+            // `Box<Handler>` implements FnMut itself, so it is passed straight through with no
+            // extra
+            // closure around it.
             match subscribe_with(&id, prio, handler) {
                 Ok(l) => self.listeners.push(l),
                 Err(e) => {
@@ -582,9 +619,9 @@ impl Wiring {
                 .map(|(t, e)| format!("  {t}: {e}"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            // listeners 在 self 掉落时自动退订，不用手动清。
+            // listeners unsubscribe automatically when self drops, so no manual cleanup.
             return Err(Error(format!(
-                "`{}` 的事件接线有 {} 条没挂上，已整体撤回：\n{detail}",
+                "the event wiring of `{}` had {} entries fail to attach, so the whole set was withdrawn:\n{detail}",
                 self.owner,
                 self.failures.len()
             )));
@@ -592,7 +629,8 @@ impl Wiring {
         Ok(self)
     }
 
-    /// 宽松版：失败的记下来，成功的照常挂上。适合「有就更好」的可选功能。
+    /// The lenient form: failures are recorded and successes attach as usual. Suited to an
+    /// optional feature that is nice to have.
     pub fn arm_lenient(mut self) -> Wiring {
         let pending = std::mem::take(&mut self.pending);
         for (id, prio, tag, handler) in pending {
@@ -600,7 +638,7 @@ impl Wiring {
                 Ok(l) => self.listeners.push(l),
                 Err(e) => {
                     Logger::get().warn(&format!(
-                        "`{}/{}` 订阅 `{id}` 失败（继续挂其余的）：{e}",
+                        "`{}/{}` failed to subscribe to `{id}`, continuing with the rest: {e}",
                         self.owner, tag
                     ));
                     self.failures
@@ -611,17 +649,17 @@ impl Wiring {
         self
     }
 
-    /// 没挂上的那些（标签, 原因）。
+    /// The ones that did not attach, as (tag, reason).
     pub fn failures(&self) -> &[(String, String)] {
         &self.failures
     }
 
-    /// 挂上的条数。
+    /// How many attached.
     pub fn armed(&self) -> usize {
         self.listeners.len()
     }
 
-    /// 全部改为「不自动退订」，活到模组卸载。
+    /// Switches everything to no automatic unsubscription, living until the mod unloads.
     pub fn forget(mut self) {
         for l in self.listeners.drain(..) {
             l.forget();
@@ -629,18 +667,21 @@ impl Wiring {
     }
 }
 
-/* ───────────── 兼容别名 ───────────── */
+/* Compatibility aliases */
 
-/// 上一代把它叫 `EventRef`。名字保留，指向同一个类型。
+/// An earlier generation called this `EventRef`. The name is kept and points at the same
+/// type.
 pub type EventRef<'a> = Event<'a>;
 
-/// 上一代把优先级叫 `EventPriority`。
+/// An earlier generation called the priority `EventPriority`.
 pub type EventPriority = Priority;
 
-/// 载荷取值失败时的原始错误类型（透出去便于业务侧做精细分支）。
+/// The raw error type of a failed payload read, exposed so business code can branch
+/// finely on it.
 pub use crate::nbt::NbtError as PayloadError;
 
-/// 从一个复合标签直接建 `PlayerIdentity`（给自定义载荷用）。
+
+/// Builds a `PlayerIdentity` straight from a compound tag, for a custom payload.
 impl From<&BTreeMap<String, NbtValue>> for PlayerIdentity {
     fn from(m: &BTreeMap<String, NbtValue>) -> Self {
         let get = |k: &str| {

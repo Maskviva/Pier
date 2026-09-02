@@ -1,30 +1,32 @@
 /**
- * pier/api/money_guard.h —— 把 LLMoney 后端做成可选。
- *
- * 经济 API 背靠 LegacyMoney 导出的 LLMoney_* 函数，它们住在延迟加载的
- * LegacyMoney.dll 里：没装时宿主照常启动，符号到第一次使用才解析。两半缺一
- * 不可（契约 §2.1）：这里的守卫，加上 xmake 的 /DELAYLOAD。
- *
- * moneyBackendReady() 在任何经济调用派发之前做契约要求的双重校验。一是模组表：
- * ll::mod::ModManagerRegistry 里有名为 "LegacyMoney" 的模组且处于 Enabled；装了但
- * 被禁用的仍导出符号，而调进一个被禁用的模组是逻辑错误，同样按未就绪处理。二是符
- * 号：ll::memory::SymbolView::resolve() 真能找到 LLMoney_Get 导出，兜住模组表兜不
- * 住的过期或改名 DLL、换了导出的版本、以及没有真目标的延迟加载桩。
- *
- * 第一次失败时每进程告警一次，之后每个经济入口返回安全默认值。永不把异常抛过
- * C ABI，永不让延迟加载失败硬崩 BDS。
+ * pier/api/money_guard.h: makes the LLMoney backend optional.
+ * The economy API rests on the LLMoney_* functions LegacyMoney exports, which live in
+ * a delay-loaded LegacyMoney.dll. Without it installed the host still starts and the
+ * symbols resolve on first use. Both halves are required (contract §2.1): the guard
+ * here and /DELAYLOAD in xmake.
+ * moneyBackendReady() runs both required checks before any economy call. First the
+ * mod table, where ll::mod::ModManagerRegistry must hold a mod named "LegacyMoney" in
+ * state Enabled, since an installed but disabled mod still exports the symbols and
+ * calling into it is a logic error. Second the symbols, where
+ * ll::memory::SymbolView::resolve() must find the LLMoney_Get export, covering a stale
+ * or renamed DLL, a version with different exports, and a delay-load stub with no
+ * target. The first failure warns once per process and every economy entry point then
+ * returns a safe default. An exception is never thrown across the C ABI and a
+ * delay-load failure never hard-crashes BDS.
  */
 #pragma once
 
 namespace pier::api_impl
 {
     /**
-     * 上述两查都过时为真。首调之后很便宜：拥有这些符号的 DLL 没法在会话
-     * 中途换掉，所以符号探测做了 memoize；便宜得多的模组表/状态检查每次
-     * 都跑，这样运行期禁用 LegacyMoney 能被反映出来。
+     * True when both checks above pass. Cheap after the first call, because the DLL
+     * owning those symbols cannot be swapped mid-session, so the symbol probe is
+     * memoized. The far cheaper mod table and state check runs every time, so
+     * disabling LegacyMoney at runtime is reflected.
      *
-     * 「装上/启用 LegacyMoney」的告警每进程至多一次，在第一次校验失败时
-     * 发出。必须在服务器线程上调（它碰模组注册表）。永不抛。
+     * The warning asking for LegacyMoney to be installed or enabled is emitted at
+     * most once per process, on the first failed check. Must be called on the server
+     * thread, since it touches the mod registry. Never throws.
      */
     bool moneyBackendReady() noexcept;
 } // namespace pier::api_impl

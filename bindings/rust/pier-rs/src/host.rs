@@ -1,8 +1,9 @@
-//! 宿主与系统本身 —— 不涉及任何游戏概念的那部分能力。
+//! The host and the system themselves: the capabilities that involve no game concept.
 //!
-//! 放在这一层的判据是「它说的是**宿主**还是**世界**」：运行状态、把任务丢回
-//! 服务器线程、执行命令、问操作系统的名字 —— 换成别的游戏也成立；
-//! 玩家、方块、物品不成立。
+//! What belongs here is decided by whether it speaks about the host or the world. Run
+//! state, handing a task back to the server thread, executing a command and asking the
+//! operating system its name all hold for another game as well; players, blocks and items
+//! do not.
 
 use core::ffi::c_void;
 
@@ -12,16 +13,17 @@ use crate::rt::logger::Logger;
 use crate::rt::runtime::{api, rt, TaskId};
 use crate::sys;
 
-/// 服务器的运行阶段。镜像 `ll::GamingStatus`。
+/// The run stage of the server, mirroring `ll::GamingStatus`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GamingStatus {
     Default,
     Starting,
     Running,
     Stopping,
-    /// 宿主报了一个这一侧还不认识的值。**不是错误** —— 宿主可能比模组新
-    /// （契约 §2.2）。用 `Unknown(i32)` 而不是 panic 或静默归成 Default，
-    /// 是因为「不认识」和「Default」是两件事（契约 §5.2）。
+    /// The host reported a value this side does not recognize. This is not an error, since
+    /// the host may be newer than the mod (contract §2.2). `Unknown(i32)` is used rather than
+    /// a panic or a silent collapse into Default, because unrecognized and Default are two
+    /// different things (contract §5.2).
     Unknown(i32),
 }
 
@@ -37,7 +39,7 @@ impl From<i32> for GamingStatus {
     }
 }
 
-/// 宿主门面。零大小，随便 `Copy`。
+/// The host facade. Zero sized and freely `Copy`.
 #[derive(Clone, Copy)]
 pub struct Host(());
 
@@ -46,55 +48,61 @@ impl Host {
         Host(())
     }
 
-    /// 服务器现在处于哪个阶段。ABI 上标了线程安全，任何线程都能问。
+    /// Which stage the server is in. The ABI marks it thread safe, so any thread may ask.
     pub fn gaming_status(&self) -> GamingStatus {
         match api().gaming_status {
             Some(f) => GamingStatus::from(unsafe { f() }),
-            // 核心槽缺席只可能是宿主填表填漏了。不 panic：一个状态查询不该
-            // 把服务器带下去；返回 Unknown(-1) 让调用方自己决定怎么办。
+            // A missing core slot can only mean the host left it out while filling the table. No
+            // panic: a status query must not take the server down. Returning Unknown(-1) lets the
+            // caller decide what to do.
             None => GamingStatus::Unknown(-1),
         }
     }
 
-    /// 把一段活儿丢回**服务器线程**尽快执行。线程安全。
+    /// Hands a piece of work back to the server thread to run as soon as possible. Thread
+    /// safe.
     ///
-    /// 闭包被装箱后交给宿主，回调里取回并执行，执行完立刻释放 ——
-    /// 所有权全程在模组这一侧，符合契约 §三（跨边界不移交所有权：
-    /// 我们递过去的是一个不透明指针，宿主只负责原样回传）。
+    /// The closure is boxed and handed to the host, taken back and run inside the callback,
+    /// and freed immediately afterwards. Ownership stays on the mod side throughout, which
+    /// follows contract §3: no ownership crosses the boundary, what is passed is an opaque
+    /// pointer and the host only hands it back unchanged.
     ///
-    /// V-03：走**带模组句柄**的 `schedule_for`，不再走无主的 `schedule`。
-    /// 无主槽的任务在模组卸载后照样触发 —— 跳进已经 unmap 的代码段。带句柄
-    /// 的任务由宿主按模组记账，卸载时整批丢弃（并打一行 warn 提醒你自己
-    /// 取消）。返回的 [`TaskId`] 可用于 [`Host::cancel`]。
+    /// It goes through `schedule_for`, which carries a mod handle, and not the ownerless
+    /// `schedule`. A task on the ownerless slot still fires after the mod unloads and jumps
+    /// into an already unmapped code segment. A task with a handle is accounted per mod by the
+    /// host and the whole batch is discarded at unload, with a warning suggesting you cancel
+    /// them yourself. The returned [`TaskId`] works with [`Host::cancel`].
     pub fn schedule(&self, f: impl FnOnce() + Send + 'static) -> Result<TaskId> {
-        let cb = crate::require_slot!(schedule_for, "排期任务");
+        let cb = crate::require_slot!(schedule_for, "scheduling a task");
         let boxed: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(f));
         let user = Box::into_raw(boxed);
         let id = unsafe { cb(rt().handle(), task_trampoline, user.cast()) };
         if id == 0 {
-            // 宿主拒收：闭包还没交出去，收回所有权。
+            // The host refused. The closure was not handed over, so ownership comes back.
             drop(unsafe { Box::from_raw(user) });
             return Err(Error(
-                "宿主拒绝了排期任务（模组尚未被接管，或句柄无效）".to_owned(),
+                "the host refused the scheduled task, because the mod is not yet adopted or the handle is invalid".to_owned(),
             ));
         }
         Ok(TaskId(id))
     }
 
-    /// 同上，但延迟 `delay` 之后再跑。线程安全。
+    /// As above, but runs after `delay`. Thread safe.
     ///
-    /// 收 `Duration` 而不是一个裸的毫秒数：`schedule_after(5, …)` 里那个 5
-    /// 是五毫秒还是五秒，只有参数名说得清，而参数名在调用点是看不见的。
-    /// 单位放进类型里，调用点就自带答案。
+    /// It takes a `Duration` rather than a bare millisecond count: whether the 5 in
+    /// `schedule_after(5, ...)` means five milliseconds or five seconds is answered only by the
+    /// parameter name, which is invisible at the call site. Putting the unit in the type makes
+    /// the call site carry the answer.
     ///
-    /// ABI 那一侧是毫秒，所以这里做一次转换。超过 `u64` 毫秒的时长会被钳到
-    /// 上限而不是绕回一个很小的数 —— 后者会让一个「一年后执行」变成「立刻执行」。
+    /// The ABI side is in milliseconds, so this converts once. A duration exceeding `u64`
+    /// milliseconds is clamped to the maximum rather than wrapping to a small number, since
+    /// wrapping would turn run in a year into run immediately.
     pub fn schedule_after(
         &self,
         delay: std::time::Duration,
         f: impl FnOnce() + Send + 'static,
     ) -> Result<TaskId> {
-        let cb = crate::require_slot!(schedule_after_for, "延迟排期任务");
+        let cb = crate::require_slot!(schedule_after_for, "scheduling a delayed task");
         let delay_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX);
         let boxed: Box<Box<dyn FnOnce() + Send>> = Box::new(Box::new(f));
         let user = Box::into_raw(boxed);
@@ -102,16 +110,18 @@ impl Host {
         if id == 0 {
             drop(unsafe { Box::from_raw(user) });
             return Err(Error(
-                "宿主拒绝了延迟排期任务（模组尚未被接管，或句柄无效）".to_owned(),
+                "the host refused the delayed task, because the mod is not yet adopted or the handle is invalid".to_owned(),
             ));
         }
         Ok(TaskId(id))
     }
 
-    /// 取消一个尚未执行的任务。已执行、已取消或不属于本模组的票据返回 `false`。
+    /// Cancels a task that has not run yet. A ticket that already ran, was already cancelled,
+    /// or does not belong to this mod returns `false`.
     ///
-    /// 注意：取消只是把票据作废；闭包本身在宿主拆除时不会被调用，也不会被
-    /// 释放 —— 它随进程结束回收。要避免泄漏就别在热路径上大量排期再取消。
+    /// Note that cancelling only voids the ticket. The closure itself is neither called nor
+    /// freed when the host tears down and is reclaimed when the process ends. Avoiding a leak
+    /// means not scheduling and cancelling in bulk on a hot path.
     pub fn cancel(&self, task: TaskId) -> bool {
         if !task.is_valid() {
             return false;
@@ -122,7 +132,7 @@ impl Host {
         }
     }
 
-    /// 本模组名下还有多少任务没跑。适合在 `on_unload` 里断言为 0。
+    /// How many tasks under this mod have not run. Suited to asserting 0 in `on_unload`.
     pub fn pending_tasks(&self) -> u32 {
         match api().schedule_pending_count {
             Some(f) => unsafe { f(rt().handle()) },
@@ -130,30 +140,30 @@ impl Host {
         }
     }
 
-    /// 以控制台身份执行一条命令，取回它的输出。
+    /// Executes a command as the console and returns its output.
     ///
-    /// 返回 `Err` 的两种情况分得开：槽位缺席（宿主太老）和命令本身失败
-    /// （`success == false`，输出里是错误信息）。
+    /// The two `Err` cases stay apart: a missing slot, meaning the host is too old, and the
+    /// command itself failing, where `success == false` and the output holds the error.
     pub fn execute_command(&self, cmd: &str) -> Result<String> {
-        let f = crate::require_slot!(execute_command, "执行命令");
+        let f = crate::require_slot!(execute_command, "executing a command");
         let mut out = CmdOut {
             success: false,
             text: String::new(),
         };
         let ok = unsafe { f(s(cmd), (&mut out as *mut CmdOut).cast(), cmd_sink) };
         if !ok {
-            return Err(Error(format!("命令 `{cmd}` 没能执行（宿主拒绝）")));
+            return Err(Error(format!("command `{cmd}` could not be executed; the host refused")));
         }
         if !out.success {
-            return Err(Error(format!("命令 `{cmd}` 执行失败：{}", out.text)));
+            return Err(Error(format!("command `{cmd}` failed: {}", out.text)));
         }
         Ok(out.text)
     }
 
-    /// 列出宿主当前能解析的全部事件 id。
+    /// Lists every event id the host can currently resolve.
     ///
-    /// 订阅失败时把这个列表打出来，比一句「subscribe failed」有用得多
-    /// （契约 §5.3：日志要能回答「我该做什么」）。
+    /// Printing this list when a subscription fails is far more useful than a bare subscribe
+    /// failed (contract §5.3: a log line has to answer what to do about it).
     pub fn list_events(&self) -> Vec<String> {
         let Some(f) = api().list_events else {
             return Vec::new();
@@ -161,37 +171,39 @@ impl Host {
         collect_strs(|ctx, sink| unsafe { f(ctx, sink) })
     }
 
-    /// 操作系统层面的信息。`prop` 取 `sys::PIER_SYS_*`。
+    /// Information at the operating-system level. `prop` comes from `sys::PIER_SYS_*`.
     pub fn sys_info(&self, prop: i32) -> Result<String> {
-        let f = crate::require_slot!(sys_info_str, "读取系统信息");
+        let f = crate::require_slot!(sys_info_str, "reading system information");
         call_out_str(|ctx, sink| unsafe { f(prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("宿主读不出系统信息项 {prop}")))
+            .ok_or_else(|| Error(format!("the host could not read system information item {prop}")))
     }
 
-    /// 服务器层面的信息。`prop` 取 `sys::PIER_SRV_*`。
+    /// Information at the server level. `prop` comes from `sys::PIER_SRV_*`.
     pub fn server_info(&self, prop: i32) -> Result<String> {
-        let f = crate::require_slot!(server_info_str, "读取服务器信息");
+        let f = crate::require_slot!(server_info_str, "reading server information");
         call_out_str(|ctx, sink| unsafe { f(prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("宿主读不出服务器信息项 {prop}")))
+            .ok_or_else(|| Error(format!("the host could not read server information item {prop}")))
     }
 
-    /// 服务端的网络协议版本号。
+    /// The network protocol version of the server.
     ///
-    /// 具名访问器而不是让调用方自己传 `PIER_SRV_PROTOCOL_VERSION`：这个数
-    /// 是**跨版本适配类模组的第一个判据**，写错常量号的代价是拿到 BDS
-    /// 版本串然后解析失败，而那个失败离根因很远。
+    /// A named accessor rather than having the caller pass `PIER_SRV_PROTOCOL_VERSION`: this
+    /// number is the first criterion a version-adapting mod uses, and the cost of the wrong
+    /// constant is receiving the BDS version string and failing to parse it, a failure far
+    /// from its cause.
     ///
-    /// ABI 上它是字符串（`SharedConstants::NetworkProtocolVersion` 转过来的），
-    /// 这里解析成数字并把解析失败**如实报错**，不返回 0 —— 「问不出来」
-    /// 和「协议版本是 0」必须分开（契约 §5.2）。
+    /// On the ABI it is a string, converted from `SharedConstants::NetworkProtocolVersion`.
+    /// This parses it into a number and reports a parse failure truthfully rather than
+    /// returning 0: cannot-be-determined and a protocol version of 0 must stay apart
+    /// (contract §5.2).
     pub fn protocol_version(&self) -> Result<u32> {
         let raw = self.server_info(sys::PIER_SRV_PROTOCOL_VERSION)?;
         raw.trim()
             .parse::<u32>()
-            .map_err(|e| Error(format!("宿主报的协议版本 {raw:?} 解析不成数字：{e}")))
+            .map_err(|e| Error(format!("the protocol version {raw:?} the host reported does not parse as a number: {e}")))
     }
 
-    /// BDS 的版本串（`Common::getGameVersionString`）。
+    /// The BDS version string, from `Common::getGameVersionString`.
     pub fn bds_version(&self) -> Result<String> {
         self.server_info(sys::PIER_SRV_BDS_VERSION)
     }
@@ -208,29 +220,30 @@ impl Host {
         api().get_player_count.map(|f| unsafe { f() })
     }
 
-    /// 读一个环境变量。
+    /// Reads an environment variable.
     ///
-    /// 读不到和读到空串在这里是同一个空串：ABI 上这个槽的失败位只表示
-    /// 「宿主没能去读」，而进程环境里一个存在的空变量本来就等于不存在。
+    /// Failing to read and reading an empty string are the same empty string here: the failure
+    /// bit of this slot on the ABI means only that the host could not perform the read, and an
+    /// existing empty variable in a process environment is the same as an absent one.
     pub fn env(&self, name: &str) -> Result<String> {
-        let f = crate::require_slot!(sys_get_env, "读取环境变量");
+        let f = crate::require_slot!(sys_get_env, "reading an environment variable");
         Ok(call_out_str(|ctx, sink| unsafe { f(s(name), ctx, sink) }).unwrap_or_default())
     }
 
-    /// 设一个环境变量。只影响本进程。
+    /// Sets an environment variable. It affects this process only.
     pub fn set_env(&self, name: &str, value: &str) -> Result<()> {
-        let f = crate::require_slot!(sys_set_env, "设置环境变量");
+        let f = crate::require_slot!(sys_set_env, "setting an environment variable");
         if unsafe { f(s(name), s(value)) } {
             Ok(())
         } else {
-            Err(Error(format!("设不了环境变量 {name}")))
+            Err(Error(format!("the environment variable {name} could not be set")))
         }
     }
 
-    /// 这个宿主是不是跑在 Wine 上。
+    /// Whether this host runs under Wine.
     ///
-    /// 值得单独问一句：Wine 上一部分 Windows API 的行为和真 Windows 不同，
-    /// 而症状通常出现在离根因很远的地方。
+    /// Worth asking on its own: some Windows APIs behave differently under Wine than on real
+    /// Windows, and the symptom usually appears far from the cause.
     pub fn is_wine(&self) -> bool {
         if !crate::has_slot!(sys_is_wine) {
             return false;
@@ -245,7 +258,7 @@ impl Host {
         self.sys_info(sys::PIER_SYS_OS_NAME)
     }
 
-    /// 操作系统版本串。
+    /// The operating system version string.
     pub fn os_version(&self) -> Result<String> {
         self.sys_info(sys::PIER_SYS_OS_VERSION)
     }
@@ -257,7 +270,7 @@ impl Host {
     pub fn local_time(&self) -> Result<crate::types::LocalTime> {
         let text = self.sys_info(sys::PIER_SYS_LOCAL_TIME)?;
         let v = crate::nbt::NbtValue::parse(&text)
-            .map_err(|e| Error(format!("本地时间 SNBT 解析失败：{e}")))?;
+            .map_err(|e| Error(format!("parsing the local time SNBT failed: {e}")))?;
         Ok(crate::types::LocalTime {
             year: v.opt_i32("year").unwrap_or(0),
             month: v.opt_i32("month").unwrap_or(0),
@@ -269,35 +282,36 @@ impl Host {
         })
     }
 
-    /// 世界门面。
+    /// The world facade.
     ///
-    /// 这个访问器和 `Host` 之间**不构成环**:`world` 确实要用
-    /// `Host::execute_command` 拼 `/fill`，但两边的入口都只是零大小门面的
-    /// `get()`，不共享状态。分层检查里这条边是显式声明的。
+    /// This accessor forms no cycle with `Host`: `world` really does need
+    /// `Host::execute_command` to assemble a `/fill`, but the entry point on each side is only
+    /// the `get()` of a zero-sized facade and no state is shared. The layering check declares
+    /// this edge explicitly.
     pub fn world(&self) -> crate::World {
         crate::World::get()
     }
 
-    /// 服务器运行时控制（tick 冻结、倍速、性能采样）。
+    /// Server runtime control: freezing ticks, warping them, and performance sampling.
     pub fn server(&self) -> crate::Server {
         crate::Server::get()
     }
 }
 
-// ── 跨 extern "C" 的两个蹦床 ───────────────────────────────────────
+// The two trampolines crossing extern "C".
 
 /// # Safety
-/// `user` 必须是 `Box<Box<dyn FnOnce() + Send>>::into_raw` 的产物，且只被调一次。
+/// `user` must come from `Box<Box<dyn FnOnce() + Send>>::into_raw` and be called once.
 unsafe extern "C" fn task_trampoline(user: *mut c_void) {
     if user.is_null() {
         return;
     }
     let f: Box<Box<dyn FnOnce() + Send>> = Box::from_raw(user.cast());
-    // panic 穿过 extern "C" 是未定义行为。拦在这里，代价是这一个任务被丢掉，
-    // 而不是整个进程无诊断 abort。
+    // A panic crossing extern "C" is undefined behavior. Catching it here costs this one
+    // task rather than aborting the whole process without a diagnostic.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || (*f)()));
     if result.is_err() {
-        Logger::get().error("排期任务 panic 了。已就地拦下 —— 这个任务被丢弃。");
+        Logger::get().error("a scheduled task panicked. It was caught here and the task was discarded.");
     }
 }
 
@@ -307,7 +321,7 @@ struct CmdOut {
 }
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut CmdOut`。
+/// `ctx` must be a valid `*mut CmdOut`.
 unsafe extern "C" fn cmd_sink(ctx: *mut c_void, success: bool, output: sys::PierStr) {
     let out = &mut *ctx.cast::<CmdOut>();
     out.success = success;

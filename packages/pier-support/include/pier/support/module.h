@@ -1,16 +1,19 @@
 #pragma once
-// 函数地址 → 所属模块的归属判定。
+// Ownership lookup from a function address to the module that contains it.
 //
-// 住在 support 而不是某个域里，因为它是「遗留形状」的通用解药：早于
-// mod-scoped 约定的槽位（money 事件监听器是现存的一例）只收裸函数指针、
-// 不带模组句柄 —— 宿主不知道回调属于谁，卸载时清不掉。从地址反查模块
-// 是恢复归属的唯一办法，而将来任何背同样历史包袱的槽位都会需要它。
+// It lives in support rather than in one domain because it is the general remedy
+// for a legacy slot shape. Slots that predate the mod-scoped convention, of which
+// the money event listener is a surviving example, take a bare function pointer
+// with no mod handle, so the host cannot tell which mod owns a callback and cannot
+// clear it on unload. Resolving the module from the address is the only way to
+// recover that ownership, and any future slot of the same shape needs it too.
 #include <cstddef>
 
 namespace pier
 {
-    /** `fn` 是否落在基址为 `moduleBase` 的已加载模块里。
-     *  非 Windows 平台恒 false（BDS 只有 Windows 目标；返回 false 让调用
-     *  方按「查不出归属」保守处理，而不是假装查出来了）。 */
+    /** Whether `fn` lies inside the loaded module based at `moduleBase`.
+     *  Always false on non-Windows platforms, since BDS ships only a Windows target.
+     *  Returning false makes the caller treat ownership as unresolved instead of
+     *  acting on a resolution that was never made. */
     [[nodiscard]] bool addressOwnedBy(void const* moduleBase, void const* fn) noexcept;
 } // namespace pier

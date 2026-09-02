@@ -1,19 +1,15 @@
-/** world/WorldInfo.cpp —— 只读世界数据查询：村庄与硬编码刷怪区（HSA）巡视。
- *
- * 与 World.cpp（方块读写）分开，让「走一遍内部管理器并序列化」这个关注点
- * 和逐方块热路径隔离。
- *
- * 两个入口都经 sink 流式吐 SNBT 对象（每村庄 / 每区域一条），与
- * list_players / scan_region 同一个模式。全部只读（不改游戏状态），服务器
- * 线程专用。
- *
- * 版本注记：下面的字段按 BDS 26.20.0 头核对过 —— Village 暴露
- * getBounds/getCenter/getPOICount/getUniqueID；逐区块的 HSA 住在
- * LevelChunk::mSpawningAreas，形状是 {aabb, type}。村民枚举刻意省略：村民
- * 挂在按角色分键的 POIInstance weak_ptr 数组上，走一遍既脆弱又对版本敏感
- * —— POI 数量才是稳定信号。以后哪个版本需要村民，就在这里加，ABI 形状
- * 不用动（载荷是数据，不是布局）。
- */
+/** world/WorldInfo.cpp: read-only world data queries, walking villages and hardcoded
+ * spawn areas (HSA). Separate from World.cpp, which reads and writes blocks, so that walking an
+ * internal manager and serializing it stays away from the per-block hot path. Both entry points
+ * stream SNBT objects through a sink, one per village or per area, the same pattern list_players
+ * and scan_region use. Everything is read-only, changes no game state, and is server thread only.
+ * Version note: the fields below were checked against the BDS 26.20.0 headers. Village exposes
+ * getBounds, getCenter, getPOICount and getUniqueID, and the per-chunk HSA lives in
+ * LevelChunk::mSpawningAreas with the shape {aabb, type}. Villager enumeration is deliberately
+ * omitted: villagers hang off POIInstance weak_ptr arrays keyed by role, and walking them is both
+ * fragile and version sensitive, while the POI count is the stable signal. A version that needs
+ * villagers adds them here without touching the ABI shape, since the payload is data and not
+ * layout. / */
 #ifndef PIER_BUILD_CLIENT
 
 #include <cstdint>
@@ -74,14 +70,16 @@ namespace pier::api_impl
                 auto dim = level->getDimension(DimensionType{dimension}).lock();
                 if (!dim) return;
 
-                // getVillageManager() 返回 unique_ptr const&（对象存储 ——
-                // TypedStorage 本身就是值；成员上不用做 .get() 体操）。
+                // getVillageManager() returns a unique_ptr const&. It is object
+                // storage, so the TypedStorage is the value itself and no .get()
+                // gymnastics are needed on the member.
                 auto const& mgr = dim->getVillageManager();
                 if (!mgr) return;
 
-                // mVillages：unordered_map<UUID, shared_ptr<Village>>（对象存
-                // 储，.get() 给出 map）。读的是按引用持有的活对象的私有成
-                // 员 —— 服务器线程上没有生命期险。
+                // mVillages is an unordered_map<UUID, shared_ptr<Village>> in object
+                // storage, where .get() yields the map. What is read is a private
+                // member of a live object held by reference, which carries no lifetime
+                // risk on the server thread.
                 for (auto const& [id, villagePtr] : mgr->mVillages.get())
                 {
                     if (!villagePtr) continue;
@@ -110,36 +108,39 @@ namespace pier::api_impl
                 auto* level = bridge::levelReady();
                 if (!level || !snbtSink) return;
                 if (radius < 0) return;
-                // 半径上限（1024 格 = 129×129 个区块）；`x ± radius` 用 64 位算，
-                // 防止 int 溢出把方阵翻成负数区间。
+                // The radius is capped at 1024 blocks, which is 129 by 129 chunks, and
+                // `x ± radius` is computed in 64 bits so an int overflow cannot turn
+                // the square into a negative range.
                 if (radius > 1024) return;
                 auto dim = level->getDimension(DimensionType{dimension}).lock();
                 if (!dim) return;
 
                 BlockSource& region = dim->getBlockSourceFromMainChunkSource();
 
-                // HSA 按 LevelChunk 存。走覆盖半径的区块方阵（16 格一区块）；
-                // 只有已加载的区块产出数据 —— 这是诚实的上限（读未加载的区块
-                // 就得生成它，而一个只读查询绝不能这么干）。
+                // HSAs are stored per LevelChunk. The square of chunks covering the
+                // radius is walked at 16 blocks per chunk, and only loaded chunks yield
+                // data, which is the honest limit: reading an unloaded chunk would mean
+                // generating it, and a read-only query must never do that.
                 int cxMin = static_cast<int>((int64_t{x} - radius) >> 4);
                 int cxMax = static_cast<int>((int64_t{x} + radius) >> 4);
                 int czMin = static_cast<int>((int64_t{z} - radius) >> 4);
                 int czMax = static_cast<int>((int64_t{z} + radius) >> 4);
-                (void)y; // HSA 按区块全高存在；选取用不到 y
+                (void)y; // An HSA spans the full chunk height, so selection ignores y
 
                 for (int cx = cxMin; cx <= cxMax; ++cx)
                 {
                     for (int cz = czMin; cz <= czMax; ++cz)
                     {
                         LevelChunk* chunk = region.getChunk(ChunkPos{cx, cz});
-                        if (!chunk) continue; // 未加载 —— 跳过，不强加载
+                        if (!chunk) continue; // Not loaded, skipped and never force-loaded
 
                         for (auto const& area : chunk->mSpawningAreas.get())
                         {
-                            // SpawningArea.aabb 是包着 BoundingBox 的
-                            // TypedStorage（对象类型 —— 要 .get()）；.type 是标
-                            // 量枚举（引用/标量特化 —— 成员本身就是值）。
-                            // BoundingBox 的 min/max 是 BlockPos（整数）。
+                            // SpawningArea.aabb is a TypedStorage wrapping a
+                            // BoundingBox, an object type that needs .get(), while
+                            // .type is a scalar enum, where the scalar specialization
+                            // makes the member the value itself. min and max of a
+                            // BoundingBox are BlockPos, so integers.
                             BoundingBox const& bb = area.aabb.get();
                             std::string snbt = "{\"type\":\"" + hsaTypeName(area.type)
                                 + "\",\"bounds\":{\"min\":[" + snbtNum(bb.min.x) + ","

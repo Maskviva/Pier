@@ -1,9 +1,10 @@
-/** hooks/world/DestroyEvents.cpp —— 合成事件 "PlayerStartDestroyBlockEvent"。
- *
- * 钩 GameMode::startDestroyBlock，早于 LeviLamina 内建的 PlayerDestroyBlockEvent
- * （那个在破坏完成时才触发）。事件在 origin 之前派发、回调同步执行，所以换快捷
- * 栏槽位的订阅者能赶在破坏逻辑读取手持工具之前换完，这正是自动切工具需要的时
- * 机。生命周期规矩见 hook_events.h。 */
+/** hooks/world/DestroyEvents.cpp: the synthetic "PlayerStartDestroyBlockEvent".
+ * GameMode::startDestroyBlock is hooked, which is earlier than the built-in
+ * PlayerDestroyBlockEvent of LeviLamina, since that one fires when the destruction
+ * completes. The event dispatches before origin and callbacks run synchronously, so a
+ * subscriber that changes the hotbar slot finishes before the destruction logic reads the
+ * held tool, which is exactly the moment automatic tool switching needs. The lifetime
+ * rules are in hook_events.h. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -20,7 +21,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& destroyDef(); // 前向
+        HookEventDef& destroyDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             StartDestroyBlockHook,
@@ -35,11 +36,12 @@ namespace pier::hooks
             auto& def = destroyDef();
             if (!def.live())
             {
-                return origin(pos, face, hasDestroyedBlock); // 装着但空闲
+                return origin(pos, face, hasDestroyedBlock); // Installed but idle
             }
 
-            // GameMode::mPlayer 是包着 Player& 的 TypedStorage，引用走坍缩特化，
-            // 成员本身就是那个引用，不用 .get()。
+            // GameMode::mPlayer is a TypedStorage wrapping a Player&, and a reference
+            // takes the collapse specialization, so the member is that reference itself
+            // and needs no .get().
             Player& p = this->mPlayer;
 
             std::string snbt = "{\"eventId\":\"PlayerStartDestroyBlockEvent\""
@@ -49,7 +51,7 @@ namespace pier::hooks
                 + ",\"dim\":" + snbtNum(static_cast<int>(p.getDimensionId()))
                 + ",\"face\":" + snbtNum(static_cast<int>(face))
                 + "," + playerRefSnbt(p) + "}";
-            dispatchHookEvent(def, snbt); // 在 origin 之前，见文件头
+            dispatchHookEvent(def, snbt); // Before origin, see the file header
 
             return origin(pos, face, hasDestroyedBlock);
         }

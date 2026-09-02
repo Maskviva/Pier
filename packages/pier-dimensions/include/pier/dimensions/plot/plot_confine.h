@@ -2,25 +2,25 @@
 
 #include <cstdint>
 
-/**
- * plot_confine.h —— 「这两个坐标算不算同一块地皮」。
- *
- * DimRule::PistonPush 是整维度一刀切，而「飞行器、活塞、实体不出地皮」要的是按边界判：地皮内部
- * 照常推，跨界才拦。判定发生在 PistonBlockActor::_checkAttachedBlocks 和 Actor::move 里，那是引
- * 擎的 tick 路径，每秒几百上千次，不可能一次次跨 ABI 边界回模组那头问。所以网格几何和合并关系由
- * 模组侧推过来（md_set_plot_grid / md_set_plot_merges），这里只存和查。
- *
- * 归属判定必须和模组侧的 owning_plot 逐条一致：地皮内部归该地皮；南北向的缝在西侧那块声明了朝东
- * 合并时归它；东西向的缝在北侧那块声明了朝南合并时归它；路口在围它的 2×2 四条边全合并时归西北角
- * 那块；其余不属于任何地皮。两侧不一致时主人会在自己合并出来的地皮上被拦住，症状是「我能手放，
- * 活塞就是推不过去」。
- *
- * 和 dimension_rules.h 同一条硬约束：没注册网格的维度必须完全感觉不到这些 hook 的存在，没有网格
- * 时 sameArea 一律返回 true。
- */
+/** plot_confine.h: whether two coordinates count as the same plot. DimRule::PistonPush applies to
+ * a whole dimension, while keeping flying machines, pistons and actors inside a plot needs a
+ * decision by boundary: pushing inside a plot is fine and only crossing is blocked. The decision
+ * happens inside PistonBlockActor::_checkAttachedBlocks and Actor::move, on the engine tick path,
+ * hundreds to thousands of times per second, so asking the mod side across the ABI each time is
+ * out of the question. The grid geometry and the merge relations are therefore pushed over from
+ * the mod side through md_set_plot_grid and md_set_plot_merges, and this only stores and queries
+ * them. The ownership decision must match owning_plot on the mod side exactly: the interior of a
+ * plot belongs to that plot; a north-south seam belongs to the western plot when that plot
+ * declares a merge to the east; an east-west seam belongs to the northern plot when that plot
+ * declares a merge to the south; a junction belongs to the north-west plot when all four edges of
+ * the surrounding 2x2 are merged; everything else belongs to no plot. A disagreement between the
+ * two sides blocks an owner on a plot they merged themselves, with the symptom that placing by
+ * hand works while a piston cannot push through. The same hard constraint dimension_rules.h
+ * states: a dimension with no registered grid must not notice these hooks at all, and without a
+ * grid sameArea always returns true. / */
 namespace pier::dimensions
 {
-    /** 一块地皮的网格编号。和模组侧的 `PlotId` 同构。 */
+    /** The grid number of one plot. Isomorphic to `PlotId` on the mod side. */
     struct PlotXZ
     {
         int32_t x{0};
@@ -30,7 +30,8 @@ namespace pier::dimensions
         friend bool operator!=(PlotXZ const& a, PlotXZ const& b) { return !(a == b); }
     };
 
-    /** 合并标记的方向位。和模组侧 `merged` 数组的下标一致：0=N 1=E 2=S 3=W。 */
+    /** Direction bits of a merge mark, matching the indices of the `merged` array on
+     *  the mod side: 0 north, 1 east, 2 south, 3 west. */
     enum MergeBit : uint32_t
     {
         kMergeNorth = 1u << 0,
@@ -40,54 +41,63 @@ namespace pier::dimensions
     };
 
     /**
-     * 注册 / 更新一个维度的地皮网格。
+     * Registers or updates the plot grid of a dimension.
      *
-     * `plotSize <= 0` 视为「这个维度没有地皮网格」，等价于 `clearPlotGrid`。
-     * 传进来的数值不被信任：负的 roadWidth 会让取模变成除零，这里夹一遍。
+     * `plotSize <= 0` means the dimension has no plot grid and is equivalent to
+     * `clearPlotGrid`. The incoming values are not trusted: a negative roadWidth would
+     * turn the modulus into a division by zero, so they are clamped here.
      */
     void setPlotGrid(int dimension, int plotSize, int roadWidth);
 
-    /** 撤销一个维度的网格（世界被删除 / 改成非地皮模型时调）。连合并表一起清。 */
+    /** Withdraws the grid of a dimension, called when a world is deleted or switched to
+     *  a non-plot model. The merge table is cleared with it. */
     void clearPlotGrid(int dimension);
 
     /**
-     * 整表替换一个维度的合并标记。
+     * Replaces the whole merge mark table of a dimension.
      *
-     * `entries` 是 `count` 组 `(x, z, mask)`，共 `count * 3` 个 int32。
-     * 只需要传有合并标记的地皮 —— 没有条目的地皮按「四面都没合并」处理，
-     * 所以一个几千块地皮、只有十来处合并的服务器，这张表也就几十个整数。
+     * `entries` is `count` groups of `(x, z, mask)`, so `count * 3` int32 values. Only
+     * plots carrying a merge mark need to be passed, since a plot with no entry counts
+     * as unmerged on all four sides, so a server with a few thousand plots and a dozen
+     * merges sends a few dozen integers.
      *
-     * 整表替换而不是增量：增量要求两侧对「现在有哪些条目」的看法始终一致，
-     * 而拆分（unlink）是先清邻居再存自己、中途可能失败的，一旦对不上就再也
-     * 没有自愈的机会。整表替换每次都把状态拉回一致。
+     * A whole-table replacement and not an increment. An increment requires both sides
+     * to agree at all times on which entries exist, while unlink clears the neighbor
+     * before storing itself and can fail in between, and once they disagree there is no
+     * way back. A whole-table replacement pulls the state back into agreement every
+     * time.
      */
     void setPlotMerges(int dimension, int32_t const* entries, int32_t count);
 
     /**
-     * 这个维度当前有没有地皮网格。hook 的第一道快速路径。
+     * Whether the dimension currently has a plot grid. The first fast path of a hook.
      *
-     * 单独暴露是因为它比 `sameArea` 便宜得多：没有网格时不需要算任何坐标。
+     * Exposed on its own because it is far cheaper than `sameArea`: with no grid, no
+     * coordinate has to be computed.
      */
     bool hasPlotGrid(int dimension);
 
     /**
-     * 唯一的问句：`(x1,z1)` 和 `(x2,z2)` 是否属于同一片可自由活动的区域。
+     * The only question: whether `(x1,z1)` and `(x2,z2)` belong to the same area within
+     * which movement is free.
      *
-     * * 没有网格的维度 → 恒 `true`（不管）。
-     * * 两点都不属于任何地皮（都在道路上）→ `true`。道路是公共区域，
-     *   在道路上活动不是越界。
-     * * 一点在地皮上、另一点不在 → `false`。这一条同时挡住「推出去」和
-     *   「推进来」，方向是对称的：把苦力怕塞进别人地皮和把别人的箱子推出来，
-     *   是同一类操作。
-     * * 两点都在地皮上 → 归属的合并组根相同才算同一片。
+     * * A dimension with no grid always returns `true`, meaning no interference.
+     * * Neither point belonging to any plot, both on a road, returns `true`. A road is
+     *   public ground and moving on it is not a crossing.
+     * * One point on a plot and the other not returns `false`. That covers pushing out
+     *   and pushing in symmetrically: shoving a creeper into someone else's plot and
+     *   pulling their chest out are the same operation.
+     * * Both points on a plot returns true only when their merge group roots match.
      */
     bool sameArea(int dimension, int x1, int z1, int x2, int z2);
 
     /**
-     * 诊断用：这一格归哪块地皮。`out` 只在返回 true 时被写。
+     * Diagnostic: which plot a cell belongs to. `out` is written only when this returns
+     * true.
      *
-     * 拦截路径本身不用它（`sameArea` 一次算完两侧、共享备忘），这里暴露出来
-     * 是为了让「为什么这次被拦了」能被人工复现。
+     * The interception path does not use it, since `sameArea` computes both sides at
+     * once and shares the memo. It is exposed so that why a move was blocked can be
+     * reproduced by hand.
      */
     bool owningPlot(int dimension, int x, int z, PlotXZ* out);
 } // namespace pier::dimensions

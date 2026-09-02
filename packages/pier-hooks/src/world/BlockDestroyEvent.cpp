@@ -1,16 +1,17 @@
-/** world/BlockDestroyEvent.cpp —— 「有东西把这一格挖掉了」，不问是谁。
- *
- * 玩家挖方块有 LL 的 PlayerDestroyBlockEvent 和本包的
- * PlayerStartDestroyBlockEvent，其余一切都没有事件：末影人搬走草方块、凋灵撞碎
- * 墙、爬行者炸坑、蠹虫钻石头、村民踩坏耕地、/setblock air destroy、别的插件调
- * destroyBlock。在保护看来它们全是「方块凭空消失」，事后无从追查。
- * Level::destroyBlock 是这些路径的公共汇合点，钩它一个就够；方块被替换
- * （BlockSource::setBlock）这里看不见，那条路归 LL 的 BlockChangedEvent，两者
- * 互补，都不是对方的超集。
- *
- * 载荷不带「谁干的」：这个签名没有 Actor，引擎在这一层已经把来源丢掉，硬编一个
- * _player 只会让消费方以为自己知道来源。要区分来源就订阅更上游的那几个事件。
- */
+/** world/BlockDestroyEvent.cpp: something removed this cell, without asking who.
+ * A player mining a block has PlayerDestroyBlockEvent in LL and
+ * PlayerStartDestroyBlockEvent in this package, while everything else has no event at
+ * all: an enderman taking a grass block, a wither smashing a wall, a creeper blowing a
+ * crater, a silverfish burrowing into stone, a villager trampling farmland,
+ * /setblock air destroy, another plugin calling destroyBlock. To protection they are all
+ * a block vanishing, untraceable afterwards. Level::destroyBlock is where those paths
+ * meet and hooking it alone is enough. A block being replaced through
+ * BlockSource::setBlock is invisible here and belongs to BlockChangedEvent in LL; the two
+ * are complementary and neither is a superset of the other.
+ * The payload carries no who: this signature has no Actor, the engine already dropped the
+ * source at this layer, and inventing a _player would only make a consumer believe it
+ * knows the source. Telling sources apart means subscribing to the events further
+ * upstream. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -33,7 +34,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& blockDestroyDef(); // 前向
+        HookEventDef& blockDestroyDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             LevelDestroyBlockHook,
@@ -58,7 +59,8 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // 读不出来不是拒绝的理由：判定用位置和维度，方块名只给日志看。
+                // Being unreadable is no reason to refuse: the decision uses the position
+                // and the dimension, and the block name is only for the log.
             }
 
             std::string snbt = "{\"eventId\":\"BlockDestroyEvent\""
@@ -71,8 +73,9 @@ namespace pier::hooks
 
             if (dispatchHookEventCancellable(def, snbt))
             {
-                // 返回 false 即没破坏成功。调用方本来就要处理这个返回值，所以取
-                // 消是安全的，引擎不会停在半更新状态。
+                // Returning false means the destruction did not succeed. Every caller
+                // already handles that return, so cancelling is safe and the engine is not
+                // left half updated.
                 return false;
             }
             return origin(region, pos, dropResources, changeSourceContext);
@@ -86,8 +89,10 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[BlockDestroyEvent] Level::$destroyBlock 的 detour 安装失败（code={}）—— "
-                        "非玩家来源的破坏（末影人、凋灵、爆炸、命令）将完全不受保护。", r);
+                        "[hooks/BlockDestroyEvent] the Level::$destroyBlock detour failed to "
+                        "install with code={}, so destruction from non-player sources such as "
+                        "endermen, withers, explosions and commands is entirely "
+                        "unprotected", r);
                 }
                 return r == 0;
             }

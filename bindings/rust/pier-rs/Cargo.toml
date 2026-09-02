@@ -1,10 +1,11 @@
 [package]
 name = "pier-rs"
-version = "1.0.0"
+version = "26.20.1"
 edition = "2021"
 license = "Apache-2.0"
-description = "用安全 Rust 写 LeviLamina 模组。Pier ABI v1 / BDS 1.26.20 / LeviLamina 26.20.4。"
-readme = "../../README.md"
+description = "Writing LeviLamina mods in safe Rust. Pier ABI v1 / BDS 1.26.20 / LeviLamina 26.20.4."
+repository = "https://github.com/Maskviva/Pier"
+readme = "../../../README.md"
 keywords = ["levilamina", "minecraft", "bedrock", "mod", "bds"]
 categories = ["game-development", "api-bindings"]
 
@@ -14,32 +15,37 @@ levilamina_version = "26.20.4"
 abi_version = 1
 lane_protocol = 1
 
-# 见 pier-sys-rs：包名换了，crate 名不换 —— `use levilamina::` 是模组的心智模型。
+# See pier-sys-rs: the package name changed and the crate name did not, since
+# `use levilamina::` is the mental model of a mod.
 [lib]
 name = "levilamina"
 path = "src/lib.rs"
 
 [dependencies]
-# service::exists() 曾经在 JSON 文本里做子串匹配 —— 和契约 §六 禁的是同一类
-# 错误，只是发生在另一侧。改成真解析。
-# service 的类型化调用（call_json / register_json）要 serde 的 trait；
-# derive 是可选的，业务侧自己开。
+# service::exists() used to substring-match inside JSON text, the same class of mistake
+# contract §6 forbids, only on the other side. It really parses now.
+# The typed service calls, call_json and register_json, need the serde traits. The derive
+# is optional and business code enables it itself.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-pier-sys-rs = { version = "1.0.0", path = "../pier-sys-rs", default-features = false }
+pier-sys-rs = { version = "26.20.1", path = "../pier-sys-rs", default-features = false }
 
-# ── feature 只剩一个，而且它不改任何布局 ──────────────────────────
+# One feature remains and it changes no layout.
 #
-# v0 有 `server` / `client` / `more_dimensions` 三个，其中前两个互斥、第三个
-# 会往 `PierApi` 里增删字段。ABI v1 之后这套全部作废：
+# There used to be `server`, `client` and `more_dimensions`, where the first two were
+# mutually exclusive and the third added and removed fields of `PierApi`. From ABI v1 that
+# whole arrangement is void:
 #
-#   * 布局在所有目标下相同（契约 §2.1），`more_dimensions` 没有存在的余地 ——
-#     维度能力改由**运行期**的 `md_is_available()` 与空槽判断；
-#   * `server` / `client` 不再互斥地裁剪 API 面。客户端专属的那组槽在服务端
-#     宿主上就是 NULL，调用它会得到一个「宿主不提供」的 Err，而不是编译错误。
+#   * the layout is identical on every target (contract §2.1), leaving no room for a
+#     dimension feature, since the dimension capability is decided at runtime by
+#     `md_is_available()` and an empty slot;
+#   * `server` and `client` no longer trim the API surface mutually exclusively. The
+#     client-only group of slots is simply NULL on a server host, and calling one gives an
+#     Err saying the host does not provide it rather than a compile error.
 #
-# 保留 `client` 的唯一作用是让 `register_mod!` 往 vtable 的 `mod_flags` 里
-# 填上 bit 0，宿主据此拒绝装错目标的模组。它**一个 API 都不增删**。
+# The only purpose of keeping `client` is to have `register_mod!` set bit 0 in the
+# `mod_flags` of the vtable, on which the host refuses a mod loaded onto the wrong target.
+# It adds and removes no API at all.
 [features]
 default = []
 client = ["pier-sys-rs/client"]

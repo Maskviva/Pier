@@ -1,8 +1,10 @@
-/** runtime/Server.cpp —— 时钟、天气、难度、种子、游戏规则、服务器信息。
+/** runtime/Server.cpp: clock, weather, difficulty, seed, game rules and server info.
  *
- * 读取一律直连原生；对版本敏感的写入走原版命令（设计决策），BDS 升版不用
- * 跟着改。世界级写操作是服务端能力 —— 客户端构建整文件不编，槽位留 NULL。
-  * 双目标编入（与旧构建矩阵一致）。写路径里 runConsoleCommand 在客户端恒 false，各槽位按各自的 level 判空降级。
+ * Every read goes straight to native. Version-sensitive writes go through vanilla
+ * commands by design, so a BDS upgrade does not force a change here.
+ *
+ * Compiled into both targets. On the client runConsoleCommand is always false, and
+ * each slot degrades on its own null level check.
  */
 #include <string>
 #include <variant>
@@ -40,8 +42,9 @@ namespace pier::api_impl
         bool api_set_time(int64_t t)
         {
             PIER_API_GUARD_BEGIN
-                // 原生。读取侧本来就是 level->getTime()，写入侧再绕一圈命令的
-                // 话 —— 同一个属性两条路，失败方式还不一样。
+                // Native. The read side is level->getTime() already, and routing the
+                // write through a command would give one property two paths that fail
+                // in different ways.
                 auto* level = bridge::levelReady();
                 if (!level) return false;
                 level->setTime(static_cast<int>(t));
@@ -54,8 +57,9 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level) return false;
-                // updateWeather(雨强度, 雨持续, 雷强度, 雷持续)。持续时间给 0
-                // 表示由引擎自己按默认规则续 —— 和 /weather 不带秒数时一致。
+                // updateWeather(rain level, rain time, lightning level, lightning
+                // time). A duration of 0 lets the engine extend it by its own default
+                // rule, which matches /weather without a seconds argument.
                 switch (weather)
                 {
                 case 1:
@@ -111,7 +115,7 @@ namespace pier::api_impl
                 if (!level || !sink) return false;
                 auto& rules = level->getGameRules();
                 GameRuleId id = rules.nameToGameRuleIndex(toString(name));
-                // NewType<int>：裸下标；越界 = 不认识的规则。
+                // NewType<int> is a bare index. Out of range means an unknown rule.
                 int idx = id.mValue;
                 auto const& list = rules.mGameRules.get();
                 if (idx < 0 || static_cast<size_t>(idx) >= list.size()) return false;
@@ -128,7 +132,8 @@ namespace pier::api_impl
                     break;
                 case GameRule::Type::Float:
                 {
-                    // 这个 LL 版本没有 getFloat() 访问器；读公开的 variant。
+                    // This LL version has no getFloat() accessor, so the public
+                    // variant is read instead.
                     auto const& var = rule.mValue.get();
                     float f = std::holds_alternative<float>(var) ? std::get<float>(var) : 0.0f;
                     out = "{type:\"float\",value:" + snbtNum(f) + "f}";
@@ -147,18 +152,21 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level) return false;
-                // 这一条故意保留命令路径。GameRules 只暴露 getBool/getInt/getFloat
-                // 和 nameToGameRuleIndex，写入侧公开的只有内部接口 _setGameRule，签
-                // 名跨版本不稳，而且绕过 /gamerule 会漏掉 GameRulesChangedPacket 的
-                // 广播，客户端不会知道规则变了。先用 nameToGameRuleIndex 验一次名
-                // 字，好把「规则名拼错」和「命令执行失败」区分开。
+                // This one deliberately keeps the command path. GameRules exposes
+                // only getBool, getInt, getFloat and nameToGameRuleIndex. The only
+                // public write is the internal _setGameRule, whose signature is
+                // unstable across versions, and bypassing /gamerule would skip the
+                // GameRulesChangedPacket broadcast so clients would never learn the
+                // rule changed. nameToGameRuleIndex validates the name first, which
+                // separates a misspelled rule from a failed command.
                 std::string const rule = toString(name);
                 if (!level->getGameRules().hasRule(level->getGameRules().nameToGameRuleIndex(rule)))
                 {
                     return false;
                 }
-                // value 会拼进控制台命令 —— 只接受 true/false 或（可带负号的）
-                // 整数，其余一律拒绝，别把调用方的任意文本送进命令解析器。
+                // value is concatenated into a console command, so only true, false
+                // or an optionally negative integer is accepted. Everything else is
+                // refused rather than feeding caller text to the command parser.
                 std::string const val = toString(value);
                 bool const isBool = (val == "true" || val == "false");
                 bool isInt = !val.empty() && val.size() <= 11;

@@ -1,10 +1,9 @@
-/** world/FarmlandDecayEvent.cpp —— 有东西踩坏了耕地。
- *
- * 原版规则是「从高处落到耕地上把它踩成泥土」。在地皮服上这是最常见的
- * 「我的地被人毁了但没有任何日志」：踩的人不需要任何权限，而结果是农田没了。
- *
- * 事件带耕地坐标和踩踏者（可能没有 —— 掉落的方块也会触发），可取消。
- */
+/** world/FarmlandDecayEvent.cpp: something trampled farmland.
+ * The vanilla rule turns farmland into dirt when something falls onto it from a height.
+ * On a plot server this is the most common form of my ground was ruined with nothing in
+ * the log: whoever trampled it needed no permission and the field is gone.
+ * The event carries the farmland coordinates and the trampler, which may be absent since
+ * a falling block also triggers it, and is cancellable. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -27,11 +26,11 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& farmDecayDef(); // 前向
+        HookEventDef& farmDecayDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             FarmTransformOnFallHook,
-            ll::memory::HookPriority::High, // 比维度规则更外层
+            ll::memory::HookPriority::High, // Outside the dimension rules
             FarmBlock,
             &FarmBlock::$transformOnFall,
             void,
@@ -86,7 +85,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[FarmlandDecayEvent] FarmBlock::$transformOnFall 的 detour 安装失败（code={}）。", r);
+                        "[hooks/FarmlandDecayEvent] the FarmBlock::$transformOnFall detour failed to install with code={}", r);
                 }
                 return r == 0;
             }

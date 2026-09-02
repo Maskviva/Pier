@@ -1,19 +1,19 @@
-//! `PierApi` —— 宿主交给模组的那张函数表，**逐格**对着 `sdk/abi.h`。
+//! `PierApi`: the function table the host hands to a mod, cell for cell against `sdk/abi.h`.
+//! Written by hand rather than generated: half the value of `abi.h` lives in the per-slot comments,
+//! and a generator carries signatures but not reasons. The cost is one failure mode, and it is the
+//! worst one. A slot is appended at the end, the mirror does not follow, every slot after it is off
+//! by one, a call to `bus_publish` lands on a different function pointer, there is no diagnostic at
+//! all, and both sides still compile. The `sys-mirrors-abi` check exists for exactly that.
+//! There is no conditional compilation anywhere. Contract §2.1: the layout is identical on every
+//! build target and an absent capability is a NULL slot. The `client_*` and `md_*` slots always
+//! occupy their places and are `None` when the matching capability package was not compiled into
+//! the host. A `#[cfg]` in the mirror is refused by the check.
+//! Each slot is an `Option<fn>`: an empty slot is the formal way to say the capability was not
+//! compiled into the host and is not an exception. It has the same layout as a raw function pointer
+//! through the null pointer optimization, so a non-null test costs no byte.
 //!
-//! 手写而不是生成：`abi.h` 的价值有一半在逐槽的注释里，生成器搬得动签名
-//! 搬不动理由。代价是它有一种失效方式，而那是最坏的一种 —— 表尾追加了一个
-//! 槽而镜像忘了跟，之后每一槽错位一格，调 `bus_publish` 打到别的函数指针上，
-//! **没有任何诊断**，两侧还都编得过。`sys-mirrors-abi` 机检就是为它存在的。
-//!
-//! **没有任何条件编译。** 契约 §2.1：布局在所有构建目标下相同，能力缺席 =
-//! 槽位 NULL。`client_*` 与 `md_*` 永远占位，对应能力包没编进宿主时为 `None`。
-//! 镜像出现 `#[cfg]` 会被机检拒绝。
-//!
-//! 每个槽是 `Option<fn>`：空槽是「这个能力没编进宿主」的**正式表示**，不是
-//! 异常。它和裸函数指针布局相同（空指针优化），所以非空检查不花一个字节。
-//!
-//! 调用之前还要查 `struct_size` —— 两道闸缺一不可，见 `pier-rs` 的
-//! `require_slot!` 与契约 §2.2。
+//! `struct_size` is checked before a call as well. Neither gate may be skipped; see `require_slot!`
+//! in `pier-rs` and contract §2.2.
 
 #![allow(clippy::type_complexity)]
 
@@ -21,7 +21,8 @@ use core::ffi::c_void;
 
 use crate::types::*;
 
-/// 宿主在装载时交给模组的函数表。指针在模组的整个生命周期内有效。
+/// The function table the host hands to a mod at load time. The pointer stays valid for
+/// the whole lifetime of the mod.
 #[repr(C)]
 pub struct PierApi {
     pub struct_size: u32,
@@ -62,7 +63,7 @@ pub struct PierApi {
     pub spawn_particle: Option<unsafe extern "C" fn(i32, PierStr, f64, f64, f64) -> bool>,
     pub get_player_position: Option<unsafe extern "C" fn(PierStr) -> PierPlayerPos>,
 
-    // ── 追加
+    // Appended.
     pub scan_region: Option<
         unsafe extern "C" fn(
             i32,
@@ -82,7 +83,7 @@ pub struct PierApi {
     pub set_block: Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr) -> bool>,
     pub get_time: Option<unsafe extern "C" fn(*mut i64) -> bool>,
 
-    // ── 追加区 —— 只追加，不重排
+    // The append area: append only, never reorder.
 
     // ── §A world read/write & clock
     pub set_time: Option<unsafe extern "C" fn(i64) -> bool>,
@@ -259,7 +260,7 @@ pub struct PierApi {
         Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
     pub actor_get_owner: Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
 
-    // ── 追加 —— API 补齐（struct_size 把关）
+    // Appended: API gap fill, gated by struct_size.
 
     // ── Player: equipment, cooldown, network (dedicated fns)
     pub actor_get_target: Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
@@ -333,14 +334,14 @@ pub struct PierApi {
     pub client_get_key_codes:
         Option<unsafe extern "C" fn(PierKeyHandle, *mut c_void, PierStrSink) -> bool>,
 
-    // ── 数据包拦截（追加，struct_size 把关）
+    // Packet interception, appended and gated by struct_size.
     pub md_is_available: Option<unsafe extern "C" fn() -> bool>,
     pub md_add_simple_dimension: Option<unsafe extern "C" fn(PierStr, u32, i32) -> i32>,
     pub md_set_dimension_rule: Option<unsafe extern "C" fn(i32, i32, bool)>,
     pub md_get_dimension_rule: Option<unsafe extern "C" fn(i32, i32, *mut bool) -> bool>,
     pub md_clear_dimension_rules: Option<unsafe extern "C" fn(i32)>,
 
-    // ── 能力组：客户端（client_*）。服务端宿主全为 NULL。
+    // Capability group: client (client_*). All NULL on a server host.
     pub md_get_dimension_id: Option<unsafe extern "C" fn(PierStr) -> i32>,
     pub md_add_plot_dimension: Option<unsafe extern "C" fn(PierStr, u32, PierStr) -> i32>,
     pub schedule_for: Option<unsafe extern "C" fn(PierModHandle, PierTaskCb, *mut c_void) -> u64>,
@@ -350,7 +351,7 @@ pub struct PierApi {
     pub schedule_pending_count: Option<unsafe extern "C" fn(PierModHandle) -> u32>,
     pub container_refresh: Option<unsafe extern "C" fn(PierContainerRef) -> bool>,
 
-    // ── 能力组：自定义维度（md_*）。pier-dimensions 没编进宿主时全为
+    // Capability group: custom dimensions (md_*). All NULL when pier-dimensions was
     pub player_send_title:
         Option<unsafe extern "C" fn(PierPlayerSel, i32, PierStr, i32, i32, i32) -> bool>,
     pub bus_subscribe:
@@ -366,7 +367,7 @@ pub struct PierApi {
     pub service_register:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierServiceCb, *mut c_void) -> u64>,
 
-    // ── 追加尾（struct_size 把关）
+    // The tail of the append area, gated by struct_size.
 
     // ── Mod-scoped scheduling
     pub service_unregister: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
@@ -412,19 +413,21 @@ pub struct PierApi {
 }
 
 impl PierApi {
-    /// 宿主的表是否长到覆盖了某个字节偏移。
+    /// Whether the host table is long enough to cover a given byte offset.
     ///
-    /// 这是前向兼容的**唯一**依据（契约 §2.2）：老宿主 + 新模组时，新模组
-    /// 够不到的那些槽根本不在宿主分配的内存里。先查长度，再查槽位非空。
+    /// This is the only basis for forward compatibility (contract §2.2): with an old host
+    /// and a new mod, the slots the new mod cannot reach are simply not in the memory the
+    /// host allocated. Length is checked first, then the slot for non-null.
     ///
-    /// 用 `offset_of!` 而不是手数字节：手数的那个数字会在下一次追加时悄悄
-    /// 变错，而错的方向恰好是「以为够长」。
+    /// `offset_of!` is used rather than counting bytes by hand, because a hand-counted
+    /// number goes quietly wrong on the next append, and it goes wrong in the direction of
+    /// believing the table is long enough.
     #[inline]
     pub fn covers(&self, offset: usize, size: usize) -> bool {
         (self.struct_size as usize) >= offset + size
     }
 
-    /// 宿主是不是按客户端目标编的。
+    /// Whether the host was built for the client target.
     #[inline]
     pub fn is_client_host(&self) -> bool {
         (self.host_flags & crate::PIER_FLAG_CLIENT) != 0

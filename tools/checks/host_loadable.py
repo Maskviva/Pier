@@ -1,30 +1,33 @@
 # -*- coding: utf-8 -*-
-"""host-loadable —— 宿主本体满足 LeviLamina 装载期的硬性要求。
+"""host-loadable: the host itself satisfies the hard requirements LeviLamina imposes at
+load time.
 
-盯的是什么：这一类要求**编译器和链接器都不检查**，只有真的把 mod 放进
-`mods/` 启服务器时才显形，而报出来的话和构建过程毫无关系。
+What it watches: neither the compiler nor the linker checks this class of requirement. It
+surfaces only when the mod is really placed in `mods/` and the server starts, and the
+message that comes out has nothing to do with the build.
 
-真事：`MemoryOperators.cpp` 从头到尾没写。98 个 TU 全编过、prelink 过、
-`pier.dll` 链好、mod 打包完成，装的时候 LeviLamina 说：
+A real case: `MemoryOperators.cpp` was never written. All 98 TUs compiled, prelink ran,
+`pier.dll` linked and the mod packaged, and at load time LeviLamina refused with a message
+saying Pier could not be loaded and would not be loaded because it does not use the
+unified memory allocation operators.
 
-    ERROR [LeviLamina] 无法加载 Pier
-    ERROR [LeviLamina] Pier 将不会被加载因为没有使用统一的内存分配操作符。
+The ledger had that row outstanding the whole time: the data was right and the delivery
+note was wrong, claiming the C++ side was complete three rounds running. So this check
+pairs with the per-area summary of `ledger-count`: one asks whether the thing is there,
+the other stops a summary from disagreeing with the ledger.
 
-它在台账里一直挂着 ⬜ —— **数据是对的，交付说明是错的**：连续三轮写
-「C++ 侧全量完成」。所以这条检查和 `ledger-count` 的分区汇总是配对的：
-一个查「东西在不在」，另一个防「总结和台账对不上」。
+## Three criteria, taken one by one from the LeviLamina template
 
-## 三条判据（对着 LeviLamina 的模板逐条来）
+1. Unified memory operators: exactly one TU defines `LL_MEMORY_OPERATORS` and includes
+   `ll/api/memory/MemoryOperators.h`. More than one redefines the global `operator new`.
+2. Mod registration: exactly one `LL_REGISTER_MOD(...)`.
+3. That TU must really reach the artifact. It has no external symbol reference, so a
+   static library drops it whole (contract §1 rule 4). Its package therefore has to be
+   `set_kind("object")` and must be in the unconditional include list of the root xmake.
 
-1. **统一内存算子** —— 恰好一个 TU 定义 `LL_MEMORY_OPERATORS` 并 include
-   `ll/api/memory/MemoryOperators.h`。多于一个是重复定义全局 `operator new`。
-2. **模组注册** —— 恰好一处 `LL_REGISTER_MOD(...)`。
-3. **那个 TU 必须真的进产物** —— 它零外部符号引用，静态库会整个丢掉它
-   （契约 §一 规则四）。所以它所在的包必须是 `set_kind("object")`，
-   而且要在根 xmake 的必编列表里。
-
-第 3 条是这条检查里最值钱的一半：前两条「文件在不在」肉眼也看得出来，
-而「它到底有没有被链进去」看不出来 —— 而症状和文件缺失**完全一样**。
+The third is the valuable half of this check: whether the files exist is visible to the
+eye, whether they were actually linked in is not, and the symptom is identical to the
+files being absent.
 """
 
 import os
@@ -48,7 +51,7 @@ def _strip(text):
 
 
 def _find(pattern):
-    """返回 [(包名, 相对路径)]，只看**代码**（剥注释）。"""
+    """Returns [(package name, relative path)], looking at code only, with comments stripped."""
     hits = []
     for dp, _, fs in os.walk(PKGS):
         for fn in sorted(fs):
@@ -65,66 +68,69 @@ def run():
     r = Result("host-loadable")
     root_xmake = _read(os.path.join(ROOT, "xmake.lua"))
 
-    # ── 1. 统一内存算子 ────────────────────────────────────────────
+    # 1. Unified memory operators
     mem = _find(r"^\s*#\s*define\s+LL_MEMORY_OPERATORS\b")
     if not mem:
-        r.fail("全仓没有任何 TU 定义 `LL_MEMORY_OPERATORS` —— LeviLamina 会拒绝装载，"
-               "报「没有使用统一的内存分配操作符」。这条错误在**构建全部成功之后**"
-               "才出现，和编译期的任何检查都无关。")
+        r.fail("no TU in the repository defines `LL_MEMORY_OPERATORS`, so LeviLamina refuses "
+               "to load and reports that the unified memory allocation operators are not "
+               "used. That error appears after the build has fully succeeded and relates to "
+               "no compile-time check at all.")
     elif len(mem) > 1:
-        r.fail("有 %d 个 TU 定义了 `LL_MEMORY_OPERATORS`：%s —— 全局 operator new "
-               "会重复定义" % (len(mem), "、".join(x[1] for x in mem)))
+        r.fail("%d TUs define `LL_MEMORY_OPERATORS`: %s. The global operator new would be "
+               "defined more than once" % (len(mem), ", ".join(x[1] for x in mem)))
     else:
         pkg, rel = mem[0]
         inc = re.search(r'#\s*include\s*"ll/api/memory/MemoryOperators\.h"',
                         _read(os.path.join(ROOT, rel)))
         if not inc:
-            r.fail("%s 定义了 LL_MEMORY_OPERATORS 但没 include "
-                   "`ll/api/memory/MemoryOperators.h` —— 那个宏只是开关，"
-                   "算子的定义在那个头里" % rel)
+            r.fail("%s defines LL_MEMORY_OPERATORS without including "
+                   "`ll/api/memory/MemoryOperators.h`. The macro is only a switch and the "
+                   "operators are defined in that header" % rel)
         else:
-            r.note("统一内存算子：%s" % rel)
-        _require_linked_in(r, pkg, rel, root_xmake, "统一内存算子")
+            r.note("unified memory operators: %s" % rel)
+        _require_linked_in(r, pkg, rel, root_xmake, "the unified memory operators")
 
-    # ── 2. 模组注册 ────────────────────────────────────────────────
+    # 2. Mod registration
     reg = _find(r"\bLL_REGISTER_MOD\s*\(")
     if not reg:
-        r.fail("全仓没有 `LL_REGISTER_MOD(...)` —— LeviLamina 找不到模组入口")
+        r.fail("the repository has no `LL_REGISTER_MOD(...)`, so LeviLamina finds no mod entry point")
     elif len(reg) > 1:
-        r.fail("有 %d 处 `LL_REGISTER_MOD`：%s —— 一个 mod 只能注册一次"
-               % (len(reg), "、".join(x[1] for x in reg)))
+        r.fail("`LL_REGISTER_MOD` appears %d times: %s. A mod registers exactly once"
+               % (len(reg), ", ".join(x[1] for x in reg)))
     else:
         pkg, rel = reg[0]
-        r.note("模组注册：%s" % rel)
-        _require_linked_in(r, pkg, rel, root_xmake, "模组注册")
+        r.note("mod registration: %s" % rel)
+        _require_linked_in(r, pkg, rel, root_xmake, "the mod registration")
 
     return r
 
 
 def _require_linked_in(r, pkg, rel, root_xmake, what):
-    """这个 TU 必须真的进最终产物。
+    """This TU must really reach the final artifact.
 
-    它零外部符号引用 —— 没有任何人调用它里面的东西。静态库会把这种 obj
-    整个丢掉，而丢掉之后的症状和「文件根本不存在」**完全一样**。
+    It has no external symbol reference, since nothing calls anything inside it. A static
+    library drops such an object whole, and the symptom afterwards is identical to the file
+    not existing at all.
     """
     xm = os.path.join(PKGS, pkg, "xmake.lua")
     if not os.path.exists(xm):
-        r.fail("%s 所在的包 %s 没有 xmake.lua" % (rel, pkg))
+        r.fail("%s sits in package %s, which has no xmake.lua" % (rel, pkg))
         return
     text = _read(xm)
     m = re.search(r'set_kind\("([^"]+)"\)', text)
-    kind = m.group(1) if m else "(未声明)"
+    kind = m.group(1) if m else "(not declared)"
     if kind != "object":
-        r.fail("%s（%s）在 %s 包里，而它是 set_kind(%r) —— 这个 TU 零外部符号"
-               "引用，静态库会把它整个丢掉，症状和文件不存在一模一样"
+        r.fail("%s (%s) sits in package %s, which is set_kind(%r). This TU has no external "
+               "symbol reference, a static library drops it whole, and the symptom is identical "
+               "to the file not existing"
                % (rel, what, pkg, kind))
     if 'includes("packages/%s")' % pkg not in root_xmake:
-        r.fail("根 xmake 没有 includes(\"packages/%s\") —— %s 不会被编译" % (pkg, what))
-    # 必编：不能被包在任何 if 里
+        r.fail("the root xmake has no includes(\"packages/%s\"), so %s is never compiled" % (pkg, what))
+    # Unconditional: it must not be wrapped in any if
     for line in root_xmake.splitlines():
         if 'includes("packages/%s")' % pkg in line and line.startswith(" "):
-            r.fail("根 xmake 里 includes(\"packages/%s\") 是**有条件**的 —— "
-                   "%s 在某些配置下会缺席，而那时 LeviLamina 会拒绝装载" % (pkg, what))
+            r.fail("includes(\"packages/%s\") in the root xmake is conditional, so %s is absent "
+                   "under some configurations and LeviLamina refuses to load then" % (pkg, what))
 
 
 if __name__ == "__main__":

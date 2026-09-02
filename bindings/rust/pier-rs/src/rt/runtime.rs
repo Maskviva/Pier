@@ -1,16 +1,15 @@
-//! 进程内唯一的运行时状态，以及**两道闸**的实现。
+//! The single runtime state in the process, and the implementation of the two gates.
 //!
-//! ```text
-//!   闸一：表够不够长      struct_size >= offset + size_of::<fn ptr>()
-//!   闸二：这个槽非不非空  api.field.is_some()
-//! ```
+//! ```text Gate one, is the table long enough: struct_size >= offset + size_of::<fn ptr>() Gate
+//! two, is this slot non-null:      api.field.is_some() ```
 //!
-//! 缺一不可，**顺序不能反**。只查非空的话，宿主比模组老、表短到够不着这个
-//! 字段时，读 `api.field` 是**越界读** —— 读到什么看运气，而运气好的时候它
-//! 看起来像个合法函数指针。只查长度的话，表够长但能力包没编进宿主时
-//! （`pier-dimensions` 缺席则 `md_*` 全为 NULL）会调一个空指针。
+//! Neither may be skipped and the order cannot be reversed. Checking only for non-null, with a host
+//! older than the mod and a table too short to reach the field, makes reading `api.field` an out-
+//! of-bounds read whose result is luck, and on a lucky day it looks like a valid function pointer.
+//! Checking only the length calls a null pointer when the table is long enough while the capability
+//! package was not built into the host, as with `md_*` all NULL without `pier-dimensions`.
 //!
-//! `require_slot!` 把两道闸包在一起，见契约 §2.2。
+//! `require_slot!` wraps both gates together; see contract §2.2.
 
 use std::sync::atomic::{AtomicPtr, Ordering};
 
@@ -20,16 +19,18 @@ use crate::sys;
 pub(crate) struct Runtime {
     pub(crate) api: &'static sys::PierApi,
     handle: Handle,
-    /// 宿主自报的表长度。前向兼容的全部依据（契约 §2.2）。
+    /// The table length the host reports. The whole basis of forward compatibility
+    /// (contract §2.2).
     pub(crate) host_struct_size: usize,
 }
 
-/// V-43：以前是 `OnceLock`——只能设一次。`/pier reload` 不卸映像、重跑
-/// `pier_main`，第二次 `set` 必然失败，于是 pier-rs 模组根本不能 reload，
-/// 而且失败时 SDK 一行日志都打不出来。现在允许覆盖：每次 `pier_main` 都拿
-/// 到新的 `PierModHandle`（旧 HostedMod 已析构，旧句柄悬空），必须换掉。
-/// 旧的 `Runtime` 刻意泄漏（每次 reload 几十字节）：仍在跑的回调可能还持有
-/// 指向它的 `&'static`，释放才是真正的 use-after-free。
+/// A `OnceLock` can be set once only. `/pier reload` does not unload the image and runs
+/// `pier_main` again, so a second `set` necessarily fails, a pier-rs mod cannot reload at
+/// all, and the SDK prints not one log line on failure. Overwriting is therefore allowed:
+/// every `pier_main` receives a new `PierModHandle`, since the old HostedMod is destroyed
+/// and the old handle dangles, and it has to be replaced.
+/// The old `Runtime` is leaked on purpose, a few dozen bytes per reload: a callback still
+/// running may hold a `&'static` into it, and freeing it is the real use-after-free.
 static RUNTIME: AtomicPtr<Runtime> = AtomicPtr::new(core::ptr::null_mut());
 
 pub(crate) fn set_runtime(api: &'static sys::PierApi, handle: sys::PierModHandle) -> bool {
@@ -43,10 +44,10 @@ pub(crate) fn set_runtime(api: &'static sys::PierApi, handle: sys::PierModHandle
     true
 }
 
-/// 闸一：宿主的表覆盖到这个偏移了吗。
+/// Gate one: does the host table reach this offset?
 ///
-/// `size` 固定按函数指针算 —— `PierApi` 里除了开头四个 `u32` 之外全是函数
-/// 指针，而那四个在任何宿主上都存在。
+/// `size` is always computed as a function pointer: apart from the four leading `u32`,
+/// everything in `PierApi` is a function pointer, and those four exist on every host.
 #[inline]
 pub fn has_slot(offset: usize) -> bool {
     rt().host_struct_size >= offset + core::mem::size_of::<usize>()
@@ -58,13 +59,14 @@ impl Runtime {
     }
 }
 
-/// 宿主的函数表。`require_slot!` / `has_slot!` 展开后要用，所以是 pub。
+/// The host function table. `require_slot!` and `has_slot!` use it after expansion, so it
+/// is public.
 #[inline]
 pub fn api() -> &'static sys::PierApi {
     rt().api
 }
 
-/// 诊断用：宿主的 ABI 版本与表长度。
+/// For diagnostics: the ABI version and table length of the host.
 #[inline]
 pub fn host_abi() -> (u32, usize) {
     let r = rt();
@@ -74,13 +76,14 @@ pub fn host_abi() -> (u32, usize) {
 pub(crate) fn rt() -> &'static Runtime {
     let p = RUNTIME.load(Ordering::Acquire);
     if p.is_null() {
-        panic!("Pier 运行时尚未初始化 —— 是不是漏了 register_mod!？");
+        panic!("the Pier runtime is not initialized yet; is register_mod! missing?");
     }
-    // SAFETY：指针来自 Box::into_raw 且永不释放（见 RUNTIME 的注释）。
+    // SAFETY: the pointer comes from Box::into_raw and is never freed; see the comment on
+    // RUNTIME.
     unsafe { &*p }
 }
 
-/// 一个已排期任务的票据。
+/// The ticket of a scheduled task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TaskId(pub(crate) u64);
 
@@ -96,14 +99,15 @@ impl TaskId {
     }
 }
 
-/// 两道闸，缺任何一道就返回一个说得清缺什么的 `Err`。
+/// Both gates. Missing either returns an `Err` that says what is missing.
 ///
-/// 用法：函数体开头 `require_slot!(md_add_plot_dimension, "创建地皮维度");`
+/// Usage: at the top of a function body,
+/// `require_slot!(md_add_plot_dimension, "creating a plot dimension");`
 ///
-/// 报错文案里**不出现任何历史产品名**（契约 §七）。v0 那条是
-/// "…Update levilamina-rust-loader"，而那个名字的模组已经不存在了 ——
-/// 照它去更新的人会找不到东西，这正是 §5.3「日志要能回答我该做什么」
-/// 反对的形状。
+/// The message carries no historical product name (contract §7). An earlier one read
+/// "...Update levilamina-rust-loader" while no mod of that name exists any more, so anyone
+/// following it finds nothing, which is exactly the shape §5.3 opposes when it says a log
+/// line has to answer what to do about it.
 #[macro_export]
 macro_rules! require_slot {
     ($field:ident, $what:expr) => {{
@@ -111,8 +115,8 @@ macro_rules! require_slot {
         if !$crate::__rt::has_slot(__off) {
             let (__ver, __len) = $crate::__rt::host_abi();
             return Err($crate::Error(format!(
-                "{} 需要宿主提供 `{}`，而这个 pier 宿主的函数表里还没有这个槽\
-                 （宿主 ABI v{}，表长 {} 字节）。请升级 pier。",
+                "{} needs the host to provide `{}`, and the function table of this pier host does not \
+                 have that slot yet (host ABI v{}, table length {} bytes). Upgrade pier.",
                 $what,
                 stringify!($field),
                 __ver,
@@ -123,8 +127,8 @@ macro_rules! require_slot {
             Some(f) => f,
             None => {
                 return Err($crate::Error(format!(
-                    "{} 需要宿主提供 `{}`，槽位存在但是空的 —— 说明对应的能力包\
-                     没有编进这个 pier 宿主。",
+                    "{} needs the host to provide `{}`. The slot exists and is empty, which means the \
+                     matching capability package was not built into this pier host.",
                     $what,
                     stringify!($field)
                 )))
@@ -133,9 +137,10 @@ macro_rules! require_slot {
     }};
 }
 
-/// 只问「有没有」，不返回 Err。用在「有就用、没有就降级」的地方。
+/// Only asks whether it exists and returns no `Err`. For code that uses it when present
+/// and degrades otherwise.
 ///
-/// 同样是两道闸：够长**且**非空才算有。
+/// Both gates again: long enough and non-null counts as present.
 #[macro_export]
 macro_rules! has_slot {
     ($field:ident) => {

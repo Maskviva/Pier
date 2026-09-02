@@ -1,13 +1,17 @@
 #pragma once
-// 每个 `api_*` 入口都是别的语言一条 `extern "C"` 帧的下面一层。
-// C++ 异常穿过语言边界是 UB（实际表现是无日志 abort）。
-// 用法：函数体首行 PIER_API_GUARD_BEGIN，末行按返回值选一个 END。
+// Every `api_*` entry point sits one frame below an `extern "C"` frame of another
+// language. A C++ exception crossing that boundary is undefined behavior, and in
+// practice aborts the process without a log line.
+// Usage: PIER_API_GUARD_BEGIN on the first line of the body, one of the END forms
+// on the last, chosen by return type.
 //
-// `return {};` 对 bool / 整数 / 指针 / 句柄 / 按值结构体都是「零值」——
-// 恰好是绝大多数入口的失败值。失败值不是零的入口必须用 _VAL：
-// PIER_SERVICE_OK / PIER_LANE_OK 都是 0，对它们 `return {}` 等于把异常
-// 报成「调用成功」，那正是这道屏障要防的反面；同理 -1 / -1.0 是
-// cooldown、chunk、tick-delta 这几族约定的失败值。
+// `return {};` yields the zero value for bool, integers, pointers, handles and
+// by-value structs, which is the failure value of almost every entry point. An
+// entry point whose failure value is not zero must use _VAL. PIER_SERVICE_OK and
+// PIER_LANE_OK are both 0, so `return {}` there reports an exception as a
+// successful call, which is exactly what this barrier exists to prevent. The same
+// holds for -1 and -1.0, the agreed failure values of the cooldown, chunk and
+// tick-delta families.
 #include "ll/api/utils/ErrorUtils.h"
 
 #include "pier/support/log.h"

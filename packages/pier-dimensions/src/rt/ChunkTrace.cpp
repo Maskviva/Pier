@@ -1,19 +1,17 @@
 /**
- * ChunkTrace.cpp —— 区块流水线的排查用追踪器。
- *
- * 默认一个 detour 都不装（开关见 chunk_trace.h）。它存在的理由是「服务端一路
- * Loaded、客户端一片空白」光看现象分不出根因，而每一对 hook 对应一个岔路口。
- *
- * 追踪器本身会成为观测对象的一部分：tryChangeState 的失败分支默认不打，因为一次
- * 17 秒的进服里它贡献了 24186 行 ERROR 并让所有日志源静默 13 秒，测出来的「区块加
- * 载停在原点附近」是观测效应而不是被观测的现象。那些行本来也不是错误，区块源会挨
- * 个探测整条状态机，返回 false 只意味着当前不在这个状态。设
- * PIER_TRACE_CHUNK_FAIL=1 打开。
- *
- * 在这套头文件里挑挂载点先看平台宏：被 LL_PLAT_C 包着的是客户端侧查询，符号在
- * bedrock_server.exe 的导出表里所以能编能链，但服务端路径根本不调用，hook 装上去
- * 永远不触发。服务端能用的是没有平台宏、或只被 LL_PLAT_S 包着的那些。
- */
+ * ChunkTrace.cpp: a diagnostic tracer for the chunk pipeline. No detour is installed by default;
+ * the switches are in chunk_trace.h. It exists because "the server reaches Loaded and the client
+ * shows nothing" cannot be told apart from the symptom alone, and each pair of hooks marks one fork
+ * in the road. The tracer becomes part of what it observes, so the failure branch of tryChangeState
+ * is off by default: in one 17-second join it contributed 24186 ERROR lines and silenced every log
+ * source for 13 seconds, and the resulting "chunk loading stalls near the origin" was an observer
+ * effect rather than the phenomenon. Those lines are not errors either, since a chunk source probes
+ * the whole state machine and false only means it is not currently in that state.
+ * PIER_TRACE_CHUNK_FAIL=1 turns them on. Picking a hook point in these headers starts with the
+ * platform macro. Anything wrapped in LL_PLAT_C is a client-side query whose symbol is in the
+ * export table of bedrock_server.exe, so it compiles and links while the server path never calls it
+ * and the hook never fires. What works on the server is what carries no platform macro, or only
+ * LL_PLAT_S. / */
 #include "pier/dimensions/dim/chunk_trace.h"
 
 #include <atomic>
@@ -49,7 +47,7 @@ namespace pier::dimensions
     {
         using ::pier::hostLogger;
 
-        /** 读一个「等于 1 就算开」的环境变量，只读一次。 */
+        /** Reads an environment variable where the value 1 means on. Read once. */
         bool envFlag(char const* name)
         {
             auto const* v = std::getenv(name);
@@ -86,23 +84,25 @@ namespace pier::dimensions
         }
 
         /**
-         * 从 LevelChunk 取维度 id。
+         * Reads the dimension id from a LevelChunk.
          *
-         * 用 `mDimension` 成员而不是 `getDimension()` —— 后者在 26.20 的 SDK 里
-         * 标了 MCFOLD（被链接器折叠过），拿它的地址不可靠。`getDimensionId()`
-         * 是虚函数，正常虚调用，没问题。
+         * The `mDimension` member is used rather than `getDimension()`, which the 26.20
+         * SDK marks MCFOLD, meaning the linker folded it, so taking its address is
+         * unreliable. `getDimensionId()` is virtual and an ordinary virtual call is fine.
          *
-         * -999 是「问不出来」的哨兵，不是某个维度：它落不进任何过滤条件，
-         * 所以这一行会被安静地跳过 —— 对一个排查工具来说这是对的，追踪器不该
-         * 因为读不到一个字段就改变被观测程序的行为。
+         * -999 is the sentinel for cannot-be-determined and is not a dimension. It
+         * matches no filter, so the line is skipped silently, which is right for a
+         * diagnostic tool: a tracer must not change the behavior of the program it
+         * observes because one field could not be read.
          */
         int dimIdOf(LevelChunk const& lc)
         {
             try
             {
-                // 隐式转换成 Dimension&，和 PlotDimension 里 `auto& level = mLevel;`
-                // 的用法一致；TypedStorage 装引用时不保证有 operator->。
-                // 完整规则见 `tools/typed-storage.py` 的文件头。
+                // Converted implicitly to Dimension&, the same form
+                // `auto& level = mLevel;` uses in PlotDimension. TypedStorage does not
+                // guarantee operator-> when it holds a reference. The full rules are in
+                // the file header of `tools/typed-storage.py`.
                 Dimension& dim = lc.mDimension;
                 return dim.getDimensionId().value();
             }
@@ -112,7 +112,8 @@ namespace pier::dimensions
             }
         }
 
-        /** 只是为了在日志里能看出「总共动了多少块」，排查时很有用。 */
+        /** Only so the log shows how many chunks moved in total, which helps while
+         *  diagnosing. */
         std::atomic<uint64_t> gTransitions{0};
         std::atomic<uint64_t> gCreated{0};
         std::atomic<uint64_t> gLoaded{0};
@@ -122,7 +123,7 @@ namespace pier::dimensions
         std::atomic<uint64_t> gSubChunkPkts{0};
     } // namespace
 
-    //  开关（PlotGenerator 也用这一份）
+    //  The switches. PlotGenerator reads this same copy.
 
     bool chunkTraceEnabled()
     {
@@ -142,10 +143,11 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 写了个不是数字的值：退回默认过滤并说清楚，否则「我明明设了
-                // 只看 dim 5」会变成「日志里全是别的维度」而看不出为什么。
+                // A non-numeric value falls back to the default filter and says so,
+                // otherwise setting the filter to dim 5 and seeing every other dimension
+                // in the log gives no clue why.
                 hostLogger().warn(
-                    "PIER_TRACE_CHUNK_DIM='{}' 不是整数，按默认（仅自定义维度 >=3）处理", v
+                    "[chunk] PIER_TRACE_CHUNK_DIM='{}' is not an integer, using the default of custom dimensions only, id 3 and above", v
                 );
                 return -2;
             }
@@ -169,18 +171,20 @@ namespace pier::dimensions
 
     namespace
     {
-        // 文件内的短别名，省得每行都写全名。
+        // A short alias inside this file, so the full name is not repeated per line.
         bool wanted(int dimId) { return chunkTraceWanted(dimId); }
         std::string dimLabel(int dimId) { return chunkTraceDimLabel(dimId); }
     } // namespace
 
     /*
-     * 区块被创建 —— 也就是「有人请求了这个坐标」。
+     * A chunk was created, meaning someone requested that coordinate.
      *
-     * 这是判断故障在请求侧还是生成侧的分水岭：
-     *   远处坐标没有这行  -> 根本没人要，问题在 ChunkViewSource / 玩家半径 /
-     *                            view-distance，跟生成器无关
-     *   有这行但后面卡住      -> 请求到了，卡在状态机里，往下看状态跃迁
+     * This is the watershed between a request-side and a generation-side fault:
+     *   no line for a distant coordinate -> nobody asked for it, and the fault is in
+     *                                       ChunkViewSource, the player radius or the
+     *                                       view distance, not the generator
+     *   a line but nothing after it      -> the request arrived and is stuck in the
+     *                                       state machine, so read the transitions below
      */
     LL_TYPE_INSTANCE_HOOK(
         LevelChunkCtorTraceHook,
@@ -203,7 +207,7 @@ namespace pier::dimensions
         {
             auto const n = gCreated.fetch_add(1) + 1;
             hostLogger().info(
-                "[create] dim={} chunk=({}, {}) readOnly={} 累计={}",
+                "[create] dim={} chunk=({}, {}) readOnly={} total={}",
                 dimLabel(dimId), cp.x, cp.z, readOnly ? 1 : 0, n
             );
         }
@@ -211,13 +215,14 @@ namespace pier::dimensions
     }
 
     /*
-     * 每一次状态跃迁。正常一块地会走完：
+     * Every state transition. A healthy chunk runs the whole way:
      *
      *   Unloaded -> Generating -> Generated -> StructurePostProcessing ->
      *   StructurePostProcessed -> DecorationPostProcessing ->
      *   DecorationPostProcessed -> ... -> Loaded
      *
-     * 客户端只会收到走到最后的那些。停在哪一步，这里就看得见。
+     * The client only receives the ones that reach the end. Where a chunk stops is
+     * visible here.
      */
     LL_TYPE_INSTANCE_HOOK(
         LevelChunkChangeStateTraceHook,
@@ -237,13 +242,13 @@ namespace pier::dimensions
             auto const n = gTransitions.fetch_add(1) + 1;
             if (to == ChunkState::Loaded) gLoaded.fetch_add(1);
             hostLogger().info(
-                "[state ] dim={} chunk=({}, {}) {} -> {}（当前 {}）累计={}",
+                "[state ] dim={} chunk=({}, {}) {} -> {} (currently {}) total={}",
                 dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to), stateName(cur), n
             );
             if (cur != from)
             {
                 hostLogger().warn(
-                    "[state!] dim={} chunk=({}, {}) 期望从 {} 跃迁，实际当前是 {} —— 这次跃迁会丢",
+                    "[state!] dim={} chunk=({}, {}) expected to transition from {} but is currently {}, so this transition is lost",
                     dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(cur)
                 );
             }
@@ -270,15 +275,16 @@ namespace pier::dimensions
             if (ok)
             {
                 hostLogger().info(
-                    "[try   ] dim={} chunk=({}, {}) {} -> {} 成功",
+                    "[try   ] dim={} chunk=({}, {}) {} -> {} succeeded",
                     dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to)
                 );
             }
             else if (traceFailures())
             {
-                // 注意级别是 debug 不是 error：探测失败是状态机的正常返回。
+                // Debug level and not error: a failed probe is a normal return of the
+                // state machine.
                 hostLogger().debug(
-                    "[try  -] dim={} chunk=({}, {}) {} -> {} 未跃迁（当前状态是 {}）",
+                    "[try  -] dim={} chunk=({}, {}) {} -> {} did not transition, current state is {}",
                     dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to), stateName(cur)
                 );
             }
@@ -287,15 +293,18 @@ namespace pier::dimensions
     }
 
     /*
-     * 发送侧：Loaded 之后到底有没有出门。
+     * The send side: whether anything actually left after Loaded.
      *
-     * Loaded 只代表服务端这块地准备好了，不代表它被塞进过 LevelChunkPacket。两者
-     * 之间还隔着 NetworkChunkPublisher：它按玩家位置维护一个发送区域，每 tick 从队
-     * 列里挑几块序列化发出去。
+     * Loaded only means the server has that chunk ready, not that it was ever put into a
+     * LevelChunkPacket. Between the two sits NetworkChunkPublisher, which maintains a
+     * send region around the player position and serializes a few chunks off the queue
+     * each tick.
      *
-     * 所以有 [send ] 行就说明包发出去了，问题在客户端（维度定义、高度范围、子区块
-     * 请求）；没有 [send ] 行说明根本没往外发，问题在 publisher（区域中心或半径、
-     * 维度 id 对不上、玩家没被认成在这个维度里）。
+     * So a [send ] line means the packet went out and the fault is on the client side,
+     * in the dimension definition, the height range or the subchunk requests. No
+     * [send ] line means nothing was sent at all and the fault is in the publisher, in
+     * the region center or radius, a mismatched dimension id, or the player not being
+     * recognized as inside this dimension.
      */
     LL_TYPE_INSTANCE_HOOK(
         NetworkChunkPublisherSendTraceHook,
@@ -317,17 +326,18 @@ namespace pier::dimensions
             {
                 auto const n = gSendOk.fetch_add(1) + 1;
                 hostLogger().info(
-                    "[send  ] dim={} chunk=({}, {}) 已发往客户端 累计={}", dimLabel(dimId), cp.x, cp.z, n
+                    "[send  ] dim={} chunk=({}, {}) sent to the client, total={}", dimLabel(dimId), cp.x, cp.z, n
                 );
             }
             else
             {
-                // 返回 false 通常是「这块还没准备好，下个 tick 再来」，单次不是
-                // 错误；但如果某一块反复出现在这里而始终等不到上面那行，
-                // 它就是发不出去。
+                // A false usually means the chunk is not ready yet and the next tick
+                // will retry, so one occurrence is not an error. A chunk appearing here
+                // repeatedly without ever reaching the line above is one that cannot be
+                // sent.
                 auto const n = gSendFail.fetch_add(1) + 1;
                 hostLogger().info(
-                    "[send -] dim={} chunk=({}, {}) 本次没发出（排队中）累计={}",
+                    "[send -] dim={} chunk=({}, {}) not sent this time, still queued, total={}",
                     dimLabel(dimId), cp.x, cp.z, n
                 );
             }
@@ -336,8 +346,9 @@ namespace pier::dimensions
     }
 
     /*
-     * 发送区域本身。中心点和半径决定了 publisher 愿意发哪些块 ——
-     * 半径异常小、或者中心点跟玩家实际位置对不上，都会表现成「远处永远不出现」。
+     * The send region itself. The center and the radius decide which chunks the
+     * publisher is willing to send, and an unexpectedly small radius or a center that
+     * does not match the player position both show up as distant chunks never appearing.
      */
     LL_TYPE_INSTANCE_HOOK(
         NetworkChunkPublisherMoveRegionTraceHook,
@@ -351,29 +362,29 @@ namespace pier::dimensions
         float minDistance
     )
     {
-        // 不用 getChunksSentSinceStart()：那个方法在头文件里被 LL_PLAT_S 包着，
-        // 本工程从不定义这个宏，引用它会不会编译得过取决于构建配置。自己数更稳。
+        // getChunksSentSinceStart() is not used: the header wraps it in LL_PLAT_S, this
+        // project never defines that macro, and whether referencing it compiles depends
+        // on the build configuration. Counting here is steadier.
         hostLogger().info(
-            "[region] 发送区域中心=({}, {}, {}) 半径={}格(≈{}区块) 本次会话已发出={}",
+            "[region] send region center=({}, {}, {}) radius={} blocks (about {} chunks) sent this session={}",
             position.x, position.y, position.z, blockRadius, blockRadius / 16, gSendOk.load()
         );
         origin(position, blockRadius, direction, minDistance);
     }
 
-    /*
-     *  客户端到底被告知了什么
-     *
-     * DimensionDataPacket 是客户端认识自定义维度的唯一渠道：它把整个
-     * DimensionDefinitionGroup 序列化过去，客户端由此知道有哪些维度、各自多高、
-     * 用哪种生成器、维度 id 是多少。缺了它，或者里面的数值不对，客户端收到这个
-     * 维度的区块就只能丢掉 —— 服务端这边一切正常，玩家看到一片空白。
-     *
-     * 要重点核对的：
-     *   - 自定义维度在不在列表里（不在 = 根本没告诉客户端）
-     *   - id 对不对，有没有 -1（-1 = 回写那步没生效）
-     *   - 高度是不是和 dimension_height.h 以及 Dimension 构造时传的那一份完全
-     *     一致（对不上 = 客户端按错误的高度分配缓冲，子区块全部错位）
-     */
+    /*  What the client was actually told
+     * DimensionDataPacket is the only channel through which a client learns about a
+     * custom dimension. It serializes the whole DimensionDefinitionGroup, and from it the
+     * client learns which dimensions exist, how tall each is, which generator it uses and
+     * what its dimension id is. Without it, or with wrong values inside it, the client
+     * can only drop the chunks of that dimension: everything is fine on the server and
+     * the player sees nothing. What to check here:
+     *   - whether the custom dimension is in the list at all; absent means the client
+     *     was never told
+     *   - whether the id is right and not -1; -1 means the write-back step had no effect
+     *   - whether the height matches dimension_height.h and the pair passed to the
+     *     Dimension constructor exactly; a mismatch means the client allocates its
+     *     buffer at the wrong height and every subchunk is off */
     LL_TYPE_INSTANCE_HOOK(
         DimensionDataPacketWriteTraceHook,
         HookPriority::Normal,
@@ -386,14 +397,15 @@ namespace pier::dimensions
         try
         {
             auto const& defs = *mDimensionDefinitionGroup->mDimensionDefinitions;
-            hostLogger().info("[dimdata] 正在向客户端发送维度定义表，共 {} 条：", defs.size());
+            hostLogger().info("[dimdata] sending the dimension definition table to the client, {} entries:", defs.size());
             for (auto const& entry : defs)
             {
-                // 注意标量成员（int / 枚举）直接用，没有 .get()：ll::TypedStorage
-                // 只有装类类型时才是个带 .get()/operator-> 的包装，装标量时它就是
-                // 那个标量本身。mDimensionType 是 struct 所以保持 ->。
+                // A scalar member, an int or an enum, is used directly with no .get().
+                // ll::TypedStorage is a wrapper carrying .get() and operator-> only when
+                // it holds a class type; holding a scalar it is that scalar itself.
+                // mDimensionType is a struct, so -> stays.
                 hostLogger().info(
-                    "[dimdata]   '{}' id={} 高度={}..{} 生成器={}",
+                    "[dimdata]   '{}' id={} height={}..{} generator={}",
                     entry.first,
                     entry.second.mDimensionType->value(),
                     entry.second.mHeightMinimum,
@@ -404,31 +416,32 @@ namespace pier::dimensions
             if (defs.empty())
             {
                 hostLogger().error(
-                    "[dimdata] 定义表是空的 —— 客户端不会知道任何自定义维度，"
-                    "这些维度的区块发过去也会被丢掉"
+                    "[dimdata] the definition table is empty, so the client learns of no "
+                    "custom dimension and the chunks of those dimensions are dropped on "
+                    "arrival"
                 );
             }
         }
         catch (...)
         {
-            hostLogger().warn("[dimdata] 读取维度定义表失败（不影响发包本身）");
+            hostLogger().warn("[dimdata] reading the dimension definition table failed; the packet itself is unaffected");
         }
         origin(stream);
     }
 
     /*
-     * 客户端到底要的是哪些子区块。
+     * Which subchunks the client is actually asking for.
+     * Two observed data sets: on dim=0, the control that renders correctly, the client requests
+     * indices -4..19 and every one succeeds, 2 to 4 per packet. On dim=1000 it requests -24..-32,
+     * every one out of range, always 27 per packet. That dimension really has terrain at -4..4, and
+     * the difference to -24..-32 is a constant 28, which means one side treats the bottom of the
+     * dimension as subchunk -28, y = -448, instead of -4, y = -64.
      *
-     * 观测到两组数据：dim=0（正常显示的对照组）客户端请求索引 -4..19 全部成功，每
-     * 包只要 2~4 个；dim=1000 请求 -24..-32 全部越界，每包一律 27 个。那个维度真正
-     * 有地形的是 -4..4，与 -24..-32 差 28，是固定偏移，说明有一侧把维度底部当成了子
-     * 区块 -28（y = -448）而不是 -4（y = -64）。
-     *
-     * 光看回包分不清是谁错的，而两种情况要修的地方完全不同。
-     * SubChunkRequestPacket 里有 mArePositionsAbsolute：位置可以是绝对的，也可以是
-     * 相对 mCenterPos 的偏移，而且绝对值和偏移是 mSubChunkPos / mSubChunkPosOffsets
-     * 两个不同数组。两个维度在这个标志上不一样的话，那就是答案。每维度只打前 6 个。
-     */
+     * The reply alone does not say which side is wrong, and the two cases need entirely different
+     * fixes. SubChunkRequestPacket carries mArePositionsAbsolute: a position may be absolute or an
+     * offset from mCenterPos, and the absolute values and the offsets live in two different arrays,
+     * mSubChunkPos and mSubChunkPosOffsets. If the two dimensions differ on that flag, that is the
+     * answer. Only the first 6 are printed per dimension. / */
     LL_TYPE_INSTANCE_HOOK(
         SubChunkRequestReadTraceHook,
         HookPriority::Normal,
@@ -460,8 +473,8 @@ namespace pier::dimensions
             for (auto const& o : offList) offY += std::to_string(static_cast<int>(o.mY)) + " ";
 
             hostLogger().info(
-                "[req] dim={} 绝对坐标={} 中心=({}, {}, {}) 请求数={} "
-                "绝对表{}项(y: {}) 偏移表{}项(y: {})",
+                "[req] dim={} absolute={} center=({}, {}, {}) requests={} "
+                "absolute table {} entries (y: {}) offset table {} entries (y: {})",
                 dimLabel(dimId),
                 mArePositionsAbsolute ? 1 : 0,
                 centre.x, centre.y, centre.z,
@@ -472,22 +485,26 @@ namespace pier::dimensions
         }
         catch (...)
         {
-            // 追踪器读不出包内容就少打一行，绝不影响被观测的流程 ——
-            // origin 已经在上面跑过了，这里之后只有一个 return。
+            // A tracer that cannot read the packet contents prints one line fewer and
+            // never affects the observed flow: origin already ran above and only a return
+            // follows here.
         }
         return result;
     }
 
     /*
-     * 越界到底是拿什么判的。
+     * What the out-of-range decision is actually made against.
      *
-     * 子区块回包 100% 是 IndexOutOfBounds，而维度自己的 mHeightRange 和发给客户端
-     * 的定义完全一致，那么越界就不是两份高度对不上，而是送进来判断的那个索引本身和
-     * 维度的编号基准对不上。典型形态：客户端按 (y - minY) / 16 算得 0..23，服务端
-     * 期望绝对子区块索引 -4..19，两边都没错但差了 4。
+     * When every subchunk reply is IndexOutOfBounds while the dimension's own
+     * mHeightRange matches the definition sent to the client exactly, the fault is not
+     * two disagreeing heights but the index being judged disagreeing with the numbering
+     * base of the dimension. The typical shape: the client computes (y - minY) / 16 and
+     * gets 0..23 while the server expects absolute subchunk indices -4..19. Neither is
+     * wrong on its own and they differ by 4.
      *
-     * 这里把做判断的那一刻打出来：送进来的索引、维度的范围、判成什么。这个函数每个
-     * 子区块请求都会调，一次进服上万次，所以同样的 (维度, 索引, 结果) 只打一次。
+     * This prints the moment the decision is made: the index that came in, the range of
+     * the dimension, and the verdict. The function runs on every subchunk request, tens
+     * of thousands of times per join, so the same (dimension, index, result) prints once.
      */
     LL_TYPE_INSTANCE_HOOK(
         DimensionSubChunkRangeTraceHook,
@@ -510,11 +527,11 @@ namespace pier::dimensions
             }
             auto const& range = mHeightRange.get();
             hostLogger().info(
-                "[range] dim={} 判定子区块索引 {} -> {}；维度范围 {}..{}（{} 个子区块，"
-                "最低 {}），客户端侧生成={}",
+                "[range] dim={} judged subchunk index {} as {}; dimension range {}..{} "
+                "({} subchunks, lowest {}), client-side generation={}",
                 dimLabel(dimId),
                 static_cast<int>(subChunkHeight),
-                ok ? "在范围内" : "越界",
+                ok ? "in range" : "out of range",
                 static_cast<int>(range.mMin),
                 static_cast<int>(range.mMax),
                 getHeightInSubchunks(),
@@ -524,21 +541,24 @@ namespace pier::dimensions
         }
         catch (...)
         {
-            // 同上：少打一行，不改变判定结果（ok 早已由 origin 算出）。
+            // As above: one line fewer and no change to the verdict, which origin
+            // already computed into ok.
         }
         return ok;
     }
 
     /*
-     *  第 1 步的包里到底装了什么
+     *  What the step-one packet actually carries
      *
-     *   mSubChunksCount = 0 且 mClientNeedsToRequestSubchunks = 1
-     *       -> 这是「空壳包」，方块数据要等客户端来请求，是第 2 步的活
-     *   mSubChunksCount > 0 且 mSerializedChunk 有长度
-     *       -> 方块数据就在这个包里，压根不走第 2 步
+     *   mSubChunksCount = 0 with mClientNeedsToRequestSubchunks = 1
+     *       -> an empty shell packet; the block data waits for the client to ask, which
+     *          is step two
+     *   mSubChunksCount > 0 with mSerializedChunk carrying length
+     *       -> the block data is in this packet and step two never happens
      *
-     * 这两种模式对应完全不同的排查方向。主世界和地皮世界在这一行上如果不一样，
-     * 那就是答案。一块地一行，一次进服大概几百行。
+     * The two modes lead to entirely different investigations. If the overworld and the
+     * plot world differ on this line, that is the answer. One line per chunk, a few
+     * hundred per join.
      */
     LL_TYPE_INSTANCE_HOOK(
         LevelChunkPacketWriteTraceHook,
@@ -553,11 +573,11 @@ namespace pier::dimensions
         {
             gLevelChunkPkts.fetch_add(1);
             int const dimId = mDimensionId->value();
-            // 同样不按维度过滤：主世界是对照组。
+            // No dimension filter here either: the overworld is the control.
             auto const& cp = mPos.get();
             hostLogger().info(
-                "[levelchunk] dim={} chunk=({}, {}) 子区块数={} 需客户端再请求={} "
-                "请求上限={} 负载字节={} 缓存={} 缓存条目={}",
+                "[levelchunk] dim={} chunk=({}, {}) subchunks={} clientMustRequest={} "
+                "requestLimit={} payloadBytes={} cache={} cacheEntries={}",
                 dimLabel(dimId), cp.x, cp.z,
                 mSubChunksCount,
                 mClientNeedsToRequestSubchunks ? 1 : 0,
@@ -569,25 +589,24 @@ namespace pier::dimensions
         }
         catch (...)
         {
-            hostLogger().warn("[levelchunk] 读取区块包失败（不影响发包本身）");
+            hostLogger().warn("[levelchunk] reading the chunk packet failed; the packet itself is unaffected");
         }
         origin(stream);
     }
 
     /*
-     * 子区块回包：客户端要地形，服务端回了什么。
-     *
-     * 现代基岩版发区块分两步。LevelChunkPacket 只带「这里有一列区块」和一个
-     * mClientNeedsToRequestSubchunks 标志，不带方块数据，客户端据此建一列空区块；
-     * 客户端再用 SubChunkRequestPacket 逐个索要，服务端用 SubChunkPacket 回，方块
-     * 数据在这一步才过去。第 1 步全部成功而列里是空的，正是「有区块但看出去和虚空
-     * 一个颜色」的成因。
-     *
-     * SubChunkPacket 每条数据自带结果码：Success(1) 与 SuccessAllAir(6) 正常；
-     * LevelChunkDoesntExist(2) 服务端找不到这一列；WrongDimension(3) 维度对不上，
-     * 自定义维度最可能踩的一个；PlayerDoesntExist(4) 玩家索引失效；
-     * IndexOutOfBounds(5) 子区块 y 索引超出维度高度范围。
-     */
+     * The subchunk reply: what the server answered when the client asked for terrain.
+     * Modern Bedrock sends a chunk in two steps. LevelChunkPacket carries only the fact that a
+     * chunk column exists plus an mClientNeedsToRequestSubchunks flag, with no block data, and the
+     * client builds an empty column from it. The client then asks for each subchunk with
+     * SubChunkRequestPacket and the server answers with SubChunkPacket, which is where the block
+     * data crosses. Step one succeeding while the columns stay empty is exactly what makes a chunk
+     * look the same color as the void.
+     * Each entry of a SubChunkPacket carries its own result code. Success(1) and SuccessAllAir(6)
+     * are normal. LevelChunkDoesntExist(2) means the server cannot find that column.
+     * WrongDimension(3) means the dimension does not match, the one a custom dimension is most
+     * likely to hit. PlayerDoesntExist(4) means the player index is stale. IndexOutOfBounds(5)
+     * means the subchunk y index is outside the dimension height range. / */
     LL_TYPE_INSTANCE_HOOK(
         SubChunkPacketWriteTraceHook,
         HookPriority::Normal,
@@ -601,9 +620,10 @@ namespace pier::dimensions
         {
             gSubChunkPkts.fetch_add(1);
             int const dimId = mDimensionType->value();
-            // 这里故意不走 wanted() 过滤：主世界是唯一能正常显示的维度，
-            // 它的结果码就是对照组。同一份日志里看到「dim=0 成功=N」和
-            // 「dim=xxx(1000) 维度不对=N」并排，结论就不需要再推理了。
+            // wanted() is deliberately not applied here: the overworld is the only
+            // dimension that renders correctly and its result codes are the control.
+            // Seeing "dim=0 success=N" next to "dim=1000 wrongDimension=N" in one log
+            // needs no further reasoning.
             auto const& data = mSubChunkData.get();
             int cnt[8]{};
             for (auto const& d : data)
@@ -613,23 +633,25 @@ namespace pier::dimensions
             }
             auto const& c = mCenterPos.get();
             hostLogger().info(
-                "[subchunk] dim={} 中心=({}, {}, {}) 共{}条 | "
-                "成功={} 全空气={} 无此区块={} 维度不对={} 无此玩家={} 越界={} 未定义={}",
+                "[subchunk] dim={} center=({}, {}, {}) entries={} | "
+                "success={} allAir={} noSuchChunk={} wrongDimension={} noSuchPlayer={} "
+                "outOfRange={} undefined={}",
                 dimLabel(dimId), c.x, c.y, c.z, data.size(),
                 cnt[1], cnt[6], cnt[2], cnt[3], cnt[4], cnt[5], cnt[0]
             );
             if (cnt[2] || cnt[3] || cnt[4] || cnt[5])
             {
                 hostLogger().error(
-                    "[subchunk] dim={} 有子区块请求被拒绝 —— 这些方块数据不会到客户端，"
-                    "玩家看到的就是空的。看上面那行是哪一类。",
+                    "[subchunk] dim={} had subchunk requests refused, so that block data "
+                    "never reaches the client and the player sees empty space; the line "
+                    "above says which kind",
                     dimLabel(dimId)
                 );
             }
         }
         catch (...)
         {
-            hostLogger().warn("[subchunk] 读取子区块回包失败（不影响发包本身）");
+            hostLogger().warn("[subchunk] reading the subchunk reply failed; the packet itself is unaffected");
         }
         origin(stream);
     }
@@ -653,15 +675,17 @@ namespace pier::dimensions
 
     void registerChunkTraceHooks()
     {
-        // 全部区块追踪（含维度定义表、LevelChunkPacket、SubChunkPacket 等对照类
-        // 日志）默认关闭，只有设置了 PIER_TRACE_CHUNK=1 才开启。
+        // All chunk tracing, including the control lines for the dimension definition
+        // table, LevelChunkPacket and SubChunkPacket, is off unless PIER_TRACE_CHUNK=1
+        // is set.
         if (!chunkTraceEnabled()) return;
         PacketTraceHookReg::hook();
         ChunkTraceHookReg::hook();
         hostLogger().warn(
-            "区块追踪已开启（PIER_TRACE_CHUNK=1，维度过滤 {}）。日志量很大，排查完记得关掉。",
-            chunkTraceDimFilter() == -2 ? std::string{"仅自定义维度(>=3)"}
-            : chunkTraceDimFilter() == -1 ? std::string{"全部"}
+            "[chunk] chunk tracing is on (PIER_TRACE_CHUNK=1, dimension filter {}); the "
+            "log volume is large, turn it off once the investigation is done",
+            chunkTraceDimFilter() == -2 ? std::string{"custom dimensions only (>=3)"}
+            : chunkTraceDimFilter() == -1 ? std::string{"all"}
                                           : std::to_string(chunkTraceDimFilter())
         );
     }
@@ -670,31 +694,32 @@ namespace pier::dimensions
     {
         if (!chunkTraceEnabled()) return;
         hostLogger().info(
-            "区块包统计：LevelChunkPacket {} 个，SubChunkPacket {} 个",
+            "[chunk] packet totals: {} LevelChunkPacket, {} SubChunkPacket",
             gLevelChunkPkts.load(), gSubChunkPkts.load()
         );
         if (gLevelChunkPkts.load() > 0 && gSubChunkPkts.load() == 0)
         {
             hostLogger().error(
-                "发了 {} 个 LevelChunkPacket，但一个 SubChunkPacket 都没发过 —— "
-                "客户端要么没来请求子区块，要么请求被别的地方吃掉了。"
-                "方块数据从来没有离开过服务端。",
+                "[chunk] {} LevelChunkPacket were sent and not a single SubChunkPacket; "
+                "either the client never requested subchunks or the requests were consumed "
+                "elsewhere. No block data ever left the server",
                 gLevelChunkPkts.load()
             );
         }
         PacketTraceHookReg::unhook();
         ChunkTraceHookReg::unhook();
         hostLogger().info(
-            "区块追踪结束：创建 {} 次，状态跃迁 {} 次，到达 Loaded {} 次，"
-            "发往客户端 {} 块（另有 {} 次排队未发）",
+            "[chunk] tracing finished: {} creations, {} state transitions, {} reached "
+            "Loaded, {} sent to clients, {} left queued and unsent",
             gCreated.load(), gTransitions.load(), gLoaded.load(), gSendOk.load(), gSendFail.load()
         );
         if (gLoaded.load() > 0 && gSendOk.load() == 0)
         {
             hostLogger().error(
-                "服务端有 {} 块走到了 Loaded，但一块都没通过 NetworkChunkPublisher 发出去 —— "
-                "问题在发送侧，不在生成侧。看上面的 [region] 行：中心点和半径是否合理、"
-                "维度 id 是否就是这个维度。",
+                "[chunk] {} chunks reached Loaded on the server and none was sent through "
+                "NetworkChunkPublisher, so the fault is on the send side and not the "
+                "generation side; check the [region] lines above for a sensible center and "
+                "radius and for the dimension id being this dimension",
                 gLoaded.load()
             );
         }

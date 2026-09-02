@@ -1,11 +1,11 @@
-/** world/WeatherChangeEvent.cpp —— 天气被改了。
- *
- * 只观察，不可取消：`updateWeather` 是引擎自己的天气状态机在推进，中途拦下
- * 会让下雨计时器和实际天气不一致（表现是「一直下雨但雨停了」）。要控制天气
- * 用 `level_update_weather` 覆盖，或者拿 gamerule 关掉天气循环。
- *
- * 载荷是四个原始参数：降雨强度/时长、闪电强度/时长。强度 0 表示停。
- */
+/** world/WeatherChangeEvent.cpp: the weather changed.
+ * Observation only, not cancellable: `updateWeather` is the engine's own weather state
+ * machine advancing, and stopping it midway leaves the rain timer disagreeing with the
+ * actual weather, which shows up as raining forever while the rain has stopped.
+ * Controlling the weather means overriding it through `level_update_weather` or turning
+ * the weather cycle off with a gamerule.
+ * The payload is the four raw parameters: rain level and duration, lightning level and
+ * duration. A level of 0 means stopped. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -23,7 +23,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& weatherDef(); // 前向
+        HookEventDef& weatherDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             LevelUpdateWeatherHook,
@@ -44,7 +44,7 @@ namespace pier::hooks
                 + ",\"rainTime\":" + snbtNum(rainTime)
                 + ",\"lightningLevel\":" + snbtDouble(lightningLevel)
                 + ",\"lightningTime\":" + snbtNum(lightningTime) + "}";
-            dispatchHookEvent(def, snbt); // 只观察
+            dispatchHookEvent(def, snbt); // Observation only
 
             origin(rainLevel, rainTime, lightningLevel, lightningTime);
         }
@@ -57,7 +57,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[WeatherChangeEvent] Level::$updateWeather 的 detour 安装失败（code={}）。", r);
+                        "[hooks/WeatherChangeEvent] the Level::$updateWeather detour failed to install with code={}", r);
                 }
                 return r == 0;
             }

@@ -1,19 +1,21 @@
 # -*- coding: utf-8 -*-
-"""rust-comment-budget —— COMMENTS.md §一 的硬预算，套到 Rust 上。
+"""rust-comment-budget: the hard budget of COMMENTS.md §1, applied to Rust.
 
-`comment_style.py` 只扫 `.cpp/.h/.hpp`，于是绑定那一侧的注释从来没有被量过。
-量了一次之后是 18 处超预算，其中最长的文件头 43 行 —— 而 §一 说得很清楚：
-超预算不是「写得详细」，是**放错了层级**。属于设计的进 CONTRACT.md，属于
-历史的进 git，属于待办的进 issue。
+`comment_style.py` scans only `.cpp/.h/.hpp`, so the comments on the bindings side had
+never been measured. The first measurement found 18 blocks over budget, the longest a file
+header of 43 lines, and §1 is explicit: over budget does not mean written in detail, it
+means put at the wrong level. Design goes in CONTRACT.md, history goes in git, and a
+pending item goes in an issue.
 
-Rust 的三个层级对应：
+The three levels map onto Rust as:
 
-    L1  文件开头连续的 `//!`          ≤ 16 行
-    L2  声明上方连续的 `///`          ≤ 14 行
-    L3  语句上方连续的 `//`           ≤ 8 行
+    L1  consecutive `//!` at the start of a file    at most 16 lines
+    L2  consecutive `///` above a declaration       at most 14 lines
+    L3  consecutive `//` above a statement          at most 8 lines
 
-**这条检查量的是长度，不是内容。** 一段 15 行的废话它放过，一段 17 行的干货
-它拦下。它能做的只是逼人回答「这些字该不该在这里」，回答本身还是人的事。
+This check measures length and not content. It passes 15 lines of nothing and stops 17
+lines of substance. All it can do is force an answer to whether these words belong here,
+and the answer is still a human's.
 """
 
 import os
@@ -23,11 +25,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 from _abi import ROOT, Result  # noqa: E402
 
 ROOTS = [os.path.join(ROOT, "bindings", "rust")]
-BUDGET = {"L1 文件头": 16, "L2 声明注释": 14, "L3 体内注释": 8}
+BUDGET = {"L1 file header": 16, "L2 declaration comment": 14, "L3 body comment": 8}
 
 
 def _scan(path):
-    """返回 [(层级, 起始行, 行数)]。"""
+    """Returns [(level, start line, line count)]."""
     lines = open(path, encoding="utf-8").read().split("\n")
     out = []
 
@@ -39,10 +41,10 @@ def _scan(path):
             i += 1
         else:
             break
-    if i > BUDGET["L1 文件头"]:
-        out.append(("L1 文件头", 1, i))
+    if i > BUDGET["L1 file header"]:
+        out.append(("L1 file header", 1, i))
 
-    for level, prefix in (("L2 声明注释", "///"), ("L3 体内注释", "//")):
+    for level, prefix in (("L2 declaration comment", "///"), ("L3 body comment", "//")):
         run = 0
         for j, l in enumerate(lines):
             s = l.strip()
@@ -82,15 +84,17 @@ def run():
 
     for rel, line, level, n in sorted(bad, key=lambda x: -x[3]):
         r.fail(
-            "%s:%d %s %d 行，超 %d 行预算 —— 超预算不是写得详细，是放错了层级"
-            "（设计进 CONTRACT.md，历史进 git，待办进 issue）"
+            "%s:%d %s is %d lines, over the %d-line budget. Over budget does not mean written "
+            "in detail, it means put at the wrong level: design in CONTRACT.md, history in git, "
+            "pending items in an issue"
             % (rel, line, level, n, BUDGET[level])
         )
 
     if not r.failures:
         r.note(
-            "扫描 %d 个 .rs。判据只量长度，不看内容 —— 15 行的废话它放过，"
-            "17 行的干货它拦下。它逼人回答「这些字该不该在这里」，回答还是人的事。"
+            "scanned %d .rs file(s). The criterion measures length and not content: it passes "
+            "15 lines of nothing and stops 17 lines of substance. It forces an answer to whether "
+            "these words belong here, and the answer is still a human's."
             % files
         )
     return r

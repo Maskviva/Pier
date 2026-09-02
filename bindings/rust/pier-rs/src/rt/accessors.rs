@@ -1,21 +1,28 @@
-//! 从属性常量表生成访问器。
+//! Generates accessors from the property constant tables.
 //!
-//! `PierApi` 的属性族是「一个数值槽 + 一张常量表」的形状：读玩家的饥饿值和
-//! 读他在不在飞，走的是同一个 `player_get_num`，只差一个常量。手写出来就是
-//! 几十个长得一样的一行函数，而抄错常量编译器不会说话 —— 类型全一样。
+//! The property family of `PierApi` has the shape of one numeric slot plus one constant
+//! table: reading the hunger of a player and reading whether they are flying both go
+//! through the same `player_get_num` and differ by one constant. Hand-written that is dozens
+//! of identical one-line functions, and the compiler says nothing about a mistyped constant,
+//! since every type is the same.
 //!
-//! 表格把常量和方法名并排放，抄错看得见。它消掉的是**源码里的重复**，
-//! 不是 API 面：`Player` 上仍然有几十个方法，那是 ABI 的形状。
+//! A table puts the constant next to the method name so a mistake is visible. What it
+//! removes is the repetition in the source and not the API surface: `Player` still has
+//! dozens of methods, which is the shape of the ABI.
 
-/// 按 `种类 方法名 = 常量;` 逐行生成访问器。
+/// Generates accessors line by line from `kind method_name = constant;`.
 ///
-/// 种类决定返回类型与取值路径：`f64`/`i32`/`bool` 走 `num`，`str` 走 `text`。
-/// 目标类型只需提供这两个方法 —— `i32` 的截断和 `bool` 的非零判定由下面的
-/// `@get` 分支做，那是它们**唯一**的定义处。三个域各自留一份 `num_i32` /
-/// `num_bool` 私有 helper 曾经存在，属性墙搬进表格之后它们就成了死代码。
+/// The kind decides the return type and the read path: `f64`, `i32` and `bool` go through
+/// `num` and `str` goes through `text`.
+/// A target type only has to provide those two methods. The truncation for `i32` and the
+/// non-zero test for `bool` happen in the `@get` branch below, which is their single
+/// definition. A private `num_i32` and `num_bool` helper in each of the three domains became
+/// dead code once the property wall moved into a table.
 ///
-/// 文档可选 —— `///` 在宏匹配前已脱糖成属性。给 `hunger()` 补一句「饥饿值」
-/// 只是把方法名再说一遍；只在名字说不清时写（单位、取值域、和邻近属性的区别）。
+/// Documentation is optional, since `///` is desugared into an attribute before macro
+/// matching. Adding a line saying hunger to `hunger()` only repeats the method name, so one
+/// is written only where the name is not enough: a unit, a value range, or how it differs
+/// from a neighboring property.
 macro_rules! accessors {
     ($ty:ty; $( $(#[$m:meta])* $kind:ident $name:ident = $konst:ident; )*) => {
         impl $ty {

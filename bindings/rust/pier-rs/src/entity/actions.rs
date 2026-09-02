@@ -1,7 +1,8 @@
-//! 实体动作 —— `PIER_AACT_*` 那一族。
+//! Actor actions: the `PIER_AACT_*` family.
 //!
-//! 它们共享同一个多路槽 `actor_action`，所以也共享同一组失败模式:
-//! 实体不在了、参数不合法、或者宿主不认识这个动作号。
+//! They share one multiplexed slot, `actor_action`, and therefore share the same failure
+//! modes: the actor is gone, an argument is invalid, or the host does not recognize the
+//! action number.
 
 use crate::entity::Entity;
 use crate::rt::error::{Error, Result};
@@ -9,15 +10,16 @@ use crate::rt::ffi::{call_out_str, s};
 use crate::sys;
 
 impl Entity {
-    // ── 动作 ──────────────────────────────────────────────────
+    // Actions
 
-    /// 跑一个 `PIER_AACT_*` 动作，取回它的输出（多数动作没有输出，是空串）。
+    /// Runs one `PIER_AACT_*` action and returns its output, which is an empty string for most
+    /// actions.
     pub fn act(&self, action: i32, sarg: &str, a: f64, b: f64, c: f64) -> Result<String> {
-        let f = crate::require_slot!(actor_action, "执行实体动作");
+        let f = crate::require_slot!(actor_action, "running an actor action");
         call_out_str(|ctx, sink| unsafe { f(self.0, action, s(sarg), a, b, c, ctx, sink) })
             .ok_or_else(|| {
                 Error(format!(
-                    "实体 {} 的动作 {action} 失败（实体不在了、参数不合法，或宿主不认识这个动作号）",
+                    "action {action} on actor {} failed: it is gone, an argument is invalid, or the host does not recognize the action number",
                     self.0
                 ))
             })
@@ -27,14 +29,14 @@ impl Entity {
         self.act(action, "", 0.0, 0.0, 0.0).map(|_| ())
     }
 
-    /// 返回 `"0"` / `"1"` 的那几个动作（`ADD_TAG` / `HAS_TAG` …）。
+    /// The actions that answer `"0"` or `"1"`, such as `ADD_TAG` and `HAS_TAG`.
     fn act_bool(&self, action: i32, sarg: &str) -> Result<bool> {
         let out = self.act(action, sarg, 0.0, 0.0, 0.0)?;
         match out.trim() {
             "1" => Ok(true),
             "0" => Ok(false),
             other => Err(Error(format!(
-                "动作 {action} 应当回 \"0\" 或 \"1\"，实际回了 {other:?}"
+                "action {action} should answer \"0\" or \"1\" and answered {other:?}"
             ))),
         }
     }
@@ -72,13 +74,14 @@ impl Entity {
             .map(|_| ())
     }
 
-    /// 传送到同一维度的另一处。
+    /// Teleports elsewhere within the same dimension.
     pub fn teleport(&self, x: f64, y: f64, z: f64) -> Result<()> {
         let dim = self.dimension()?;
         self.teleport_to(dim, x, y, z)
     }
 
-    /// 传送到指定维度。自定义维度（id ≥ 3）也走这里。
+    /// Teleports into a given dimension. A custom dimension, with an id of 3 or above, goes
+    /// through here too.
     pub fn teleport_to(&self, dim: i32, x: f64, y: f64, z: f64) -> Result<()> {
         self.act(sys::PIER_AACT_TELEPORT, &dim.to_string(), x, y, z)
             .map(|_| ())
@@ -126,7 +129,7 @@ impl Entity {
         self.act_bool(sys::PIER_AACT_HAS_TAG, tag)
     }
 
-    /// 加一条状态效果。
+    /// Adds one status effect.
     pub fn add_effect(
         &self,
         effect: &str,
@@ -149,12 +152,12 @@ impl Entity {
             .map(|_| ())
     }
 
-    /// 读一个属性（`minecraft:health` 这样的名字）的当前值。
+    /// Reads the current value of one attribute, named as `minecraft:health` is.
     pub fn attribute(&self, name: &str) -> Result<f64> {
         let out = self.act(sys::PIER_AACT_ATTRIBUTE_GET, name, 0.0, 0.0, 0.0)?;
         out.trim()
             .parse::<f64>()
-            .map_err(|e| Error(format!("属性 {name} 的值 {out:?} 解析不成数字：{e}")))
+            .map_err(|e| Error(format!("the value {out:?} of attribute {name} does not parse as a number: {e}")))
     }
 
     pub fn set_variant(&self, v: i32) -> Result<()> {

@@ -1,5 +1,5 @@
-# PierApi 槽序基线 —— abi-additive 机检的比对对象。
-# 只有推进 PIER_ABI_VERSION 时才允许用 --bless 重写。
+# The PierApi slot order baseline, what the abi-additive check compares against.
+# Rewriting it with --bless is allowed only when PIER_ABI_VERSION advances.
 !version 1
 !min 1
 struct_size

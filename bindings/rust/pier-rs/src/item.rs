@@ -1,53 +1,58 @@
-//! 物品 —— 一个**值对象**，不是一个句柄。
+//! Items: a value object and not a handle.
 //!
-//! ABI 上物品全程是一串 SNBT：读属性是「拿这串 SNBT 问一个属性」，改属性是
-//! 「拿这串 SNBT 换一串新的」（`item_transform`）。这一层照搬这个形状，
-//! 没有在中间藏一个指针。
+//! On the ABI an item is a string of SNBT throughout. Reading a property means asking a
+//! property with that SNBT, and changing one means exchanging that SNBT for a new one
+//! through `item_transform`. This layer copies that shape and hides no pointer in between.
 //!
-//! # 后果：`ItemStack` 和世界里那件物品**没有连接**
+//! # The consequence: an `ItemStack` has no connection to the item in the world
 //!
-//! `container.item(0)` 拿到的是一份快照。改它不会动容器里的那一件，要写回去
-//! 得显式 `container.set_item(0, &stack)`。这一点和「句柄是身份不是指针」
-//! 是同一条规矩的两面：中间没有隐式同步，也就没有「我改了怎么没生效」。
+//! `container.item(0)` returns a snapshot. Changing it does not move the one in the
+//! container, and writing it back takes an explicit `container.set_item(0, &stack)`. This
+//! is the other side of a handle being an identity and not a pointer: with no implicit
+//! synchronization in between, there is no I changed it and nothing happened.
 
 use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, s};
 use crate::sys;
 
-/// 一件物品的 SNBT 快照。
+/// An SNBT snapshot of one item.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ItemStack {
     snbt: String,
 }
 
-/// 一条附魔。
+/// One enchantment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Enchant {
-    /// 附魔 id。宿主报的是数字 id 还是名字取决于 BDS 版本，原样带过来。
+    /// The enchantment id. Whether the host reports a numeric id or a name depends on the
+    /// BDS version, and it is carried through unchanged.
     pub id: String,
     pub level: i32,
 }
 
 impl ItemStack {
-    /// 直接用一串 SNBT。**不校验** —— 校验要过一次 ABI，而这个构造在热路径上。
-    /// 形状不对会在第一次真正使用它的调用上报错。
+    /// Uses a string of SNBT directly, without validation, since validating would cross the
+    /// ABI once and this constructor sits on a hot path.
+    /// A wrong shape reports an error at the first call that really uses it.
     pub fn from_snbt(snbt: impl Into<String>) -> ItemStack {
         ItemStack { snbt: snbt.into() }
     }
 
-    /// 按类型名和数量造一件。
+    /// Builds one from a type name and a count.
     ///
-    /// 拼的是最小形状 `{Name:"…",Count:Nb}`；引擎在 `ItemStack::fromTag`
-    /// 里补齐其余字段。名字不存在时失败发生在**使用**这件物品的那一刻，
-    /// 而不是这里。
+    /// It assembles the minimal shape `{Name:"...",Count:Nb}` and the engine fills in the rest
+    /// inside `ItemStack::fromTag`. A name that does not exist fails at the moment the item is
+    /// used and not here.
     pub fn create(type_name: &str, count: u8) -> ItemStack {
-        // 走 `NbtValue::to_snbt` 而不是 `format!`：转义规则（引号、反斜杠、
-        // 控制字符）只该有一份实现，而那一份在 `nbt::write` 里，已经被
-        // 对面的 `CompoundTag::fromSnbt` 检验过。
+        // Through `NbtValue::to_snbt` and not `format!`: the escaping rules for quotes,
+        // backslashes and control characters should have one implementation, which lives in
+        // `nbt::write` and has already been tested against `CompoundTag::fromSnbt` on the
+        // other side.
         //
-        // Count 在 NBT 里是 byte。`u8` 超过 127 的部分表达不了，钳住而不是
-        // 让它绕成负数 —— 一个负的堆叠数会被引擎当成空槽。
+        // Count is a byte in NBT. A `u8` above 127 cannot be expressed, so it is clamped
+        // rather than wrapping negative, since the engine reads a negative stack count as an
+        // empty slot.
         let v = NbtValue::obj([
             ("Name", NbtValue::from(type_name)),
             ("Count", NbtValue::Byte(count.min(127) as i8)),
@@ -55,36 +60,36 @@ impl ItemStack {
         ItemStack { snbt: v.to_snbt() }
     }
 
-    /// 空气。容器里的空槽读出来就是它。
+    /// Air. An empty slot in a container reads back as this.
     pub fn empty() -> ItemStack {
         ItemStack::create("minecraft:air", 0)
     }
 
-    /// 底层 SNBT。
+    /// The underlying SNBT.
     pub fn snbt(&self) -> &str {
         &self.snbt
     }
 
-    /// 解析成 NBT 树。要读 ABI 没给具名访问器的字段时用它。
+    /// Parses into an NBT tree, for reading a field the ABI gives no named accessor for.
     pub fn to_nbt(&self) -> Result<NbtValue> {
-        NbtValue::parse(&self.snbt).map_err(|e| Error(format!("物品 SNBT 解析失败：{e}")))
+        NbtValue::parse(&self.snbt).map_err(|e| Error(format!("parsing the item SNBT failed: {e}")))
     }
 
-    // ── 数值属性 ──────────────────────────────────────────────
+    // Numeric properties
 
-    /// 读一个 `PIER_IPROP_*` 数值属性。
+    /// Reads a `PIER_IPROP_*` numeric property.
     ///
-    /// 宿主不认识的属性号返回 `Err` 而不是 0 —— 「问不出来」和「答案是 0」
-    /// 必须分开（契约 §5.2）。
+    /// A property number the host does not recognize returns `Err` and not 0:
+    /// cannot-be-determined and an answer of 0 must stay apart (contract §5.2).
     pub fn num(&self, prop: i32) -> Result<f64> {
-        let f = crate::require_slot!(item_get_num, "读取物品数值属性");
+        let f = crate::require_slot!(item_get_num, "reading a numeric item property");
         let mut out = 0.0f64;
         let ok = unsafe { f(s(&self.snbt), prop, &mut out) };
         if ok {
             Ok(out)
         } else {
             Err(Error(format!(
-                "宿主读不出物品属性 {prop}（属性号不认识，或这串 SNBT 不是合法物品）"
+                "the host could not read item property {prop}: the property number is unrecognized, or this SNBT is not a valid item"
             )))
         }
     }
@@ -184,13 +189,13 @@ impl ItemStack {
         self.num_bool(sys::PIER_IPROP_HAS_CUSTOM_NAME)
     }
 
-    // ── 字符串属性 ────────────────────────────────────────────
+    // String properties
 
-    /// 读一个 `PIER_ISTR_*` 字符串属性。
+    /// Reads a `PIER_ISTR_*` string property.
     pub fn text(&self, prop: i32) -> Result<String> {
-        let f = crate::require_slot!(item_get_str, "读取物品字符串属性");
+        let f = crate::require_slot!(item_get_str, "reading a string item property");
         call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("宿主读不出物品字符串属性 {prop}")))
+            .ok_or_else(|| Error(format!("the host could not read string item property {prop}")))
     }
 
     pub fn type_name(&self) -> Result<String> {
@@ -212,7 +217,7 @@ impl ItemStack {
         self.text(sys::PIER_ISTR_EFFECT_NAME)
     }
 
-    /// 自定义 lore。宿主给的是 SNBT 字符串列表，这里解析成 `Vec<String>`。
+    /// The custom lore. The host gives an SNBT string list, parsed here into a `Vec<String>`.
     pub fn lore(&self) -> Result<Vec<String>> {
         parse_str_list(&self.text(sys::PIER_ISTR_LORE)?, "lore")
     }
@@ -225,40 +230,41 @@ impl ItemStack {
         parse_str_list(&self.text(sys::PIER_ISTR_CAN_PLACE_ON)?, "can_place_on")
     }
 
-    /// 物品的自定义 NBT（`tag` 段）。走专用槽而不是 `PIER_ISTR_USER_DATA`：
-    /// 两者内容相同，专用槽在宿主侧少一次属性号分发。
+    /// The custom NBT of the item, the `tag` section. It goes through a dedicated slot rather
+    /// than `PIER_ISTR_USER_DATA`: the content is the same and the dedicated slot saves one
+    /// property-number dispatch on the host side.
     pub fn user_data(&self) -> Result<NbtValue> {
-        let f = crate::require_slot!(item_get_user_data, "读取物品自定义 NBT");
+        let f = crate::require_slot!(item_get_user_data, "reading the custom NBT of an item");
         let text = call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) })
-            .ok_or_else(|| Error("宿主读不出这件物品的自定义 NBT".to_owned()))?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("物品自定义 NBT 解析失败：{e}")))
+            .ok_or_else(|| Error("the host could not read the custom NBT of this item".to_owned()))?;
+        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the custom NBT of the item failed: {e}")))
     }
 
-    /// 颜色（`{r,g,b}`）。只有染色类物品有。
+    /// The color as `{r,g,b}`. Only a dyeable item has one.
     pub fn color(&self) -> Result<(i32, i32, i32)> {
         let text = self.text(sys::PIER_ISTR_COLOR)?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("颜色 SNBT 解析失败：{e}")))?;
+        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the color SNBT failed: {e}")))?;
         Ok((v.get_i32("r")?, v.get_i32("g")?, v.get_i32("b")?))
     }
 
-    // ── 变换 ──────────────────────────────────────────────────
+    // Transforms
 
-    /// 跑一次 `PIER_IOP_*` 变换，把自己换成结果。
+    /// Runs one `PIER_IOP_*` transform and replaces itself with the result.
     ///
-    /// 失败时**自己不变**：宿主没产出新 SNBT 就没有可写回的东西，把半个结果
-    /// 写进来比什么都不做更难查。
+    /// On failure it stays unchanged: with no new SNBT from the host there is nothing to write
+    /// back, and writing half a result in is harder to diagnose than doing nothing.
     pub fn transform(&mut self, op: i32, sarg: &str, narg: f64) -> Result<()> {
-        let f = crate::require_slot!(item_transform, "变换物品");
+        let f = crate::require_slot!(item_transform, "transforming an item");
         let out =
             call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), op, s(sarg), narg, ctx, sink) })
                 .ok_or_else(|| {
-                    Error(format!("物品变换 {op} 失败（操作号不认识，或参数不合法）"))
+                    Error(format!("item transform {op} failed: the operation number is unrecognized, or an argument is invalid"))
                 })?;
         self.snbt = out;
         Ok(())
     }
 
-    /// 同上，但返回新的一件，自己保持不变。
+    /// As above, returning a new item and leaving this one unchanged.
     pub fn transformed(&self, op: i32, sarg: &str, narg: f64) -> Result<ItemStack> {
         let mut copy = self.clone();
         copy.transform(op, sarg, narg)?;
@@ -307,26 +313,26 @@ impl ItemStack {
         self.transform(sys::PIER_IOP_SET_CAN_PLACE_ON, &str_list_snbt(blocks), 0.0)
     }
 
-    /// 加一条附魔。等级写 0 在引擎里等于移除那一条。
+    /// Adds an enchantment. A level of 0 removes it, as far as the engine is concerned.
     pub fn add_enchant(&mut self, id: &str, level: i32) -> Result<()> {
         self.transform(sys::PIER_IOP_ADD_ENCHANT, &format!("{id}:{level}"), 0.0)
     }
 
-    // ── 附魔与比较 ────────────────────────────────────────────
+    // Enchantments and comparison
 
     pub fn enchants(&self) -> Result<Vec<Enchant>> {
-        let f = crate::require_slot!(item_get_enchants, "读取物品附魔");
+        let f = crate::require_slot!(item_get_enchants, "reading the enchantments of an item");
         let text = call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) })
-            .ok_or_else(|| Error("宿主读不出这件物品的附魔".to_owned()))?;
-        let v = NbtValue::parse(&text).map_err(|e| Error(format!("附魔 SNBT 解析失败：{e}")))?;
+            .ok_or_else(|| Error("the host could not read the enchantments of this item".to_owned()))?;
+        let v = NbtValue::parse(&text).map_err(|e| Error(format!("parsing the enchantment SNBT failed: {e}")))?;
         let Some(items) = v.as_list() else {
-            return Err(Error(format!("附魔 SNBT 不是列表，而是 {}", v.type_name())));
+            return Err(Error(format!("the enchantment SNBT is not a list but {}", v.type_name())));
         };
         Ok(items
             .iter()
             .filter_map(|e| {
                 let id = match e.get("id") {
-                    // id 可能是数字也可能是字符串，两种都收下。
+                    // The id may be a number or a string, and both are accepted.
                     Some(NbtValue::String(s)) => s.clone(),
                     Some(other) => other.as_i64()?.to_string(),
                     None => return None,
@@ -339,9 +345,9 @@ impl ItemStack {
             .collect())
     }
 
-    /// 整套换掉附魔，返回新的一件。
+    /// Replaces the whole enchantment set and returns a new item.
     pub fn with_enchants(&self, enchants: &[Enchant]) -> Result<ItemStack> {
-        let f = crate::require_slot!(item_set_enchants, "写入物品附魔");
+        let f = crate::require_slot!(item_set_enchants, "writing the enchantments of an item");
         let list = NbtValue::list(enchants.iter().map(|e| {
             NbtValue::obj([
                 ("id", NbtValue::from(e.id.as_str())),
@@ -350,17 +356,19 @@ impl ItemStack {
         }))
         .to_snbt();
         let out = call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), s(&list), ctx, sink) })
-            .ok_or_else(|| Error("宿主拒绝写入附魔（附魔名不认识，或物品不可附魔）".to_owned()))?;
+            .ok_or_else(|| Error("the host refused to write the enchantments: an enchantment name is unrecognized, or the item cannot be enchanted".to_owned()))?;
         Ok(ItemStack { snbt: out })
     }
 
-    /// 两件是不是「同一种东西」。
+    /// Whether two items are the same kind of thing.
     ///
-    /// 判据由引擎给（`ItemStack::matches`），**不是**字符串相等：数量、
-    /// 耐久这类字段不参与，而 SNBT 文本比较会把它们算进去。
-    /// 槽位缺席时返回 `Err`，不退回文本比较 —— 那会让判据在不同宿主上不一样。
+    /// The criterion comes from the engine, `ItemStack::matches`, and is not string equality:
+    /// fields such as count and durability take no part, while comparing SNBT text would
+    /// include them.
+    /// A missing slot returns `Err` and does not fall back to a text comparison, which would
+    /// make the criterion differ between hosts.
     pub fn matches(&self, other: &ItemStack) -> Result<bool> {
-        let f = crate::require_slot!(item_matches, "比较两件物品");
+        let f = crate::require_slot!(item_matches, "comparing two items");
         Ok(unsafe { f(s(&self.snbt), s(&other.snbt)) })
     }
 }
@@ -383,22 +391,23 @@ impl From<String> for ItemStack {
     }
 }
 
-/// 拼一个 SNBT 字符串列表。
+/// Assembles an SNBT string list.
 pub(crate) fn str_list_snbt(items: &[&str]) -> String {
     NbtValue::list(items.iter().map(|s| NbtValue::from(*s))).to_snbt()
 }
 
-/// 解析一个 SNBT 字符串列表。
+/// Parses an SNBT string list.
 ///
-/// 空串按空列表处理：宿主对「这件物品没有 lore」就是 sink 一个空串，
-/// 而 `NbtValue::parse("")` 会失败 —— 把「没有」报成解析错误是假警报。
+/// An empty string counts as an empty list: for an item with no lore the host sinks an
+/// empty string while `NbtValue::parse("")` fails, and reporting absence as a parse error
+/// is a false alarm.
 pub(crate) fn parse_str_list(text: &str, what: &str) -> Result<Vec<String>> {
     if text.trim().is_empty() {
         return Ok(Vec::new());
     }
-    let v = NbtValue::parse(text).map_err(|e| Error(format!("{what} 的 SNBT 解析失败：{e}")))?;
+    let v = NbtValue::parse(text).map_err(|e| Error(format!("parsing the SNBT of {what} failed: {e}")))?;
     let Some(items) = v.as_list() else {
-        return Err(Error(format!("{what} 不是列表，而是 {}", v.type_name())));
+        return Err(Error(format!("{what} is not a list but {}", v.type_name())));
     };
     Ok(items
         .iter()

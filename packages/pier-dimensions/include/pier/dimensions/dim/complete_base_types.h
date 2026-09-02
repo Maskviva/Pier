@@ -1,10 +1,11 @@
 #pragma once
-// 为 Dimension / WorldGenerator / FlatWorldGenerator 基类中以
-// std::unique_ptr<前向声明类型> 持有的成员提供完整类型定义。
+// Supplies complete type definitions for the members that Dimension, WorldGenerator
+// and FlatWorldGenerator hold as std::unique_ptr<forward-declared type>.
 //
-// ll::TypedStorage 的析构会真正析构内部 unique_ptr，派生类 .cpp 中实例化基类
-// 析构时要求这些类型是完整的，否则报「使用了未定义类型 / can't delete an
-// incomplete type」。每个派生维度的 .cpp 都要先包含这一份。
+// The destructor of ll::TypedStorage really destroys the inner unique_ptr, so
+// instantiating the base destructor in a derived .cpp requires those types to be
+// complete, otherwise the compiler reports use of an undefined type or that it cannot
+// delete an incomplete type. Every derived dimension .cpp includes this first.
 #include "mc/deps/core/threading/TaskGroup.h"
 #include "mc/server/commands/DelayActionList.h"
 #include "mc/world/actor/ai/village/VillageManager.h"

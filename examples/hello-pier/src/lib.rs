@@ -1,23 +1,29 @@
-//! `hello-pier` —— 契约 §十「加一门语言」四步的**可运行**参考。
+//! `hello-pier`, a runnable reference for the four steps of contract §10, adding a
+//! language.
 //!
-//! 这个示例刻意只用运行时地基（握手、日志、生命周期），一个域 API 都不碰。
-//! 理由：它要验证的是**契约本身通不通**，而不是某个域封装好不好用。
-//! 一个只用地基的模组能装上、能打日志、能被卸载，就说明四步都对了：
+//! The example deliberately uses only the runtime foundation, meaning the handshake,
+//! logging and the lifecycle, and touches no domain API. What it verifies is whether
+//! the contract itself works, not how convenient a domain wrapper is. A mod that uses
+//! only the foundation and can be loaded, log, and be unloaded proves all four steps:
 //!
-//! 1. 只读 `sdk/abi.h`（这里经由 `levilamina_sys` 那份手写镜像）；
-//! 2. 无条件声明整张表（镜像已做，且 `sys-mirrors-abi` 守着）；
-//! 3. 导出 `pier_main`，填好 `struct_size / abi_version / mod_flags`
-//!    和三个生命周期回调（`register_mod!` 展开出来的就是这个）；
-//! 4. 每个非核心槽调用前查两道闸（这里用 `host_abi()` 演示怎么读宿主能力）。
+//! 1. Read `sdk/abi.h` alone, here through the hand-written mirror in
+//!    `levilamina_sys`.
+//! 2. Declare the whole table unconditionally, which the mirror does and
+//!    `sys-mirrors-abi` guards.
+//! 3. Export `pier_main` with `struct_size`, `abi_version`, `mod_flags` and the three
+//!    lifecycle callbacks filled in, which is what `register_mod!` expands to.
+//! 4. Check both gates before calling any non-core slot, shown here with `host_abi()`.
 //!
-//! 装上之后控制台应该出现三行 `[hello-pier]`：装载、启用、卸载各一行。
-//! 少任何一行都说明对应那一段生命周期没走通 —— 这就是这个示例的用处。
+//! Once installed the console shows three `[hello-pier]` lines, one each for load,
+//! enable and unload. A missing line means that part of the lifecycle did not
+//! complete, which is what this example is for.
 
 use levilamina::prelude::*;
 
 struct HelloPier {
-    /// 记一下启用了几次。热重载会让 enable/disable 成对多次发生，
-    /// 打出来能看出宿主的 reload 有没有真的走完一轮。
+    /// Counts how many times the mod was enabled. A reload produces repeated
+    /// enable and disable pairs, so printing the count shows whether the host
+    /// completed a full round.
     enabled_times: u32,
 }
 
@@ -25,26 +31,28 @@ impl LeviMod for HelloPier {
     fn on_load(ctx: &ModContext) -> Result<Self> {
         let (abi, table_len) = ctx.host_abi();
         ctx.logger().info(&format!(
-            "装载成功。宿主 ABI v{abi}，函数表 {table_len} 字节，\
-             目标={}。",
+            "loaded. host ABI v{abi}, function table {table_len} bytes, \
+             target={}.",
             if ctx.host_is_client() {
-                "客户端"
+                "client"
             } else {
-                "服务端"
+                "server"
             }
         ));
 
-        // 契约 §十 第 4 步的演示：非核心槽调用前查两道闸。
-        // `has_slot!` 同时查「表够不够长」和「槽是不是空」——
-        // 前者防越界读，后者防那个能力包没编进宿主。
+        // Step 4 of contract §10 in practice: check both gates before calling a
+        // non-core slot. `has_slot!` checks that the table is long enough and that
+        // the slot is non-null. The first guards against an out-of-bounds read, the
+        // second against the capability package not being compiled into the host.
         if levilamina::has_slot!(md_is_available) {
             ctx.logger()
-                .info("这个宿主编入了自定义维度能力（md_* 槽非空）。");
+                .info("host has the custom dimension capability, md_* slots are set.");
         } else {
-            // 这不是错误，是**刻意的降级**：pier-dimensions 是可选包
-            // （契约 §一 规则三），不编入时槽位为 NULL。
+            // Not an error but a deliberate degradation. pier-dimensions is an
+            // optional package (contract §1 rule 3) and its slots are NULL when it
+            // is not compiled in.
             ctx.logger()
-                .info("这个宿主没有编入自定义维度能力 —— 槽位为空，按不支持处理。");
+                .info("host lacks the custom dimension capability, slots are empty, treating as unsupported.");
         }
 
         Ok(HelloPier { enabled_times: 0 })
@@ -54,7 +62,7 @@ impl LeviMod for HelloPier {
         self.enabled_times += 1;
         let host = Host::get();
         ctx.logger().info(&format!(
-            "启用（第 {} 次）。服务器阶段={:?}，在线 {} 人，tick {}。",
+            "enabled (time {}). server stage={:?}, {} player(s) online, tick {}.",
             self.enabled_times,
             host.gaming_status(),
             host.player_count()
@@ -63,23 +71,27 @@ impl LeviMod for HelloPier {
                 .map_or("?".to_owned(), |t| t.to_string()),
         ));
 
-        // 契约 §5.3 的演示：订阅/解析失败时，把宿主**认得的** id 列出来，
-        // 比一句「失败」有用得多。这里只打个数，真订阅时应该打相近的几条。
+        // Contract §5.3 in practice: when a subscription or resolution fails, listing
+        // the ids the host does recognize helps far more than the word "failed". Only
+        // the count is printed here; a real subscription would print the near matches.
         let events = host.list_events();
         ctx.logger()
-            .info(&format!("宿主当前能解析 {} 个事件 id。", events.len()));
+            .info(&format!("host currently resolves {} event id(s).", events.len()));
 
-        // 把一段活儿丢回服务器线程。闭包被装箱交给宿主，跑完立刻释放 ——
-        // 所有权全程在模组这一侧（契约 §三）。
+        // Hand a piece of work back to the server thread. The closure is boxed for
+        // the host and freed as soon as it has run, and ownership stays on the mod
+        // side throughout (contract §3).
         //
-        // 返回的是**票据**：这条路走的是带模组句柄的 `schedule_for`，宿主按模组
-        // 记账，卸载时会把没跑完的整批丢掉（旧的无主槽做不到这一点，定时器会在
-        // 模组卸载后跳进已经 unmap 的代码段）。想提前取消就 `host.cancel(task)`。
+        // What comes back is a ticket. This path uses `schedule_for` with the mod
+        // handle, so the host accounts tasks per mod and discards the whole pending
+        // batch on unload. An ownerless slot cannot do that and its timer would jump
+        // into an unmapped code section after the mod is gone. `host.cancel(task)`
+        // cancels early.
         let task = host.schedule_after(std::time::Duration::from_secs(1), || {
-            Logger::get().info("一秒后的排期任务跑到了。");
+            Logger::get().info("scheduled task fired one second later.");
         })?;
         ctx.logger().info(&format!(
-            "排期票据 {}；本模组名下待执行 {} 个。",
+            "schedule ticket {}, {} task(s) pending under this mod.",
             task.raw(),
             host.pending_tasks()
         ));
@@ -87,15 +99,16 @@ impl LeviMod for HelloPier {
     }
 
     fn on_disable(&mut self, ctx: &ModContext) -> Result<()> {
-        ctx.logger().info("停用。");
+        ctx.logger().info("disabled.");
         Ok(())
     }
 
     fn on_unload(&mut self, ctx: &ModContext) -> Result<()> {
-        // 这里还拿得到 `&mut self`，收尾工作放这儿。宿主在这个回调返回之后
-        // 才会跑拆除步骤并最终 FreeLibrary。
+        // `&mut self` is still available here, so final cleanup belongs in this
+        // callback. The host runs its teardown steps and finally FreeLibrary only
+        // after this returns.
         ctx.logger()
-            .info(&format!("卸载。本次会话共启用 {} 次。", self.enabled_times));
+            .info(&format!("unloaded. enabled {} time(s) this session.", self.enabled_times));
         Ok(())
     }
 }

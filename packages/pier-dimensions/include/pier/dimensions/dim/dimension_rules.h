@@ -1,25 +1,29 @@
 #pragma once
 
 /**
- * dimension_rules.h —— 按维度生效的行为规则。
+ * dimension_rules.h: behavior rules that apply per dimension.
  *
- * 和 gamerule 的区别见 `DimensionRules.cpp` 的文件头：gamerule 是全服一份的，
- * 这里的规则钩在真正干活的函数上、按维度判定。
+ * The file header of `DimensionRules.cpp` explains how these differ from a gamerule: a
+ * gamerule is one value for the whole server, while these rules hook the functions that
+ * do the work and decide per dimension.
  *
- * 没有设过规则的维度完全不受影响 —— 所有 hook 都会直接 `origin()`。
- * 这条不变量是这套设计能全局装 hook 的前提，任何改动都要先满足它。
+ * A dimension with no rule set is entirely unaffected, since every hook goes straight to
+ * `origin()`. That invariant is what allows these hooks to be installed globally, and any
+ * change has to satisfy it first.
  */
 
 namespace pier::dimensions
 {
     /**
-     * 规则编号。必须和 `sdk/abi.h` 的 `PierDimRule` 逐值一致 ——
-     * ABI 传过来的就是那个整数，这里只是给它一个有名字的形状。
-     * 只能追加，不能重排（ABI 常量的纪律，契约 §2.2）。
+     * Rule numbers. They must match `PierDimRule` in `sdk/abi.h` value for value, since
+     * what arrives across the ABI is that integer and this only gives it a named shape.
+     * Append only, never reorder, which is the discipline for an ABI constant
+     * (contract §2.2).
      *
-     * 一致性由 `DimensionRules.cpp` 里的 `static_assert` 在编译期钉死：
-     * 两处各写一遍而没有强制，迟早会有人只改一边 —— 而错位的症状是
-     * 「设了不刷怪，结果关掉的是火焰蔓延」，从现象看不出根因在编号上。
+     * A `static_assert` in `DimensionRules.cpp` pins the agreement at compile time.
+     * Written twice without enforcement, someone eventually changes one side only, and
+     * the symptom of a mismatch is setting mob spawning off and turning off fire spread
+     * instead, which shows nothing about the numbering.
      */
     enum class DimRule : int
     {
@@ -35,16 +39,19 @@ namespace pier::dimensions
         FarmlandDecay = 9,
         Ride = 10,
         /**
-         * 活塞把方块推过地皮边界。
+         * A piston pushing a block across a plot boundary.
          *
-         * 和 `PistonPush` 是两件事，别混：`PistonPush=false` 是整个维度里活塞
-         * 搬不动任何方块；`PistonCrossPlot=false` 是地皮内部照常推、跨界才拦。
-         * 两条都设时，任意一条禁止就推不动。
+         * Distinct from `PistonPush`: `PistonPush=false` means a piston moves no block
+         * anywhere in the dimension, while `PistonCrossPlot=false` allows pushing inside
+         * a plot and blocks only a crossing. With both set, either one forbidding stops
+         * the push.
          *
-         * 需要 `setPlotGrid` 注册过网格才有意义；没有网格的维度这一条恒放行。
+         * It is meaningful only once `setPlotGrid` has registered a grid, and a dimension
+         * without one always allows it.
          */
         PistonCrossPlot = 11,
-        /** 实体越过地皮边界（玩家和载人的载具不受此限，见 PlotConfine.cpp）。 */
+        /** An actor crossing a plot boundary. Players and ridden vehicles are exempt,
+         *  see PlotConfine.cpp. */
         EntityCrossPlot = 12,
     };
 
@@ -53,11 +60,12 @@ namespace pier::dimensions
     void setDimensionRule(int dimension, int rule, bool allow);
 
     /**
-     * 查一条规则。
+     * Looks up one rule.
      *
-     * 返回值是「问得出来吗」，`outAllow` 才是「答案是不是允许」——
-     * 两件事分开（契约 §5.2）。压成一个 bool 的话，「这个维度没设过这条规则」
-     * 和「这条规则被设成了禁止」会给出同一个 false，调用方只能猜。
+     * The return value says whether the question could be answered, while `outAllow`
+     * carries whether the answer is allow. The two are kept apart (contract §5.2).
+     * Collapsed into one bool, a dimension that never set the rule and a rule set to
+     * forbid would both yield false and a caller could only guess.
      */
     bool getDimensionRule(int dimension, int rule, bool* outAllow);
 

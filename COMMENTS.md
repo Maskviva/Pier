@@ -1,153 +1,197 @@
-# 注释规范
+# The comment standard
 
-Pier 的 C++ 注释规范。本文是 `CONTRACT.md` §七 的展开件，两者冲突以本文为准。
-
----
-
-## 零、判据
-
-**注释只写代码回答不了的问题。** 其余一律删除 —— 包括当时写着确实有用的那些。
-
-发布出去之后，读注释的是陌生人，不是参与过那次讨论的人。凡是需要「知道当时
-发生过什么」才能读懂的注释，对陌生人是负数：他要先读完一段与他无关的经过，
-才拿到那一句对他有用的结论。
-
-三个后果，本文其余部分都是它们的展开：
-
-1. **写约束，不写经过。** 「客户端恒按子区块 -32 请求」是约束；「我们实测了
-   三次，第一次发 -64..320……」是经过。前者留下，后者删掉。
-2. **写现在，不写曾经。** 代码的历史在 git 里，一次 `git log -L` 比任何注释
-   都准。注释里的历史只会烂 —— 它不会跟着代码一起被改。
-3. **一条注释一个理由。** 讲不完就是这段代码该拆了，不是注释该加长。
+The C++ comment standard of Pier. This document expands `CONTRACT.md` §7, and where the two
+conflict this one governs.
 
 ---
 
-## 一、三个层级与硬预算
+## 0. The criterion
 
-| 层级 | 位置 | 预算 | 回答什么 |
+**A comment only writes what the code cannot answer.** Everything else is deleted,
+including the parts that really were useful when they were written.
+
+Once released, the reader of a comment is a stranger and not someone who took part in that
+discussion. Any comment that needs knowing what happened at the time is a negative for a
+stranger: they have to read through a sequence of events that does not concern them before
+reaching the one sentence that does.
+
+Three consequences, and the rest of this document expands them:
+
+1. **Write the constraint, not the sequence of events.** "A client always requests from
+   subchunk -32" is a constraint; "we measured it three times, the first sent -64..320..."
+   is a sequence of events. The first stays and the second goes.
+2. **Write the present, not the past.** The history of the code is in git and one
+   `git log -L` is more accurate than any comment. History inside a comment only rots,
+   because it is not edited along with the code.
+3. **One comment, one reason.** Not being able to finish means the code should be split,
+   not that the comment should grow.
+
+---
+
+## 1. Three levels and their hard budgets
+
+| Level | Position | Budget | What it answers |
 |---|---|---|---|
-| L1 文件头 | 文件开头的块注释 | **≤ 16 行** | 这个 TU 负责什么；读它的人必须先知道的约束 |
-| L2 声明注释 | 声明上方的 `/** */` | **≤ 14 行** | 调用方需要遵守什么 |
-| L3 体内注释 | 语句上方的 `//` 连续行 | **≤ 8 行** | 这一处为什么不是显然的写法 |
+| L1 file header | the block comment at the top of a file | at most 16 lines | what this TU is responsible for; the constraints a reader has to know first |
+| L2 declaration comment | the `/** */` above a declaration | at most 14 lines | what a caller has to observe |
+| L3 body comment | consecutive `//` lines above a statement | at most 8 lines | why this place is not written the obvious way |
 
-预算含 `/**` 与 `*/` 行。超预算不是「写得详细」，是**放错了层级** —— 属于设计
-的进 `CONTRACT.md`，属于历史的进 git，属于待办的进 issue。
+The budget includes the `/**` and `*/` lines. Over budget does not mean written in detail,
+it means put at the wrong level: design goes in `CONTRACT.md`, history goes in git, and a
+pending item goes in an issue.
 
-单文件例外：`packages/pier-abi/include/sdk/abi.h` 见 §六。
+One file is exempt: `packages/pier-abi/include/sdk/abi.h`, see §6.
 
-L1 的第一行固定形状，一行写完：
+The bindings side, `bindings/rust`, is bound only by the budgets of §1, measured by
+`rust_comment_budget.py`. The rustdoc conventions inside `///` and `//!`, meaning
+`# Safety`, `# Panics` and fenced example code, are structure that renders into
+documentation and are not treated as the markdown-in-a-comment of §3.5.
 
-```cpp
-/** <文件名> —— <一句话职责>。 */
-```
-
-只有职责一句话时，就到此为止，不要为了「有个文件头」而扩写。
-
----
-
-## 二、只留这五类
-
-1. **约束** —— 线程、锁、重入、生命周期、所有权、调用顺序。读者不遵守就出
-   错，而代码本身不写出来。
-2. **反直觉的事实** —— 引擎/平台的实际行为与文档或直觉不符；魔数的出处。
-3. **危险** —— 删掉或「顺手优化」会静默出错的地方。必须说清**症状**：症状
-   可搜索，结论不可搜索。
-4. **契约** —— ABI 稳定性规则、跨边界的所有权移交、失败时返回什么。
-5. **被否掉的显然做法** —— 且**只在**它显然到下一个人一定会去试的时候写；
-   一行说清为什么不行，不写试的过程。
-
-不属于这五类的注释，删掉之后没有人会需要它。
-
----
-
-## 三、一律删除的七类
-
-1. **复述代码。** `// 加锁` 配 `std::lock_guard`。
-2. **开发过程叙事。** 「第一版」「最初」「曾经」「本来」「旧仓」「重写了三
-   次」「这一段是血买来的」。
-3. **内部票号。** `V-06`、`W13`、评审轮次编号。它们指向一份读者拿不到的文档。
-   （`stage N` 不在此列 —— 那是 `spi::TeardownReg` 的拆除次序，真实代码概念。）
-4. **对话人称与修辞。** 「我们」「你」「咱」「下一个人会……」「诱人的半吊子
-   方案」。注释是陈述，不是劝说。
-5. **注释里的 markdown 排版。** 行首 `#` 标题、``` 代码块、`|---|` 表格、
-   `**加粗**`。注释不是文档站；需要标题分段说明它超预算了。
-6. **变更日志。** 「改成了」「已迁移」「新增」。归 git。
-7. **待办与疑问。** `TODO` / `FIXME` / 「也许应该」。归 issue。
-
----
-
-## 四、语体
-
-- 陈述句、第三人称、现在时。写代码的性质，不写作者的动作。
-- 一句一件事。不用破折号插入从句，不用「不是 X 而是 Y」的对举句式。
-- 不用强调排版。需要靠加粗才立得住的句子，重写它。
-- 术语用引擎与 ABI 的原名（`Player::attack`、`PierApi::struct_size`），不给
-  它们起中文别名。
-- 语言：一个文件内不混用。实现侧（`pier-api` / `pier-host` / `pier-hooks` /
-  `pier-support` / `pier-dimensions` / `pier-client` / `pier-lane`）用中文；
-  对外契约 `pier-abi` 用英文（§六）。
-
-对照：
+The first line of an L1 has a fixed shape and fits on one line:
 
 ```cpp
-// 删：我们最初把它接在 PlayerUseItemEvent 上，然后猜过 PlayerThrowProjectileEvent
-//     （LL 总线上根本不存在），后来才发现原版投射物现在是物品组件……
-// 留：原版投射物是物品组件，投掷走 ThrowableItemComponent::_doThrow；
-//     Spawner::spawnProjectile 不在玩家路径上。
+/** <file name>: <one sentence of responsibility>. */
+```
+
+When the responsibility is one sentence, that is the end of it. A file header is not
+expanded merely so that one exists.
+
+---
+
+## 2. Only these five kinds stay
+
+1. **Constraints**: threads, locks, re-entry, lifetime, ownership, call order. A reader who
+   does not observe them gets it wrong, and the code itself does not state them.
+2. **Counter-intuitive facts**: where the actual behavior of the engine or the platform
+   disagrees with its documentation or with intuition; where a magic number comes from.
+3. **Danger**: a place that fails silently when deleted or optimized in passing. It has to
+   state the symptom, because a symptom can be searched for and a conclusion cannot.
+4. **Contract**: ABI stability rules, ownership transfer across the boundary, what is
+   returned on failure.
+5. **A rejected obvious approach**, and only where it is obvious enough that the next
+   person will certainly try it. One line saying why it does not work, with no account of
+   the attempt.
+
+A comment outside these five kinds is one nobody will need once it is deleted.
+
+---
+
+## 3. Seven kinds that are always deleted
+
+1. **Restating the code.** A "take the lock" next to a `std::lock_guard`.
+2. **Narrating development.** "the first version", "originally", "used to", "the old
+   repository", "rewritten three times", "this passage was paid for in blood".
+3. **Internal ticket numbers.** A review round number of any form. They point at a document
+   the reader cannot get. A `stage N` is not one of these, being the teardown order of
+   `spi::TeardownReg` and a real concept in the code.
+4. **Conversational person and rhetoric.** "we", "you", "the next person will...", "the
+   tempting half-measure". A comment is a statement and not persuasion.
+5. **Markdown layout inside a comment.** A leading `#` heading, a fenced code block, a
+   `|---|` table, bold. A comment is not a documentation site, and needing a heading to
+   break it up says it is over budget.
+6. **A change log.** "changed to", "migrated", "added". That belongs to git.
+7. **Pending items and open questions.** `TODO`, `FIXME`, "perhaps this should". Those
+   belong in an issue.
+
+---
+
+## 4. Register
+
+- Declarative sentences, third person, present tense. Write the properties of the code and
+  not the actions of its author.
+- One thing per sentence. No subordinate clause inserted with a dash, and no
+  not-X-but-Y construction.
+- No emphatic formatting. A sentence that needs bold to stand up is rewritten.
+- Terms use the original names of the engine and the ABI, such as `Player::attack` and
+  `PierApi::struct_size`, with no alias invented.
+- **Language: every comment is in English, with no exception anywhere in the repository**,
+  covering the implementation side, the contract header, the build scripts and the tool
+  scripts alike. The reason shares its root with the reason §6 gives for `abi.h`: the
+  readers of a comment are binding authors in any language and server operators in any
+  region, and a comment in one natural language turns a constraint anyone can read into a
+  constraint only readers of that language can read.
+- Spelling is American, as in `behavior`, `initialize` and `deserializer`, and is not mixed
+  within one repository.
+
+A comparison:
+
+```cpp
+// Delete: We first hooked PlayerUseItemEvent, then guessed at PlayerThrowProjectileEvent
+//         (which does not exist on the LL bus), and only later found that vanilla
+//         projectiles are item components now...
+// Keep:   Vanilla projectiles are item components and throwing goes through
+//         ThrowableItemComponent::_doThrow. Spawner::spawnProjectile is not on the
+//         player path.
 ```
 
 ---
 
-## 五、格式
+## 5. Format
 
-- 声明用 `/** ... */`，体内用 `//`。体内不用块注释。
-- 多行块注释每行以 ` * ` 起，缩进与被注释的声明对齐。
-- 行宽 ≤ 100 列（含缩进与 ` * `）。
-- 行尾注释与代码间隔一个空格：`int x = 3; // 理由`。行尾注释不换行。
-- 空行不用来分段落 —— 需要分段落说明超预算了。
-- 不画 ASCII 分隔线（`── ... ──`、`═══`）。
-
----
-
-## 六、`pier-abi/include/sdk/abi.h` 例外
-
-这份头文件是**产品本体**，不是实现文件：它同时是所有语言 SDK 的参考文档，
-读者拿不到别的东西。因此：
-
-- **不受 L1/L2 预算限制。** 逐槽位的语义、参数含义、失败返回值、线程要求
-  写全 —— 缺一句话，某一门语言的绑定作者就要猜。
-- **仍然受 §三、§四、§五 全部约束。** 尤其是：不写开发经过，不写票号，不用
-  markdown 排版。
-- **注释用英文。** 消费方是任意语言，中文注释把「任何语言都能读的契约」变成
-  了「读得懂中文的人才能读的契约」。
-- 不出现任何消费方语言的拼写（`abi-no-lang` 机检守这一条）。C++ 拼写只在说明
-  宿主侧机制时允许。
-
-同样的例外**不**适用于 `pier-abi` 之外的任何头文件。
+- A declaration uses `/** ... */` and a body uses `//`. A body uses no block comment.
+- Every line of a multi-line block comment starts with ` * `, indented to align with the
+  declaration it comments.
+- Line width is at most 100 columns, including the indentation and the ` * `.
+- A trailing comment is separated from the code by one space, as in `int x = 3; // reason`.
+  A trailing comment does not wrap.
+- A blank line is not used to separate paragraphs; needing paragraphs says it is over
+  budget.
+- No ASCII rules are drawn.
 
 ---
 
-## 七、注释不许对代码撒谎
+## 6. The exception for `pier-abi/include/sdk/abi.h`
 
-继承 `CONTRACT.md` §5.4，并且在精简时优先级最高：
+That header is the product itself and not an implementation file: it is at the same time
+the reference documentation of the SDK in every language, and its readers have nothing
+else. Therefore:
 
-- 声称了安全性质的注释（「异常已捕获」「不会抛」「仅服务器线程」），旁边必须
-  就是实现那个性质的代码。做不到就改注释，不是改措辞。
-- **精简不许把真话删成假话。** 删掉一句限定语（「首次调用之后」「持锁期间」）
-  常常把一句准确的话变成一句错的话。删之前先确认剩下的那句单独成立。
-- 空的 `catch` 块必须留一行注释说明为什么可以空 —— 它是「有意回退」与「漏写」
-  之间唯一可查的凭据（`no-silent-fallback` 机检依赖它）。
+- **It is not bound by the L1 and L2 budgets.** The meaning of each slot, what its
+  parameters mean, what it returns on failure and what it requires of threads are written
+  in full, because one missing sentence leaves a binding author in some language guessing.
+- **It is still bound by all of §3, §4 and §5.** In particular: no account of development,
+  no ticket numbers, no markdown layout. The language follows §4, the same as every other
+  file.
+- No spelling of any consumer language appears, which the `abi-no-lang` check guards. A C++
+  spelling is permitted only while explaining a host-side mechanism.
+
+The same exception does not apply to any header outside `pier-abi`.
 
 ---
 
-## 八、机器检查
+## 7. A comment must not lie about the code
+
+This inherits `CONTRACT.md` §5.4 and has the highest priority while trimming:
+
+- A comment claiming a safety property, such as the exception being caught, nothing being
+  thrown, or server thread only, has to sit next to the code implementing that property.
+  Where that is impossible the comment changes, not its wording.
+- **Trimming must not turn a true statement into a false one.** Deleting one qualifier,
+  such as after the first call or while the lock is held, often turns an accurate sentence
+  into a wrong one. Before deleting, confirm that what remains stands on its own.
+- An empty `catch` block keeps one line of comment saying why it may be empty. It is the
+  only checkable evidence between a deliberate fallback and an omission, and the
+  `no-silent-fallback` check depends on it.
+
+---
+
+## 8. Machine checks
 
 ```bash
 python3 tools/checks/comment_style.py
 ```
 
-覆盖 §一 的预算、§三 的 1/2/3/5/6/7 类、§四 的语言、§五 的行宽与分隔线。
+It covers the budgets of §1, items 1, 2, 3, 5, 6 and 7 of §3, and the line width and ASCII
+rules of §5.
 
-**覆盖不到的**：注释是否真实（§七）、是否属于 §二 的五类、是否复述代码。
-这三条要人读。脚本 PASS 只等于机械规则成立，不等于本规范成立 —— 按
-`CONTRACT.md` §九，交付说明只许照抄这一句。
+**The language item of §4 currently has a machine check only on `abi.h`.** The CJK test in
+the script is bound to the `is_abi` branch and the banned-word list is entirely regular
+expressions over one natural language, so after the repository was translated that list
+matches nothing. Both need to follow, and until they do the language item has only a
+`grep` for CJK characters as a backstop, which under contract §9 means a delivery note may
+not give it a checkmark.
+
+**What it cannot cover**: whether a comment is true (§7), whether it is one of the five
+kinds of §2, and whether it restates the code. Those three need a human. A passing script
+means the mechanical rules hold and not that this standard holds, and under
+`CONTRACT.md` §9 a delivery note may only copy that sentence.

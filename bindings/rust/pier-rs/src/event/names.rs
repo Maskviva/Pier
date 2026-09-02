@@ -1,218 +1,242 @@
-//! 事件 id 常量。
+//! Event id constants.
 //!
-//! 事件 id 是**字符串**，拼错的代价是「订阅静默成功、回调一次都不触发」。
-//! 宿主会在解析不到时报错并列出相近 id（§5.3），常量把它提前到编译期。
+//! An event id is a string, and the cost of a typo is a subscription that succeeds
+//! silently while the callback never fires once. The host reports a failed resolution
+//! and lists nearby ids (§5.3), and these constants move that to compile time.
 //!
-//! 两类：**注册表事件**一律给全名 `ll::event::<类名>` —— 中间**没有**分类段。
-//! 宿主也接受唯一后缀，但后缀在上游新增同名事件时会变歧义；**合成事件**
-//! （裸名字）是 Pier 用原生 detour 造的，补的是 LL 覆盖不到的点。
+//! Two kinds. A registry event always gets the full name `ll::event::<ClassName>`, with
+//! no category segment in between. The host accepts a unique suffix too, but a suffix
+//! becomes ambiguous once upstream adds an event of the same name. A synthetic event, a
+//! bare name, is one Pier builds with a native detour to fill a point LL does not cover.
 //!
-//! 每条都注明能不能取消：不可取消的事件上调 `Event::cancel()` 是无害的
-//! no-op，但你会以为拦住了。
+//! Each entry states whether it can be cancelled. Calling `Event::cancel()` on an event
+//! that cannot be is a harmless no-op, and it leaves the impression of having blocked it.
 
-/* ═══════════════ LeviLamina 注册表事件 ═══════════════ */
+/* LeviLamina registry events */
 
-/// **可取消**（`Cancellable<ServerPlayerEvent>`）—— 取消 = 拒绝这次进服。
+/// Cancellable, as a `Cancellable<ServerPlayerEvent>`. Cancelling refuses the join.
 pub const PLAYER_JOIN: &str = "ll::event::PlayerJoinEvent";
-/// **可取消。**
+/// Cancellable.
 pub const PLAYER_CONNECT: &str = "ll::event::PlayerConnectEvent";
-/// 只观察（玩家已经在走了，拦不住）。
+/// Observation only; the player is already leaving and cannot be stopped.
 pub const PLAYER_DISCONNECT: &str = "ll::event::PlayerDisconnectEvent";
-/// 只观察。
+/// Observation only.
 pub const PLAYER_DIE: &str = "ll::event::PlayerDieEvent";
-/// 只观察。
+/// Observation only.
 pub const PLAYER_RESPAWN: &str = "ll::event::PlayerRespawnEvent";
 
-/// 可取消。载荷含 `message`，改它即可改写发言。
+/// Cancellable. The payload carries `message`, and editing it rewrites what was said.
 pub const PLAYER_CHAT: &str = "ll::event::PlayerChatEvent";
 
-/// 可取消。玩家挖掉一个方块。
+/// Cancellable. A player mined a block.
 pub const PLAYER_DESTROY_BLOCK: &str = "ll::event::PlayerDestroyBlockEvent";
-/// 可取消（`PlayerPlacingBlockEvent` 是「正要放」，`Placed` 是既成事实）。
+/// Cancellable. `PlayerPlacingBlockEvent` is about to place while `Placed` is already done.
 pub const PLAYER_PLACING_BLOCK: &str = "ll::event::PlayerPlacingBlockEvent";
-/// 只观察（既成事实）。要拦请用 [`PLAYER_PLACING_BLOCK`]。
+/// Observation only; it is already done. Use [`PLAYER_PLACING_BLOCK`] to block it.
 pub const PLAYER_PLACED_BLOCK: &str = "ll::event::PlayerPlacedBlockEvent";
-/// 可取消。右键方块（开箱子、按按钮、用工具）。
+/// Cancellable. Right-clicking a block: opening a chest, pressing a button, using a tool.
 pub const PLAYER_INTERACT_BLOCK: &str = "ll::event::PlayerInteractBlockEvent";
-/// **可取消。** 想禁某类食物/药水就拦这里（而不是 [`PLAYER_USE_ITEM_COMPLETE`]）。
+/// Cancellable. Banning a food or a potion is blocked here and not at
+/// [`PLAYER_USE_ITEM_COMPLETE`].
 pub const PLAYER_USE_ITEM: &str = "ll::event::PlayerUseItemEvent";
-/// **可取消。**
+/// Cancellable.
 pub const PLAYER_PICK_UP_ITEM: &str = "ll::event::PlayerPickUpItemEvent";
-/// **可取消。** 注意它分不开「打玩家」和「打生物」——那个要用
-/// [`PLAYER_ATTACK_TARGET`]（合成事件，载荷带 `targetIsPlayer`）。
+/// Cancellable. Note that it cannot tell attacking a player from attacking a mob; that
+/// needs [`PLAYER_ATTACK_TARGET`], a synthetic event whose payload carries `targetIsPlayer`.
 pub const PLAYER_ATTACK: &str = "ll::event::PlayerAttackEvent";
-/// 只观察。
+/// Observation only.
 pub const PLAYER_SWING: &str = "ll::event::PlayerSwingEvent";
-/// 只观察。
+/// Observation only.
 pub const PLAYER_JUMP: &str = "ll::event::PlayerJumpEvent";
-/// **可取消**（基类 `PlayerSneakEvent` 就是 `Cancellable<>`）。
+/// Cancellable, since the base `PlayerSneakEvent` is a `Cancellable<>`.
 pub const PLAYER_SNEAKING: &str = "ll::event::PlayerSneakingEvent";
-/// **可取消**（同上）。
+/// Cancellable, as above.
 pub const PLAYER_SNEAKED: &str = "ll::event::PlayerSneakedEvent";
-/// 只观察（`PlayerSprintEvent` 不是 Cancellable —— 和 Sneak 不一样，别想当然）。
+/// Observation only: `PlayerSprintEvent` is not Cancellable, unlike Sneak.
 pub const PLAYER_SPRINTING: &str = "ll::event::PlayerSprintingEvent";
-/// 只观察（同上）。
+/// Observation only, as above.
 pub const PLAYER_SPRINTED: &str = "ll::event::PlayerSprintedEvent";
-/// **可取消。**
+/// Cancellable.
 pub const PLAYER_ADD_EXPERIENCE: &str = "ll::event::PlayerAddExperienceEvent";
-/// **可取消。**
+/// Cancellable.
 pub const PLAYER_CHANGE_PERM: &str = "ll::event::PlayerChangePermEvent";
-/// 只观察（它是 `PlayerAttackEvent`/`PlayerDestroyBlockEvent` 的**基类**，
-/// 想拦具体动作请订那两个）。
+/// Observation only. It is the base of `PlayerAttackEvent` and
+/// `PlayerDestroyBlockEvent`; subscribe to those two to block a specific action.
 pub const PLAYER_LEFT_CLICK: &str = "ll::event::PlayerLeftClickEvent";
-/// 只观察（基类，同上）。
+/// Observation only; a base class, as above.
 pub const PLAYER_RIGHT_CLICK: &str = "ll::event::PlayerRightClickEvent";
 
-/// **可取消。**
+/// Cancellable.
 pub const ACTOR_HURT: &str = "ll::event::ActorHurtEvent";
-/// 只观察（`MobEvent` 不是 Cancellable）。
+/// Observation only: `MobEvent` is not Cancellable.
 pub const MOB_DIE: &str = "ll::event::MobDieEvent";
-/// **可取消。**
+/// Cancellable.
 pub const SPAWNING_MOB: &str = "ll::event::SpawningMobEvent";
-/// 只观察（既成事实）。
+/// Observation only; it is already done.
 pub const SPAWNED_MOB: &str = "ll::event::SpawnedMobEvent";
 
-/// 只观察。要拦方块变化用 [`PLAYER_PLACING_BLOCK`] / [`PLAYER_DESTROY_BLOCK`] /
-/// [`BLOCK_DESTROY`]（后者覆盖非玩家来源）。
+/// Observation only. Block changes are blocked through [`PLAYER_PLACING_BLOCK`],
+/// [`PLAYER_DESTROY_BLOCK`] or [`BLOCK_DESTROY`], the last of which covers non-player sources.
 pub const BLOCK_CHANGED: &str = "ll::event::BlockChangedEvent";
-/// **可取消。**
+/// Cancellable.
 pub const FIRE_SPREAD: &str = "ll::event::FireSpreadEvent";
 
-/// 只观察。
+/// Observation only.
 pub const SERVER_STARTED: &str = "ll::event::ServerStartedEvent";
-/// 只观察。
+/// Observation only.
 pub const SERVER_STOPPING: &str = "ll::event::ServerStoppingEvent";
-/// 只观察。**每 tick 一次** —— 判据要便宜，或者干脆用 `Host::schedule`。
+/// Observation only, once per tick, so the test has to be cheap or use `Host::schedule`.
 pub const SERVER_LEVEL_TICK: &str = "ll::event::ServerLevelTickEvent";
 
-/// **可取消。** 命令白名单/审计拦这里。
+/// Cancellable. A command allowlist or an audit hooks here.
 pub const EXECUTING_COMMAND: &str = "ll::event::ExecutingCommandEvent";
-/// 只观察（既成事实）。
+/// Observation only; it is already done.
 pub const EXECUTED_COMMAND: &str = "ll::event::ExecutedCommandEvent";
 
-/* ═══════════════ Pier 合成事件（LeviLamina 没有） ═══════════════ */
+/* Pier synthetic events, which LeviLamina does not have */
 
-/// **可取消。** 「有东西把这一格挖掉了」，不问是谁。
+/// Cancellable. Something removed this cell, without asking who.
 ///
-/// 补的是最大的一个洞：末影人搬走草方块、凋灵撞碎墙、爬行者炸出的坑、
-/// 蠹虫钻进石头、`/setblock … destroy`、别的插件调 destroyBlock —— 在此之前
-/// 这些**一个事件都不触发**，地皮保护只能看着方块凭空消失。
+/// It fills the largest gap: an enderman taking a grass block, a wither smashing a wall,
+/// a creeper crater, a silverfish burrowing into stone, `/setblock ... destroy`, another
+/// plugin calling destroyBlock. None of these fired any event before, and plot protection
+/// could only watch blocks vanish.
 ///
-/// 载荷：`x` `y` `z` `dim` `dropResources` `block`。
-/// 注意**没有**「谁干的」：引擎在这一层已经把来源丢了，编一个出来只会误导。
+/// Payload: `x` `y` `z` `dim` `dropResources` `block`.
+/// Note there is no who: the engine already dropped the source at this layer, and
+/// inventing one would only mislead.
 pub const BLOCK_DESTROY: &str = "BlockDestroyEvent";
 
-/// **可取消**（取消 = 这次爆炸完全不发生，连伤害带方块）。
-/// 载荷：`x` `y` `z` `dim` `radius` `maxResistance` `fire` `breaksBlocks`
-/// `underwater` `sourceIsPlayer` `sourceId` `source`。
+/// Cancellable. Cancelling means the explosion does not happen at all, damage and blocks
+/// alike.
+/// Payload: `x` `y` `z` `dim` `radius` `maxResistance` `fire` `breaksBlocks`
+/// `underwater` `sourceIsPlayer` `sourceId` `source`.
 pub const EXPLOSION: &str = "ExplosionEvent";
 
-/// **可取消。** 水/岩浆要流进某一格。拦「邻居在自己地里放水、流到我家」——
-/// 放水那一下是合法的，流过来的这一步才越界。
-/// 载荷：目标格 `x` `y` `z` `dim`，来源格 `fromX` `fromY` `fromZ`，`direction`、`liquid`。
+/// Cancellable. Water or lava is about to spread into a cell. It blocks a neighbor pouring
+/// water on their own ground and having it flow across: the pour is legitimate and the
+/// spreading step is the crossing.
+/// Payload: the target cell `x` `y` `z` `dim`, the source cell `fromX` `fromY` `fromZ`,
+/// plus `direction` and `liquid`.
 ///
-/// 热路径：液体每 tick 都在流，判据要便宜。
+/// A hot path: liquid spreads every tick, so the test has to be cheap.
 pub const LIQUID_FLOW: &str = "LiquidFlowEvent";
 
-/// **可取消。** 有东西从高处落下把耕地踩成泥土 —— 不需要任何权限，且无日志。
-/// 载荷：`x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`，玩家时另有 `_player`。
+/// Cancellable. Something fell from a height and trampled farmland into dirt, needing no
+/// permission and leaving no log.
+/// Payload: `x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`, plus `_player` for a player.
 pub const FARMLAND_DECAY: &str = "FarmlandDecayEvent";
 
-/// **可取消。** 活塞要推/拉一组方块。拦跨地皮的活塞机器。
-/// 载荷：活塞 `x` `y` `z` `dim`、`facing:[x,y,z]`、`attached:[[x,y,z],…]`。
+/// Cancellable. A piston is about to push or pull a set of blocks. It blocks a cross-plot
+/// piston machine.
+/// Payload: the piston `x` `y` `z` `dim`, `facing:[x,y,z]` and `attached:[[x,y,z],...]`.
 pub const PISTON_PUSH: &str = "PistonPushEvent";
 
-/// **可取消。** 两个箱子要配成大箱子。
-/// 贴着边界放箱子和邻居的箱子配对，打开自己这半边就能看见对面全部物品 ——
-/// 容器保护判的是「你点的那一格」，而那一格确实是你的。
-/// 载荷：`x` `y` `z` `dim` `otherX` `otherY` `otherZ`。
+/// Cancellable. Two chests are about to pair into a double chest.
+/// A chest placed against the boundary pairs with the neighbor's, and opening the near half
+/// shows everything in theirs. Container protection decides on the cell you clicked, and
+/// that cell really belongs to the placer.
+/// Payload: `x` `y` `z` `dim` `otherX` `otherY` `otherZ`.
 pub const CHEST_PAIR: &str = "ChestPairEvent";
 
-/// **可取消**（取消 = 掉落物不生成，**物品消失**，不是留在原地）。
-/// 反刷物、掉落归属。载荷：`x` `y` `z` `dim` `item` `count` `throwTime`
-/// `sourceIsPlayer` `source`。
+/// Cancellable. Cancelling means the drop is not spawned and the item disappears rather
+/// than lying on the ground.
+/// For anti-duplication and drop ownership. Payload: `x` `y` `z` `dim` `item` `count`
+/// `throwTime`
+/// `sourceIsPlayer` `source`.
 pub const SPAWN_ITEM_ACTOR: &str = "SpawnItemActorEvent";
 
-/// 只观察。天气变化。载荷：`rainLevel` `rainTime` `lightningLevel` `lightningTime`。
+/// Observation only. A weather change. Payload: `rainLevel` `rainTime` `lightningLevel`
+/// `lightningTime`.
 pub const WEATHER_CHANGE: &str = "WeatherChangeEvent";
 
-/// **可取消**（取消走引擎的 `NotPossibleHere`，客户端弹原版提示）。
-/// 别人家的床、不该跳夜的玩法、床即炸弹的维度。
+/// Cancellable through the engine's own `NotPossibleHere`, so the client shows the vanilla
+/// message.
+/// For someone else's bed, a game mode where the night must not be skipped, and a dimension
+/// where a bed is a bomb.
 pub const PLAYER_SLEEP: &str = "PlayerSleepEvent";
 
-/// 只观察（返回值是新槽位物品的引用，取消就得凭空造一个）。
-/// 载荷：`from` `to` `item` `dim` `_player`。
+/// Observation only: the return is a reference to the item in the new slot, and cancelling
+/// would mean inventing one out of nothing.
+/// Payload: `from` `to` `item` `dim` `_player`.
 pub const PLAYER_CHANGE_SLOT: &str = "PlayerChangeSlotEvent";
 
-/// 只观察（这里取消会把玩家卡在「一直举着」）。吃完/喝完/望远镜放下。
-/// 想禁食物在 [`PLAYER_USE_ITEM`] 拦「开始使用」。
+/// Observation only: cancelling here leaves the player holding the item forever. Finishing
+/// eating, drinking or lowering a spyglass.
+/// Banning a food blocks the start of the use at [`PLAYER_USE_ITEM`].
 pub const PLAYER_USE_ITEM_COMPLETE: &str = "PlayerUseItemCompleteEvent";
 
-/// **可取消。** 玩家和盔甲架换装备 —— 盔甲架既不是容器也不是方块，
-/// 两套保护都看不见它。
+/// Cancellable. A player swaps equipment with an armor stand, which is neither a container
+/// nor a block, so neither protection sees it.
 pub const ARMOR_STAND_SWAP_ITEM: &str = "ArmorStandSwapItemEvent";
 
-/// **可取消。** 左键打物品展示框取物：不是破坏方块（框还在）、
-/// 也不是打实体（框是方块）。
+/// Cancellable. Left-clicking an item frame to take the item: not breaking a block, since
+/// the frame remains, and not hitting an actor, since the frame is a block.
 pub const PLAYER_ATTACK_ITEM_FRAME: &str = "PlayerAttackItemFrameEvent";
 
-/// **可取消。** 玩家攻击目标。载荷含 `targetIsPlayer`，pvp 旗标靠它区分
-/// 「打玩家」和「打生物」。
+/// Cancellable. A player attacks a target. The payload carries `targetIsPlayer`, which is
+/// how the pvp flag tells attacking a player from attacking a mob.
 pub const PLAYER_ATTACK_TARGET: &str = "PlayerAttackTargetEvent";
 
-/// **可取消。** 玩家切换游戏模式（含 `/gamemode` 与其它插件的调用）。
+/// Cancellable. A player changes game mode, including through `/gamemode` and calls from
+/// other plugins.
 pub const PLAYER_CHANGE_GAME_MODE: &str = "PlayerChangeGameModeEvent";
 
-/// **可取消。** 丢弃物品，覆盖手动丢和背包 UI 拖出两条路。
+/// Cancellable. Dropping an item, covering both dropping by hand and dragging out of the
+/// inventory UI.
 pub const PLAYER_DROP_ITEM: &str = "PlayerDropItemEvent";
 
-/// **可取消。** 右键实体（村民交易、给动物喂食、剪羊毛…）。
+/// Cancellable. Right-clicking an actor: villager trading, feeding an animal, shearing.
 pub const PLAYER_INTERACT_ENTITY: &str = "PlayerInteractEntityEvent";
 
-/// **可取消。** 玩家踩上压力板/绊线。内置 250ms 按（玩家,位置）节流。
+/// Cancellable. A player steps on a pressure plate or a tripwire. Throttled internally at
+/// 250 ms per (player, position).
 pub const PLAYER_STEP_ON_PRESSURE_PLATE: &str = "PlayerStepOnPressurePlateEvent";
 
-/// **可取消。** 同上，但踩的是非玩家实体（用独立节流表）。
+/// Cancellable. As above, but for a non-player actor, using a separate throttle table.
 pub const ACTOR_STEP_ON_PRESSURE_PLATE: &str = "ActorStepOnPressurePlateEvent";
 
-/// **可取消。** 玩家发射投射物（雪球、末影珍珠、弓箭、三叉戟、弩烟花）。
+/// Cancellable. A player launches a projectile: a snowball, an ender pearl, an arrow, a
+/// trident, a crossbow firework.
 pub const PLAYER_SPAWN_PROJECTILE: &str = "PlayerSpawnProjectileEvent";
 
-/// **可取消。** 玩家推挤实体。内置节流。
+/// Cancellable. A player pushes an actor. Throttled internally.
 pub const PLAYER_PUSH_ENTITY: &str = "PlayerPushEntityEvent";
 
-/// **可取消。** 玩家上载具。
+/// Cancellable. A player mounts a vehicle.
 pub const PLAYER_RIDE: &str = "PlayerRideEvent";
 
-/// **可取消。** 非玩家实体上载具（船里的村民、矿车里的猪）。
-/// 载荷用 `passenger`/`passengerId` 而不是 `_player`。
+/// Cancellable. A non-player actor mounts a vehicle, such as a villager in a boat or a pig
+/// in a minecart.
+/// The payload uses `passenger` and `passengerId` instead of `_player`.
 pub const ACTOR_RIDE: &str = "ActorRideEvent";
 
-/// **可取消。** 玩家拾取箭矢/三叉戟一类投射物实体。
+/// Cancellable. A player picks up a projectile actor such as an arrow or a trident.
 pub const PLAYER_TAKE_ENTITY: &str = "PlayerTakeEntityEvent";
 
-/// **可取消。** 玩家打开容器。
+/// Cancellable. A player opens a container.
 pub const PLAYER_OPEN_CONTAINER: &str = "PlayerOpenContainerEvent";
 
-/// 只观察（在 origin 之前发，用于记录「谁开始挖哪一格」）。
+/// Observation only, emitted before origin, for recording who started mining which cell.
 pub const PLAYER_START_DESTROY_BLOCK: &str = "PlayerStartDestroyBlockEvent";
 
-/// 只观察。玩家换维度。载荷：`from` `to` `_player`。
+/// Observation only. A player changes dimension. Payload: `from` `to` `_player`.
 pub const PLAYER_CHANGE_DIMENSION: &str = "PlayerChangeDimensionEvent";
 
-/// 只观察。漏斗转移物品。载荷：`x` `y` `z` `slot` `item` `count`
-/// `old_item` `old_count`。
+/// Observation only. A hopper transfers an item. Payload: `x` `y` `z` `slot` `item` `count`
+/// `old_item` `old_count`.
 pub const HOPPER_TRANSFER: &str = "HopperTransferEvent";
 
-/// **可取消。** 玩家对着方块用物品（放置、右键使用）。
+/// Cancellable. A player uses an item on a block, placing it or right-clicking with it.
 pub const PLAYER_USE_ITEM_ON: &str = "PlayerUseItemOnEvent";
 
-/* ═══════════════ 可取消性查表 ═══════════════ */
+/* The cancellability lookup tables */
 
-/// 已知**可取消**的事件（LL 侧继承自 `Cancellable<>`；合成侧走
-/// `dispatchHookEventCancellable`）。两边都是照着源码列的，不是照着直觉。
+/// The events known to be cancellable. On the LL side they derive from `Cancellable<>` and
+/// on the synthetic side they go through `dispatchHookEventCancellable`. Both lists were
+/// taken from the source and not from intuition.
 const CANCELLABLE: &[&str] = &[
-    // —— LeviLamina 注册表 ——
+    // The LeviLamina registry
     "PlayerJoinEvent",
     "PlayerConnectEvent",
     "PlayerChatEvent",
@@ -232,7 +256,7 @@ const CANCELLABLE: &[&str] = &[
     "FireSpreadEvent",
     "ExecutingCommandEvent",
     "ConsoleOutputtingEvent",
-    // —— Pier 合成 ——
+    // Pier synthetic
     "BlockDestroyEvent",
     "ExplosionEvent",
     "LiquidFlowEvent",
@@ -258,43 +282,43 @@ const CANCELLABLE: &[&str] = &[
     "PlayerUseItemOnEvent",
 ];
 
-/// 已知**只观察**的事件，附「想拦的话该去哪」。
+/// The events known to be observation only, each with where to block instead.
 ///
-/// 这张表存在的理由：在只观察的事件上调 `cancel()` 以前是**无害的 no-op** ——
-/// 无害是指不会崩，但你会以为拦住了。保护类模组里这种「以为拦住了」比崩溃
-/// 危险得多。
+/// Why this table exists: calling `cancel()` on an observation-only event is a harmless
+/// no-op, harmless meaning it does not crash while leaving the impression of having
+/// blocked it. In a protection mod that impression is far more dangerous than a crash.
 const OBSERVE_ONLY: &[(&str, &str)] = &[
-    // —— LeviLamina 注册表 ——
-    ("PlayerDisconnectEvent", "玩家已经在走了，拦不住"),
-    ("PlayerDieEvent", "死亡已成事实；要防死请拦 ActorHurtEvent"),
-    ("PlayerRespawnEvent", "重生已成事实"),
-    ("PlayerPlacedBlockEvent", "已成事实；要拦请用 PlayerPlacingBlockEvent"),
-    ("PlayerSwingEvent", "挥手是纯表现层"),
-    ("PlayerJumpEvent", "跳跃不可取消"),
-    ("PlayerSprintingEvent", "PlayerSprintEvent 不是 Cancellable（和 Sneak 不一样）"),
-    ("PlayerSprintedEvent", "同 PlayerSprintingEvent"),
-    ("PlayerLeftClickEvent", "它是基类；请订 PlayerAttackEvent 或 PlayerDestroyBlockEvent"),
-    ("PlayerRightClickEvent", "它是基类；请订 PlayerInteractBlockEvent 或 PlayerUseItemEvent"),
-    ("PlayerClickEvent", "它是基类"),
-    ("MobDieEvent", "MobEvent 不是 Cancellable；要防死请拦 ActorHurtEvent"),
-    ("SpawnedMobEvent", "已成事实；要拦请用 SpawningMobEvent"),
-    ("BlockChangedEvent", "要拦方块变化请用 PlayerPlacingBlockEvent / PlayerDestroyBlockEvent / BlockDestroyEvent"),
-    ("ServerLevelTickEvent", "tick 不可取消"),
-    ("ServerStartedEvent", "不可取消"),
-    ("ServerStoppingEvent", "不可取消"),
-    ("ExecutedCommandEvent", "已成事实；要拦请用 ExecutingCommandEvent"),
-    ("ConsoleOutputtedEvent", "已成事实；要拦请用 ConsoleOutputtingEvent"),
-    // —— Pier 合成（宿主用 dispatchHookEvent，写回 sink 是 no-op）——
-    ("PlayerStartDestroyBlockEvent", "它在 origin 之前发、只为记录「谁开始挖哪一格」；要拦请用 PlayerDestroyBlockEvent 或 BlockDestroyEvent"),
-    ("PlayerChangeDimensionEvent", "换维度的中途拦下会让玩家卡在两个维度之间"),
-    ("HopperTransferEvent", "转移已经发生（钩点在 origin 之后）"),
-    ("WeatherChangeEvent", "中途拦下会让计时器和实际天气不一致；要控制天气用 Server 的天气接口或 gamerule"),
-    ("PlayerChangeSlotEvent", "返回值是新槽位物品的引用，取消就得凭空造一个；要锁定手持请在事件里把槽位设回去"),
-    ("PlayerUseItemCompleteEvent", "这里取消会把玩家卡在「一直举着」；要禁用请拦 PlayerUseItemEvent"),
+    // The LeviLamina registry
+    ("PlayerDisconnectEvent", "the player is already leaving and cannot be stopped"),
+    ("PlayerDieEvent", "the death is already done; block ActorHurtEvent to prevent it"),
+    ("PlayerRespawnEvent", "the respawn is already done"),
+    ("PlayerPlacedBlockEvent", "already done; use PlayerPlacingBlockEvent to block it"),
+    ("PlayerSwingEvent", "a swing is purely presentational"),
+    ("PlayerJumpEvent", "a jump cannot be cancelled"),
+    ("PlayerSprintingEvent", "PlayerSprintEvent is not Cancellable, unlike Sneak"),
+    ("PlayerSprintedEvent", "as PlayerSprintingEvent"),
+    ("PlayerLeftClickEvent", "a base class; subscribe to PlayerAttackEvent or PlayerDestroyBlockEvent"),
+    ("PlayerRightClickEvent", "a base class; subscribe to PlayerInteractBlockEvent or PlayerUseItemEvent"),
+    ("PlayerClickEvent", "a base class"),
+    ("MobDieEvent", "MobEvent is not Cancellable; block ActorHurtEvent to prevent death"),
+    ("SpawnedMobEvent", "already done; use SpawningMobEvent to block it"),
+    ("BlockChangedEvent", "block a block change through PlayerPlacingBlockEvent, PlayerDestroyBlockEvent or BlockDestroyEvent"),
+    ("ServerLevelTickEvent", "a tick cannot be cancelled"),
+    ("ServerStartedEvent", "cannot be cancelled"),
+    ("ServerStoppingEvent", "cannot be cancelled"),
+    ("ExecutedCommandEvent", "already done; use ExecutingCommandEvent to block it"),
+    ("ConsoleOutputtedEvent", "already done; use ConsoleOutputtingEvent to block it"),
+    // Pier synthetic, where the host uses dispatchHookEvent and the write-back sink is a no-op
+    ("PlayerStartDestroyBlockEvent", "emitted before origin only to record who started mining which cell; use PlayerDestroyBlockEvent or BlockDestroyEvent to block it"),
+    ("PlayerChangeDimensionEvent", "stopping a dimension change midway strands the player between two dimensions"),
+    ("HopperTransferEvent", "the transfer already happened, since the hook point is after origin"),
+    ("WeatherChangeEvent", "stopping it midway leaves the timer disagreeing with the actual weather; control weather through the Server weather interface or a gamerule"),
+    ("PlayerChangeSlotEvent", "the return is a reference to the item in the new slot and cancelling would mean inventing one; pin the held item by setting the slot back inside the event"),
+    ("PlayerUseItemCompleteEvent", "cancelling here leaves the player holding the item forever; block PlayerUseItemEvent to forbid it"),
 ];
 
-/// 去掉 `ll::event::xxx::` 前缀，只留类名 —— 宿主也接受唯一后缀订阅，
-/// 所以查表按后缀查。
+/// Drops the `ll::event::xxx::` prefix and keeps the class name. The host accepts a unique
+/// suffix for a subscription too, so the tables are looked up by suffix.
 fn short(id: &str) -> &str {
     match id.rfind("::") {
         Some(i) => &id[i + 2..],
@@ -302,12 +326,13 @@ fn short(id: &str) -> &str {
     }
 }
 
-/// 这个事件能不能取消。
+/// Whether this event can be cancelled.
 ///
-/// * `Some(true)` —— 能，`Event::cancel()` 会生效；
-/// * `Some(false)` —— 不能，`cancel()` 会返回 `Err` 并说明该去拦哪个；
-/// * `None` —— 表里没有。第三方模组自己发的事件、或本表还没跟上的上游新事件
-///   都会落到这里。`cancel()` 会照常写回（**不拦着你**），但也无从替你确认。
+/// * `Some(true)`: it can, and `Event::cancel()` takes effect;
+/// * `Some(false)`: it cannot, and `cancel()` returns `Err` saying which event to block;
+/// * `None`: it is not in the tables. An event a third-party mod emits itself, or a new
+///   upstream event these tables have not caught up with, both land here. `cancel()` writes
+///   back as usual and blocks nothing, and it can confirm nothing on the caller's behalf.
 pub fn is_cancellable(id: &str) -> Option<bool> {
     let s = short(id);
     if CANCELLABLE.contains(&s) {
@@ -319,7 +344,7 @@ pub fn is_cancellable(id: &str) -> Option<bool> {
     None
 }
 
-/// 只观察的事件为什么不能取消、以及该去拦哪个。
+/// Why an observation-only event cannot be cancelled, and which event to block instead.
 pub fn why_not_cancellable(id: &str) -> Option<&'static str> {
     let s = short(id);
     OBSERVE_ONLY
@@ -328,8 +353,8 @@ pub fn why_not_cancellable(id: &str) -> Option<&'static str> {
         .map(|(_, why)| *why)
 }
 
-/// 全部合成事件的 id —— 启动时拿它和 [`super::list()`] 对一遍，
-/// 就知道这个宿主编入了哪些能力包。
+/// The ids of every synthetic event. Comparing it against [`super::list()`] at startup
+/// shows which capability packages this host was built with.
 pub const ALL_SYNTHETIC: &[&str] = &[
     BLOCK_DESTROY,
     EXPLOSION,

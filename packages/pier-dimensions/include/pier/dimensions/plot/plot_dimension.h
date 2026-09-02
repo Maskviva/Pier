@@ -13,17 +13,18 @@ namespace pier::dimensions
     struct DimensionFactoryInfo;
 
     /**
-     * 一个使用 PlotGenerator 的自定义维度。
+     * A custom dimension that uses PlotGenerator.
      *
-     * 结构与 SimpleCustomDimension 一致（同样的 override 集合），区别只在
-     * createGenerator 返回 PlotGenerator，以及把 PlotLayout 一起存进
-     * dimension_config.json：布局是维度的固有属性而不是可热改的配置，存下来之后重启
-     * 布局不变，玩家已建好的地皮不会因为管理员改了配置而错位。模组侧配置里的 layout
-     * 只用于新建维度和几何计算，真正决定地形长什么样的是这里存下来的这一份。
+     * Structurally identical to SimpleCustomDimension, with the same override set. It differs in
+     * two places: createGenerator returns a PlotGenerator, and the PlotLayout is stored into
+     * dimension_config.json alongside the rest. The layout is an intrinsic property of the
+     * dimension and not hot-editable config, so once stored it survives a restart and plots players
+     * already built cannot shift because an administrator edited a config. The layout in the mod-
+     * side config is used only to create a new dimension and for geometry, while what the terrain
+     * actually looks like is decided by the stored copy.
      *
-     * 本包在新架构里是编进宿主的 object 包，能力经 SlotPack 装进 ABI 表，不导出任何
-     * 符号，所以没有导出宏。
-     */
+     * This package is an object package compiled into the host, its capability reaches the ABI
+     * table through a SlotPack, and it exports no symbol, so there is no export macro. / */
     class PlotDimension final : public Dimension
     {
         uint mSeed{0};
@@ -32,7 +33,8 @@ namespace pier::dimensions
     public:
         PlotDimension(std::string const& name, DimensionFactoryInfo const& info);
 
-        /** 首次注册时调用，产出存进 `dimension_config.json` 的那份数据。 */
+        /** Called at first registration. Produces the data stored into
+         *  `dimension_config.json`. */
         static CompoundTag generateNewData(uint seed, PlotLayout const& layout);
 
         [[nodiscard]] PlotLayout const& layout() const { return mLayout; }

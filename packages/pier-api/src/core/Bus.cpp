@@ -1,18 +1,18 @@
-/** core/Bus.cpp —— 跨模组事件总线。
+/** core/Bus.cpp: the cross-mod event bus.
  *
- * 表归宿主。模组 A 导出 subscribe、模组 B 递回调这种直觉设计安全不起来：
- * ModHost::unload 会 FreeLibrary，B 一卸载 A 手里就攥着指进已 unmap dylib 的函数
- * 指针，下一次 publish 是一次没有诊断的崩溃。本桥每个异步面都是同一套答案：宿主
- * 持表、条目按票据编号、触发路径持 weak_ptr<HostedMod> 并在调用前重新验证。
+ * The table belongs to the host. The intuitive design, where mod A exports subscribe
+ * and mod B hands over a callback, cannot be made safe: ModHost::unload calls
+ * FreeLibrary, so once B is unloaded A holds a function pointer into an unmapped
+ * dylib and the next publish crashes with no diagnostics. Every asynchronous surface
+ * here answers that the same way. The host owns the table, entries are numbered by
+ * ticket, and the firing path holds a weak_ptr<HostedMod> and revalidates immediately
+ * before the call.
  *
- * 宿主不解析载荷，topic 与 payload 是带外约定的不透明 UTF-8。两道独立的环闸，形
- * 状不同：模组永远收不到自己的发布（自递送是任何深度上限都分不清是否真工作的那
- * 种环）；嵌套派发的深度上限逮 A → B → A，触顶时丢掉最里层的 publish 并打一次
- * 日志。
- *
- * 订阅者列表在锁内快照，回调都在锁释放后调用：订阅者会重入（订阅、退订、发布别
- * 的主题），持锁调进 dylib 时第一个重入的就锁死服务器线程。条目在调用前按票据重
- * 新验证，派发期间被移除的订阅不会被调到。
+ * topic and payload are opaque UTF-8 agreed out of band. Two cycle gates of different
+ * shapes apply: a mod never receives its own publish, and a nesting depth limit
+ * catches A to B to A, dropping the innermost publish and logging once. Subscribers
+ * are snapshotted under the lock and every callback runs after it is released, since
+ * a subscriber that re-enters while the lock is held deadlocks the server thread.
  */
 #include <algorithm>
 #include <cstdint>
@@ -35,20 +35,22 @@ namespace pier::api_impl
 {
     namespace
     {
-        /** 收下的最长主题。够写 `some-long-mod:some-event`，又短到一个被当
-         *  字符串读的垃圾指针变不成几兆字节的 map 键。 */
+        /** Longest topic accepted. Long enough for `some-long-mod:some-event`, short
+         *  enough that a garbage pointer read as a string cannot become a
+         *  multi-megabyte map key. */
         constexpr size_t kMaxTopic = 128;
 
-        /** 嵌套派发上限。8 远超任何真实链条（publish → handler → publish
-         *  是深度 2）；比这深的都是环。 */
+        /** Nesting limit for dispatch. 8 is far beyond any real chain, since publish
+         *  to handler to publish is depth 2. Anything deeper is a cycle. */
         constexpr int kMaxDepth = 8;
 
         struct Subscription
         {
-            HostedMod* mod = nullptr; // 只作身份比对；永不盲目解引用
-            /** 订阅时取得的弱引用。fireOne 只经它复核存活：从裸指针调
-             *  shared_from_this() 本身就是一次盲解引用，模组在另一线程卸载后那块
-             *  内存已经不属于任何人。同 Services.cpp。 */
+            HostedMod* mod = nullptr; // Identity comparison only, never dereferenced
+            /** Weak reference taken at subscribe time. fireOne rechecks liveness only
+             *  through it. Calling shared_from_this() from the raw pointer would itself
+             *  be a blind dereference, and once the mod is unloaded on another thread
+             *  that memory belongs to nobody. Same as in Services.cpp. */
             std::weak_ptr<HostedMod> owner;
             std::string topic;
             PierBusCb cb = nullptr;
@@ -57,13 +59,14 @@ namespace pier::api_impl
 
         std::mutex gBusMutex;
         std::unordered_map<uint64_t, Subscription> gSubs;
-        /** topic → 订阅 id，让 publish 不用扫全表。和 gSubs 在同一把锁下
-         *  保持同步。 */
+        /** topic to subscription ids, so publish does not scan the whole table. Kept
+         *  in sync with gSubs under the same lock. */
         std::unordered_map<std::string, std::vector<uint64_t>> gByTopic;
         uint64_t gNextSubId = 1;
 
-        /** 按线程计的嵌套深度。thread_local 而不是全局计数：两个线程并发
-         *  发布不是环，共享计数会把它们看成环。 */
+        /** Nesting depth per thread. thread_local rather than a global counter,
+         *  because two threads publishing concurrently are not a cycle and a shared
+         *  counter would read them as one. */
         thread_local int gDepth = 0;
 
         struct DepthGuard
@@ -72,8 +75,9 @@ namespace pier::api_impl
             ~DepthGuard() { --gDepth; }
         };
 
-        /** 每个主题只喊一次「太深」，然后闭嘴。环转得和 CPU 一样快；每次
-         *  触发都打日志会把一个 bug 变成一场事故。 */
+        /** Warns about excessive depth once per topic and then stays quiet. A cycle
+         *  spins as fast as the CPU, and logging on every hit turns a bug into an
+         *  incident. */
         void warnDepthOnce(std::string const& topic)
         {
             static std::mutex mu;
@@ -82,14 +86,14 @@ namespace pier::api_impl
             if (seen[topic]) return;
             seen[topic] = true;
             hostLogger().error(
-                "跨模组总线：主题 '{}' 超过嵌套深度 {} —— 丢弃最里层的 publish。"
-                "这是一个发布环：这个主题的某个订阅者又把它发布了一遍"
-                "（直接发，或经由另一个绕回来的主题）。",
+                "[bus] topic '{}' exceeded nesting depth {}, innermost publish dropped; "
+                "this is a publish cycle, where a subscriber of this topic publishes it "
+                "again, either directly or through another topic that loops back",
                 topic, kMaxDepth
             );
         }
 
-        /** 快照订阅了 `topic` 的 id，剔除发布者自己的。 */
+        /** Snapshots the ids subscribed to `topic`, excluding the publisher's own. */
         std::vector<uint64_t> idsFor(std::string const& topic, HostedMod* publisher)
         {
             std::vector<uint64_t> out;
@@ -101,17 +105,19 @@ namespace pier::api_impl
             {
                 auto s = gSubs.find(id);
                 if (s == gSubs.end()) continue;
-                if (s->second.mod == publisher) continue; // 不自递送
+                if (s->second.mod == publisher) continue; // No self-delivery
                 out.push_back(id);
             }
             return out;
         }
 
         /**
-         * 按票据触发一个订阅。返回否决位；`ran` 在回调真的执行时置真。
+         * Fires one subscription by ticket. Returns the veto bit, and sets `ran` when
+         * the callback really executed.
          *
-         * 查表和调用刻意分开：条目在锁内拷出、锁放掉，然后控制流才跨进
-         * dylib。
+         * The lookup and the call are deliberately separated. The entry is copied out
+         * under the lock, the lock is released, and only then does control cross into
+         * the dylib.
          */
         bool fireOne(uint64_t id, std::string_view topic, std::string_view payload, bool& ran)
         {
@@ -120,21 +126,24 @@ namespace pier::api_impl
             {
                 std::lock_guard lock(gBusMutex);
                 auto it = gSubs.find(id);
-                // 没了：被本次派发里更早的订阅者退订了，或它的模组在派发
-                // 中途卸载了。
+                // Gone, either unsubscribed by an earlier subscriber in this same
+                // dispatch or because its mod was unloaded mid-dispatch.
                 if (it == gSubs.end()) return false;
                 sub = it->second;
             }
             if (!sub.cb || !sub.mod) return false;
 
-            // 只经订阅时保存的 weak_ptr 复核；模组已析构时 lock() 得空，不碰
-            // 任何已释放的内存。指针相等再比一次：防止新模组恰好落在旧地址。
+            // Rechecked only through the weak_ptr stored at subscribe time. When the
+            // mod has been destroyed lock() yields empty and no freed memory is
+            // touched. Pointer equality is compared as well, in case a new mod happens
+            // to land at the old address.
             auto mod = sub.owner.lock();
-            if (!mod || mod.get() != sub.mod) return false; // dylib 可能已 unmap
-            if (!mod->isEnabled()) return false;            // 禁用期间静音
+            if (!mod || mod.get() != sub.mod) return false; // dylib may be unmapped
+            if (!mod->isEnabled()) return false;            // Muted while disabled
 
-            // 持 shared_ptr 加回调计数直到回调返回：卸载会被 ModHost 否决，而不
-            // 是在派发途中把代码段抽走。
+            // The shared_ptr and the callback count are held until the callback
+            // returns, so ModHost vetoes an unload rather than pulling the code section
+            // away mid-dispatch.
             CallbackScope scope{mod.get()};
             ran = true;
             return sub.cb(sub.user, ps(topic), ps(payload));
@@ -164,8 +173,9 @@ namespace pier::api_impl
             for (uint64_t id : ids)
             {
                 bool ran = false;
-                // 有人否决也不短路：观察者必须看到一致的流。跳过剩下的会让一个
-                // 模组能观察到什么取决于订阅者顺序，那是谁都控制不了的。
+                // A veto does not short-circuit, because observers must see a
+                // consistent stream. Skipping the rest would make what a mod observes
+                // depend on subscriber order, which nobody controls.
                 bool v = fireOne(id, topic, payload, ran);
                 if (ran)
                 {
@@ -187,8 +197,9 @@ namespace pier::api_impl
                 std::string topic = toString(topicRaw);
                 if (topic.empty() || topic.size() > kMaxTopic) return 0;
 
-                // 还没被 shared_ptr 接管的模组拒收：没有 weak_ptr 就无法在之后重
-                // 新验证，而不经验证调进 dylib 正是这张表要防的。
+                // A mod not yet owned by a shared_ptr is refused. Without a weak_ptr
+                // it cannot be revalidated later, and calling into a dylib without
+                // revalidation is exactly what this table exists to prevent.
                 std::weak_ptr<HostedMod> owner;
                 try
                 {
@@ -215,7 +226,7 @@ namespace pier::api_impl
 
                 std::lock_guard lock(gBusMutex);
                 auto it = gSubs.find(subId);
-                // 只限本人：一个模组不许让另一个闭嘴。
+                // Scoped to the caller. A mod may not silence another one.
                 if (it == gSubs.end() || it->second.mod != raw) return false;
 
                 auto byTopic = gByTopic.find(it->second.topic);
@@ -258,7 +269,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /** 拆除：清掉该模组名下的全部订阅。 */
+        /** Teardown. Clears every subscription held under this mod. */
         void teardown(HostedMod* mod)
         {
             std::lock_guard lock(gBusMutex);

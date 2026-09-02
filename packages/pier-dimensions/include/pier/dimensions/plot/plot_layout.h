@@ -11,19 +11,18 @@
 namespace pier::dimensions
 {
     /**
-     * 地皮世界的几何布局。
-     *
-     * 网格约定，C++ 生成器与模组侧必须完全一致（cell = plotSize + roadWidth，
-     *   ix = mod(worldX, cell)，iz = mod(worldZ, cell)）：
-     *   ix >= plotSize || iz >= plotSize   → 道路
-     *   否则距地皮边缘 < borderWidth       → 边框（算地皮的一部分）
-     *   否则                               → 地皮内部
-     * 地皮占单元格的低位区间 [0, plotSize)，道路占高位区间 [plotSize, cell)。这条约定同时被
-     * PlotGenerator::loadChunk 和模组侧的 plot_at / is_border 使用，改一处必须改另一处。
-     *
-     * 竖直方向：minY 基岩；(minY, floorY) 填充方块；floorY 地表或道路方块；floorY + 1 边框
-     * 方块，只在边框格上，相当于一圈路缘；其余空气。
-     */
+     * The geometric layout of a plot world.
+     * The grid convention, which the C++ generator and the mod side must share exactly, with cell =
+     * plotSize + roadWidth, ix = mod(worldX, cell), iz = mod(worldZ, cell):
+     *   ix >= plotSize || iz >= plotSize    -> road
+     *   otherwise, distance to the plot edge below borderWidth -> border, part of the plot
+     *   otherwise                           -> plot interior
+     * A plot occupies the low range [0, plotSize) of a cell and a road the high range [plotSize,
+     * cell). Both PlotGenerator::loadChunk and plot_at and is_border on the mod side use this
+     * convention, so changing one means changing the other.
+     * Vertically: bedrock at minY; fill blocks over (minY, floorY); the surface or road block at
+     * floorY; the border block at floorY + 1, only on border cells, forming a curb; air everywhere
+     * else. / */
     struct PlotLayout
     {
         int plotSize = 64;
@@ -38,21 +37,22 @@ namespace pier::dimensions
         std::string biome = "minecraft:plains";
 
         /**
-         * 世界竖直范围。不要在这里写字面量 —— 它必须和
-         * `DimensionDefinition` 发给客户端的那一份是同一个来源，
-         * 见 DimensionHeight.h。
+         * The vertical range of the world. No literal belongs here: it must come from
+         * the same source as the copy `DimensionDefinition` sends to the client. See
+         * dimension_height.h.
          */
         static constexpr int kMinY = kWorldMinY;
         static constexpr int kMaxY = kWorldMaxY;
         static constexpr int kBedrockY = pier::dimensions::kBedrockY;
-        static constexpr int kTotalHeight = kMaxY - kMinY; // 832（底部 -512 起）
+        static constexpr int kTotalHeight = kMaxY - kMinY; // 832, from a bottom of -512
         static constexpr int kChunkWidth = 16;
 
         [[nodiscard]] int cellSize() const { return plotSize + roadWidth; }
 
         /**
-         * 夹到安全范围。永远不要相信跨 ABI 传进来的数值 —— 一个越界的
-         * floorY 会让缓冲区索引越界，直接崩服。
+         * Clamps into the safe range. A value arriving across the ABI is never trusted:
+         * an out-of-range floorY makes a buffer index go out of bounds and crashes the
+         * server.
          */
         void clamp()
         {
@@ -62,7 +62,7 @@ namespace pier::dimensions
             if (roadWidth > 64) roadWidth = 64;
             if (borderWidth < 0) borderWidth = 0;
             if (borderWidth * 2 >= plotSize) borderWidth = 0;
-            // floorY + 1 要能放下边框，所以上界留一格
+            // floorY + 1 has to hold the border, so one cell of headroom is kept
             if (floorY <= kMinY) floorY = kMinY + 1;
             if (floorY >= kMaxY - 1) floorY = kMaxY - 2;
             if (floorBlock.empty()) floorBlock = "minecraft:grass_block";
@@ -113,14 +113,15 @@ namespace pier::dimensions
             return l;
         }
 
-        /** 从 SNBT 解析；解析失败返回全默认值（已 clamp）。 */
         /**
-         * 解析布局 SNBT。空串 = 用默认布局；非空但解析失败返回 nullopt。
+         * Parses a layout SNBT. An empty string means the default layout, while a
+         * non-empty string that fails to parse returns nullopt.
          *
-         * 以前解析失败静默退回默认布局，而布局会随维度写进
-         * dimension_config.json 永久保存 —— 一处拼写错误就把一个世界的地皮
-         * 尺寸定死在默认值上，没有任何日志，事后也改不回来（改了就和存档里
-         * 已经生成的地形对不上）。宁可现在失败。
+         * A silent fallback to the default layout would be wrong here, because the
+         * layout is written into dimension_config.json with the dimension and persists.
+         * One typo would fix the plot size of a world at the default with no log line,
+         * and it could not be corrected afterwards, since a change would no longer match
+         * the terrain already generated in the save. Failing now is better.
          */
         [[nodiscard]] static std::optional<PlotLayout> fromSnbt(std::string const& snbt)
         {
@@ -136,7 +137,7 @@ namespace pier::dimensions
         }
     };
 
-    /** 单元格内某一维的区域类型。 */
+    /** The area type of one axis within a cell. */
     enum class PlotArea1D
     {
         Plot,
@@ -150,7 +151,8 @@ namespace pier::dimensions
         return r < 0 ? r + modulus : r;
     }
 
-    /** 把单元格内偏移分类。与模组侧的 plot_at / is_border 同构。 */
+    /** Classifies an offset within a cell. Isomorphic to plot_at and is_border on the
+     *  mod side. */
     [[nodiscard]] inline PlotArea1D classify1D(int offset, PlotLayout const& l)
     {
         if (offset >= l.plotSize) return PlotArea1D::Road;
@@ -159,7 +161,8 @@ namespace pier::dimensions
         return PlotArea1D::Plot;
     }
 
-    /** 二维合并：任一维是路即为路；两维都是内部才是内部；其余是边框。 */
+    /** Combining two axes: either axis being road makes it road, both being interior
+     *  makes it interior, and everything else is border. */
     [[nodiscard]] inline PlotArea1D combine2D(PlotArea1D x, PlotArea1D z)
     {
         if (x == PlotArea1D::Road || z == PlotArea1D::Road) return PlotArea1D::Road;

@@ -1,5 +1,6 @@
-/** hooks/engine/HookEvents.cpp —— 注册表存储、派发，以及作为
- *  spi::EventProvider 挂进宿主动态事件路径的接线。模块契约见 hook_events.h。
+/** hooks/engine/HookEvents.cpp: registry storage, dispatch, and the wiring that attaches
+ *  this package to the host dynamic event path as an spi::EventProvider. The module
+ *  contract is in hook_events.h.
  */
 #include "pier/hooks/hook_events.h"
 
@@ -25,16 +26,17 @@ namespace pier::hooks
 {
     namespace
     {
-        /** Meyers 单例：任何 TU 的静态注册器往里填都安全。 */
+        /** A Meyers singleton, so a static registrar in any TU can fill it safely. */
         std::vector<HookEventDef*>& table()
         {
             static std::vector<HookEventDef*> t;
             return t;
         }
 
-        /** 句柄 ↔ 共享 id。id 来自 spi::nextListenerId（从 1 起的小整数），
-         *  和别的提供方的堆指针句柄在数值上天然不相交；退订还要过
-         *  「在我表里 + mod 相符」两道检查，误认不可能变成误退。 */
+        /** Handle to shared id. The id comes from spi::nextListenerId, a small integer
+         *  from 1 upward, which cannot numerically collide with the heap-pointer handles
+         *  of another provider. An unsubscribe also passes two checks, being in this
+         *  table and matching the mod, so a misread cannot become a wrong removal. */
         PierListenerHandle toHandle(std::uint64_t id)
         {
             return reinterpret_cast<PierListenerHandle>(static_cast<uintptr_t>(id));
@@ -45,9 +47,11 @@ namespace pier::hooks
             return static_cast<std::uint64_t>(reinterpret_cast<uintptr_t>(h));
         }
 
-        /** 一次回调，异常就地接住。接住还得看得见：异常每次都打印，「已被隔离」
-         *  的提醒每进程一次。绝不让模组的异常顺栈回卷进引擎的被钩函数，那会把一
-         *  次逻辑 bug 升级成半更新状态下的引擎崩溃。 */
+        /** One callback, with an exception caught on the spot. Catching must stay
+         *  visible: the exception prints every time and the note that it was contained
+         *  prints once per process. A mod exception never unwinds back into the hooked
+         *  engine function, which would turn one logic bug into an engine crash in a
+         *  half-updated state. */
         void callOne(PierEventCb cb, void* user, std::string const& id, std::string const& snbt,
                      void* wctx, PierStrSink sink)
         {
@@ -62,20 +66,24 @@ namespace pier::hooks
                 if (!warned.exchange(true))
                 {
                     hostLogger().warn(
-                        "合成事件：某个模组回调抛了异常，已就地隔离。"
-                        "这条警告只打一次；上面的异常每次都打。"
+                        "[hooks] a mod callback for a synthetic event threw and was "
+                        "contained; this warning prints once, the exception above prints "
+                        "every time"
                     );
                 }
             }
         }
 
         /**
-         * 取出应答里的取消位。解析，不搜子串。
+         * Extracts the cancel bit from a reply. Parsed, not substring-searched.
          *
-         * cancelled:1b、"cancelled":1、cancelled:1 都是合法 SNBT，另一侧走 NbtValue
-         * 往返和走字符串替换会产出不同形状。按子串找就得逐种枚举，漏配任何一种取
-         * 消都会静默失效，而其余一切照常工作。交给 CompoundTag::fromSnbt 统一解析
-         * 后按标签真值判断，形状差异与判定无关。解析失败按未取消处理。
+         * cancelled:1b, "cancelled":1 and cancelled:1 are all valid SNBT, and the other
+         * side produces different shapes depending on whether it round-trips an NbtValue
+         * or edits a string. Searching for a substring would mean enumerating every
+         * spelling, and missing one makes that form of cancel fail silently while
+         * everything else keeps working. CompoundTag::fromSnbt parses it and the tag
+         * truth value decides, so the shape difference is irrelevant. A failed parse
+         * counts as not cancelled.
          */
         bool replyCancelled(std::string const& reply, std::string_view eventId)
         {
@@ -83,10 +91,11 @@ namespace pier::hooks
             auto tag = CompoundTag::fromSnbt(reply);
             if (!tag)
             {
-                // 解析不了的应答不能静默当成「不取消」，那是最危险的方向：保护
-                // 判定报告已拦而实际放行。
+                // An unparsable reply must not silently count as not cancelled, which is
+                // the most dangerous direction: a protection decision reporting a block
+                // while it actually lets the action through.
                 hostLogger().error(
-                    "合成事件 '{}' 的写回 SNBT 解析失败，按未取消处理：{}", eventId,
+                    "[hooks] write-back SNBT for synthetic event '{}' failed to parse, treated as not cancelled: {}", eventId,
                     tag.error().message()
                 );
                 return false;
@@ -97,8 +106,10 @@ namespace pier::hooks
             return false;
         }
 
-        /** 派发前的订阅快照（回调可在派发中途改 def.subs，直接迭代是 UB）。
-         *  subs 本身按优先级保持有序（见 subscribe），快照顺序即派发顺序。 */
+        /** A snapshot of the subscriptions taken before dispatch, since a callback may
+         *  modify def.subs mid-dispatch and iterating it directly is undefined behavior.
+         *  subs itself stays ordered by priority (see subscribe), so the snapshot order
+         *  is the dispatch order. */
         struct SnapEntry
         {
             PierEventCb cb;
@@ -130,18 +141,19 @@ namespace pier::hooks
         std::string id{def.name};
         struct WCtx
         {
-        } w; // 只观察：写回是 no-op
+        } w; // Observation only: the write-back is a no-op
         for (auto& [cb, user, mod] : snap)
         {
-            CallbackScope scope{mod}; // 回调期间否决卸载
+            CallbackScope scope{mod}; // Veto unload during the callback
             callOne(cb, user, id, snbt, &w, [](void*, PierStr) {});
         }
     }
 
     bool dispatchHookEventCancellable(HookEventDef& def, std::string const& snbt)
     {
-        // 与 dispatchHookEvent 同一套快照纪律，外加一个活的写回 sink：订阅者
-        // 以含取消旗的 SNBT 应答即否决这次动作。
+        // The same snapshot discipline dispatchHookEvent uses, plus a live write-back
+        // sink: a subscriber answering with SNBT carrying the cancel flag vetoes the
+        // action.
         auto snap = snapshot(def);
         std::string id{def.name};
         bool cancelled = false;
@@ -156,8 +168,8 @@ namespace pier::hooks
             if (replyCancelled(reply, id))
             {
                 cancelled = true;
-                // 继续走：每个订阅者都得看到事件。提前停会让「我被调到了吗」
-                // 取决于监听器注册顺序。
+                // Keep going: every subscriber must see the event. Stopping early would
+                // make whether a listener was called depend on registration order.
             }
         }
         return cancelled;
@@ -165,14 +177,15 @@ namespace pier::hooks
 
     namespace
     {
-        /* spi::EventProvider 接线。 */
+        /* spi::EventProvider wiring. */
 
         HookEventDef* findDef(std::string_view wanted)
         {
             for (auto* def : table())
             {
-                // 精确名或带分隔符的唯一后缀（spi::idMatches）。不做子串匹配：
-                // find(name) != npos 会让 "xxFooEventxx" 也命中。
+                // An exact name or a unique separated suffix, through spi::idMatches.
+                // Never a substring: find(name) != npos would also match
+                // "xxFooEventxx".
                 if (spi::idMatches(wanted, def->name)) return def;
             }
             return nullptr;
@@ -187,12 +200,15 @@ namespace pier::hooks
             if (!def || !cb) return nullptr;
             if (!def->installed)
             {
-                // detour 装不上就拒绝订阅（fail-closed）。打一行 error 却照样发句
-                // 柄会让模组以为保护已就位，而它一次都不会触发。
+                // A detour that fails to install refuses the subscription, failing
+                // closed. Logging an error and issuing a handle anyway would let a mod
+                // believe its protection is in place while it never fires once.
                 if (!def->install())
                 {
                     hostLogger().error(
-                        "合成事件 '{}'：原生 detour 安装失败，拒绝订阅 —— 模组不应假设它已生效",
+                        "[hooks] synthetic event '{}': the native detour failed to install, so "
+                        "the subscription is refused rather than letting a mod assume it is "
+                        "active",
                         def->name
                     );
                     return nullptr;
@@ -201,7 +217,8 @@ namespace pier::hooks
             }
             std::uint64_t id = spi::nextListenerId();
             auto sub = std::make_unique<HookSub>(HookSub{mod, cb, user, id, priority});
-            // 插入即保序：数值小者先派发；同优先级按到达顺序（稳定）。
+            // Inserted in order: the lower value dispatches first, and equal priorities
+            // keep arrival order, so the sort is stable.
             auto pos = std::find_if(def->subs.begin(), def->subs.end(),
                                     [&](auto const& s) { return s->priority > priority; });
             def->subs.insert(pos, std::move(sub));
@@ -223,7 +240,7 @@ namespace pier::hooks
                     }
                 }
             }
-            return false; // 不是本提供方的句柄，让下一家试
+            return false; // Not this provider's handle, let the next one try
         }
 
         void providerDropMod(HostedMod* mod)
@@ -244,7 +261,8 @@ namespace pier::hooks
 
         spi::EventProviderReg reg{spi::EventProvider{
             /*name*/ "hooks",
-            /*covers_registry*/ false, // 纯合成事件；注册表同后缀即遮蔽，必须打 warn
+            // Purely synthetic; a same-suffix registry id is shadowing and must warn.
+            /*covers_registry*/ false,
             &providerClaims,
             &providerSubscribe,
             &providerUnsubscribe,

@@ -1,9 +1,12 @@
-/** actors/Money.cpp —— 经济入口，背靠可选的 LLMoney（LegacyMoney）插件。
+/** actors/Money.cpp: the economy entry points, backed by the optional LLMoney plugin
+ *  from LegacyMoney.
  *
- * LegacyMoney.dll 延迟加载，所以本 TU 照常编译、宿主在 LegacyMoney 未安装
- * 时照常启动。每个入口都由 moneyBackendReady() 把门（模组表 + 符号双查，
- * 见 money_guard.h）。后端缺席/禁用时返回安全默认值，而不是去调一个没解
- * 析的 LLMoney_* 桩 —— 那会抛延迟加载结构化异常，把 BDS 带走。 */
+ * LegacyMoney.dll is delay loaded, so this TU compiles normally and the host starts
+ * normally when LegacyMoney is not installed. Every entry point is gated by
+ * moneyBackendReady(), which checks the mod table and the symbols (see
+ * money_guard.h). When the backend is absent or disabled the entry returns a safe
+ * default rather than calling an unresolved LLMoney_* stub, which would raise a
+ * delay-load structured exception and take BDS down. */
 #ifndef PIER_BUILD_CLIENT
 
 #include <algorithm>
@@ -35,24 +38,24 @@ namespace pier::api_impl
 {
     namespace
     {
-        /** 前向声明：蹦床的安装是惰性的（见下方「money 事件监听器」一节的
-         *  ensureTrampolines），而每个经济入口在确认后端就绪之后都要顺手补装
-         *  一次 —— 那些入口写在前面。 */
+        /** Forward declaration. Trampoline installation is lazy, see
+         *  ensureTrampolines in the money event listener section below, and every
+         *  economy entry point retries it after confirming the backend is ready. Those
+         *  entry points appear earlier in this file. */
         void ensureTrampolines();
 
         /**
-         * 余额。失败返回 -1，不是 0。
+         * Balance. Returns -1 on failure and not 0.
          *
-         * 这是对着 LegacyMoney 的源码定的：`LLMoney_Get` 自己在 xuid 为空或
-         * 数据库出错时就返回 -1，而正常余额不会是负数（`LLMoney_Trans` 拒绝
-         * 负值、并在结果为负时回滚）。所以「< 0 = 问不出来」是这个槽位**已经
-         * 存在**的约定 —— 后端缺席时也返回 -1 才是自洽的。
+         * This follows the LegacyMoney source. `LLMoney_Get` itself returns -1 on an
+         * empty xuid or a database error, and a normal balance is never negative, since
+         * `LLMoney_Trans` refuses negative values and rolls back a negative result. A
+         * value below zero therefore already means "cannot be determined" for this slot,
+         * so returning -1 when the backend is absent is the consistent answer, while 0
+         * would be indistinguishable from a balance that is genuinely 0 (contract §5.2).
          *
-         * 旧行为是缺席返回 0，那和「余额确实是 0」无法区分（契约 §5.2 点名
-         * 反对的正是这种）。
-         *
-         * 另一件值得知道的事：`LLMoney_Get` 对没见过的 xuid 会建账（按
-         * 配置的 def_money 插一行），所以这个调用不是无副作用的只读查询。
+         * `LLMoney_Get` creates an account for an unseen xuid, inserting a row with the
+         * configured def_money, so this call is not a side-effect-free read.
          */
         long long api_get_money(PierStr xuid)
         {
@@ -102,8 +105,9 @@ namespace pier::api_impl
         void api_money_get_hist(PierStr xuid, int timediff, void* ctx, PierStrSink sink)
         {
             PIER_API_GUARD_BEGIN
-                // 后端缺席 → 没有记录。干脆不调 sink，让另一侧看到空历史
-                //（等价于「什么都没查到」）。
+                // No backend means no records. The sink is simply not called, so the
+                // other side sees an empty history, which is equivalent to finding
+                // nothing.
                 if (!moneyBackendReady()) return;
                 sink(ctx, ps(LLMoney_GetHist(toString(xuid), timediff)));
             PIER_API_GUARD_END_VOID
@@ -117,24 +121,24 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
-        /*  money 事件监听器。
+        /*  Money event listeners.
          *
-         * LLMoney_ListenBeforeEvent 只 append，整个 LegacyMoney API 没有任何反注
-         * 册，所以宿主只装一个常驻蹦床再自己扇出。扇出时不 break，让每个订阅者都看
-         * 到这次变动，与 pier-hooks 的可取消事件同口径：判定不依赖注册顺序。
-         * before 任一返回 false 即否决，after 全部通知。
+         * LLMoney_ListenBeforeEvent only appends and LegacyMoney offers no way to
+         * unregister, so the host installs one permanent trampoline and fans out
+         * itself. The fan-out does not break early, so the decision does not depend on
+         * registration order. Any before handler returning false vetoes; every after
+         * handler is notified.
          *
-         * 这两个槽位早于 mod-scoped 约定，只收一个裸函数指针，没有模组句柄也没有
-         * user 上下文；归属靠 addressOwnedBy() 从函数地址反查模块恢复。
-         *
-         * 蹦床要能补装：LL 装载阶段 LegacyMoney 尚未 enable，只在注册当时
-         * moneyBackendReady() 为真才装的话，on_load 里注册的否决器永远不会生效。每
-         * 个经济入口和每次注册都尝试补装，ServerStartedEvent 之后再补一次。
-         */
+         * These two slots predate the mod-scoped convention and take a bare function
+         * pointer with no mod handle, so ownership is recovered through
+         * addressOwnedBy(). Installation must be retryable, because LegacyMoney is not
+         * enabled yet during the LL load phase and a veto registered from on_load would
+         * stay inactive forever. Every entry point and registration retries, plus once
+         * after ServerStartedEvent. */
         struct MoneyListener
         {
             PierMoneyCb cb = nullptr;
-            void const* moduleBase = nullptr; // 注册时反查到的模块基址；查不到为 null
+            void const* moduleBase = nullptr; // Module base at registration, null if unresolved
         };
 
         std::mutex gMoneyMutex;
@@ -143,7 +147,8 @@ namespace pier::api_impl
         bool g_beforeHooked = false;
         bool g_afterHooked = false;
 
-        /** 反查回调所属模块的基址：Pier 模组的回调落在它自己的 DLL 里。 */
+        /** Resolves the base address of the module owning a callback. A Pier mod's
+         *  callback lies inside its own DLL. */
         void const* moduleBaseOf(PierMoneyCb cb)
         {
             auto* host = ModHost::instance();
@@ -165,11 +170,13 @@ namespace pier::api_impl
             return out;
         }
 
-        /** 后端一旦就绪就把两个蹦床装上（幂等；每个经济入口都调）。 */
+        /** Installs both trampolines once the backend is ready. Idempotent, and called
+         *  from every economy entry point. */
         void ensureTrampolines()
         {
-            // 快路径：两个蹦床都装好之后这个函数在每次经济调用上都会被调到，
-            // 不该再去翻一遍模组注册表（moneyBackendReady 会查 ModManagerRegistry）。
+            // Fast path. Once both trampolines are installed this runs on every
+            // economy call, so it must not walk the mod registry again, which
+            // moneyBackendReady does through ModManagerRegistry.
             if (g_beforeHooked && g_afterHooked) return;
             if (!moneyBackendReady()) return;
             if (!g_beforeHooked)
@@ -208,13 +215,14 @@ namespace pier::api_impl
             if (!base)
             {
                 hostLogger().warn(
-                    "money_listen_*: 回调 {:p} 不属于任何已装载的 pier 模组，卸载时无法清理 —— "
-                    "它会一直存活到进程结束。", reinterpret_cast<void const*>(cb));
+                    "[money] money_listen_* callback {:p} belongs to no loaded pier mod, "
+                    "so it cannot be cleaned up on unload and lives until the process "
+                    "exits", reinterpret_cast<void const*>(cb));
             }
             std::lock_guard lock(gMoneyMutex);
             for (auto const& l : list)
             {
-                if (l.cb == cb) return; // 幂等：同一回调不重复登记
+                if (l.cb == cb) return; // Idempotent, the same callback is not registered twice
             }
             list.push_back(MoneyListener{cb, base});
         }
@@ -235,7 +243,8 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
-        /** 服务器启动完成后再补装一次：此时 LegacyMoney 已 enable。 */
+        /** One more installation attempt after server startup completes, by which
+         *  point LegacyMoney is enabled. */
         std::shared_ptr<ll::event::ListenerBase> gStartedListener;
 
         void bootstrap()
@@ -262,8 +271,9 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
-        /** 拆除（stage 100）：按注册时记下的模块基址清掉属于该模组的回调。
-         *  蹦床留着不动 —— LegacyMoney 没有反注册。 */
+        /** Teardown at stage 100. Clears the callbacks belonging to this mod by the
+         *  module base recorded at registration. The trampolines stay, because
+         *  LegacyMoney has no way to unregister. */
         void teardown(HostedMod* mod)
         {
             if (!mod) return;

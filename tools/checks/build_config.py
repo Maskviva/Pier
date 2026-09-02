@@ -1,35 +1,40 @@
 # -*- coding: utf-8 -*-
-"""build-config —— 各 `xmake.lua` 之间的一致性（契约 §一 的构建面）。
+"""build-config: consistency among the `xmake.lua` files, the build face of contract §1.
 
-§九 原本没有这一条。加它的理由和 `include-resolves` 一样：这一类错误
-**在你手上有 xmake 之前查不到，而 CI 上查到时已经是一次红**。它们又恰好
-是分包重构最容易引入的一类 —— 包多了之后，「谁声明了什么」和「谁真的
-需要什么」是两张表，没人逐条对。
+§9 did not originally have this one. The reason for adding it is the same as for
+`include-resolves`: this class of error cannot be found before xmake is available, and
+finding it in CI already means a red run. It also happens to be the class a
+multi-package refactor most easily introduces, since once there are many packages, what
+each declares and what each actually needs are two tables nobody reconciles row by row.
 
-三条判据：
+Three criteria:
 
-1. **target 名唯一。** 新树把客户端槽位拆成 `packages/pier-client` 之后，
-   根里那句 `target(is_client and "pier-client" or "pier")` 就和它重名了。
-   旧仓没有这个包，所以这是重构**引入**的，不是遗留。
+1. Target names are unique. Once the new tree split the client slots into
+   `packages/pier-client`, the root line `target(is_client and "pier-client" or "pier")`
+   collided with it. The old repository had no such package, so the refactor introduced
+   this rather than inheriting it.
+2. Every `add_packages(X)` has a matching `add_requires(X)`. An `add_packages(
+   "levilamina-client")` was once written for a package that does not exist, and the
+   configure stage failed outright. A package name does not change with the build
+   configuration; the client and server difference lives in the configs of
+   `add_requires`.
+3. Using a header of an external library requires declaring that package, computed over
+   the transitive closure of includes, since a package inherits its includedirs through
+   `add_packages`.
 
-2. **`add_packages(X)` 必须有对应的 `add_requires(X)`。** 曾经写过
-   `add_packages("levilamina-client")` —— 那个包不存在，配置阶段直接失败。
-   包名不随构建配置改，客户端/服务端的差别在 `add_requires` 的 configs 里。
+   Working over the closure was forced by a real compile. The first version looked at
+   direct includes only and judged `pier-lane` to need no external package at all, since
+   `Lane.cpp` really does include nothing beyond the standard library and `pier/`. But
+   `pier/host/hosted_mod.h` includes `ll/api/event/ListenerBase.h`, and the compiler
+   expands the closure and not the first level. The result was
+   `fatal error C1083: cannot open include file`.
 
-3. **用到某个外部库的头，就必须声明那个包 —— 按 include 的传递闭包算。**
-   包的 includedirs 靠 `add_packages` 继承。
+   The shape of this criterion is that whether something compiles depends on what is in
+   the closure and not on what the file itself wrote.
 
-   「按闭包算」是被真机编译逼出来的。第一版只看**直接** include，于是
-   `pier-lane` 判成「不需要任何外部包」：`Lane.cpp` 自己确实只 include 了
-   标准库和 `pier/`。但 `pier/host/hosted_mod.h` 里有
-   `ll/api/event/ListenerBase.h` —— 编译器展开的是闭包，不是第一层。
-   结果是 `fatal error C1083: 无法打开包括文件`。
-
-   这条判据的形状和 `include-surrogate` 的第二类是同一个：**能不能编过，
-   取决于闭包里有什么，不取决于这个文件自己写了什么。**
-
-第 3 条只查 include 前缀能对上的部分。像 `bedrockdata` 那样**只在链接期**
-起作用、不提供头文件的包，这条查不到，也不该由它来查。
+The third criterion only checks what an include prefix can be matched against. A package
+such as `bedrockdata`, which acts at link time only and ships no header, is invisible to
+it and should be.
 """
 
 import os
@@ -41,7 +46,8 @@ from _abi import ROOT, Result  # noqa: E402
 
 PKGS = os.path.join(ROOT, "packages")
 
-# 外部头前缀 → 提供它的 xmake 包。只列**提供头文件**的包。
+# External header prefix to the xmake package providing it. Only packages that ship
+# headers are listed.
 HEADER_OWNER = {
     "ll/": "levilamina",
     "mc/": "levilamina",
@@ -50,8 +56,9 @@ HEADER_OWNER = {
     "snappy": "snappy",
 }
 
-# 只在链接期起作用、不提供头的包 —— 第 3 条对它们无话可说，列出来是为了
-# 让「声明了但没有对应 include」不被误报成多余。
+# Packages acting at link time only and shipping no header. The third criterion has
+# nothing to say about them, and they are listed so that a declaration without a matching
+# include is not misreported as redundant.
 LINK_ONLY = {"bedrockdata", "prelink", "zlib", "levibuildscript", "legacymoney"}
 
 
@@ -72,7 +79,7 @@ def run():
     r = Result("build-config")
     root_text = _read(os.path.join(ROOT, "xmake.lua"))
 
-    # 只看 xmake 包。cargo crate 归 pkg-layering 的 check_crates 管。
+    # xmake packages only. A cargo crate belongs to check_crates in pkg-layering.
     pkgs = sorted(
         d for d in os.listdir(PKGS)
         if os.path.isdir(os.path.join(PKGS, d))
@@ -80,7 +87,7 @@ def run():
     )
     pkg_texts = {p: _read(os.path.join(PKGS, p, "xmake.lua")) for p in pkgs}
 
-    # ── 1. target 名唯一 ────────────────────────────────────────────
+    # 1. Target names are unique
     seen = {}
     for label, text in [("xmake.lua", root_text)] + [
         ("packages/%s/xmake.lua" % p, t) for p, t in pkg_texts.items()
@@ -88,13 +95,14 @@ def run():
         for m in re.finditer(r'^target\("([^"]+)"\)', text, re.M):
             name = m.group(1)
             if name in seen:
-                r.fail("target %r 在 %s 和 %s 里各定义了一次 —— xmake 会报重复定义"
+                r.fail("target %r is defined once in %s and once in %s, and xmake reports a duplicate definition"
                        % (name, seen[name], label))
             seen[name] = label
         for m in re.finditer(r"^target\(([^\"][^)]*)\)", text, re.M):
-            r.fail("%s 的 target 名是表达式 %r —— 名字不该随构建配置漂，"
-                   "而且表达式的取值可能和某个包的 target 重名" % (label, m.group(1).strip()))
-    r.note("target 名 %d 个，无重名：%s" % (len(seen), "、".join(sorted(seen))))
+            r.fail("the target name of %s is the expression %r. A name must not drift with the "
+                   "build configuration, and the value of an expression may collide with the "
+                   "target of some package" % (label, m.group(1).strip()))
+    r.note("%d target name(s), none duplicated: %s" % (len(seen), ", ".join(sorted(seen))))
 
     # ── 2. add_packages ⊆ add_requires ─────────────────────────────
     required = _toks(root_text, "add_requires")
@@ -103,15 +111,16 @@ def run():
     ]:
         for pk in _toks(text, "add_packages"):
             if pk not in required:
-                r.fail("%s 的 add_packages(%r) 在根 add_requires 里没有对应项 —— "
-                       "xmake 配置阶段就会失败" % (label, pk))
-    r.note("根 add_requires 提供 %d 个外部包，所有 add_packages 都能对上" % len(required))
+                r.fail("%s declares add_packages(%r) with no counterpart in the root "
+                       "add_requires, so the xmake configure stage fails" % (label, pk))
+    r.note("the root add_requires provides %d external package(s) and every add_packages matches one" % len(required))
 
-    # ── 3b. 有中文源文件就必须给 MSVC 加 /utf-8 ────────────────────
+    # 3b. Any source file carrying CJK characters requires /utf-8 for MSVC
     #
-    # 这个仓库的注释是中文的（那是它的一部分：每条注释都写「为什么」）。
-    # 不加 /utf-8 的话，MSVC 在非 UTF-8 代码页下每个文件报一条 C4819，
-    # 一次全量构建上百条，把真正的警告淹掉；加了 /WX 就是硬错。
+    # The criterion is conditional and says nothing about which language the comments are
+    # in. Whenever a source file does carry CJK characters, MSVC under a non-UTF-8 code
+    # page reports one C4819 per file, which is hundreds of lines in a full build and
+    # buries the real warnings, and becomes a hard error under /WX.
     has_cjk = False
     for dp, _, names in os.walk(PKGS):
         if has_cjk:
@@ -122,22 +131,23 @@ def run():
             if any("\u4e00" <= ch <= "\u9fff" for ch in _read(os.path.join(dp, fn))[:4000]):
                 has_cjk = True
                 break
-    # 判据必须落在**代码**上，不能是「文件里出现过这个串」——
-    # 上面那段解释 /utf-8 的注释里就写着 `/utf-8`，按全文匹配的话，
-    # 把那行 add_cxflags 删掉这条检查照样绿。
-    # 这是本工程里同一类错误的第四次（前三次都是「在剥掉 X 的文本里找 X」）。
-    # 统一的形状是：**判据看的东西和它想断言的东西不是同一个东西。**
+    # The criterion has to land on code and not on the string appearing anywhere in the
+    # file: the comment above explaining /utf-8 contains `/utf-8` itself, so a whole-text
+    # match would stay green after that add_cxflags line is deleted. This is the fourth
+    # instance of the same mistake in this project, the previous three all being a search
+    # for X inside text with X stripped out. The common shape is that what the criterion
+    # looks at is not the same thing as what it means to assert.
     root_code = re.sub(r"--\[\[.*?\]\]", "", root_text, flags=re.S)
     root_code = re.sub(r"^\s*--[^\n]*", "", root_code, flags=re.M)
     has_flag = re.search(r'add_cxflags\s*\(\s*"[^"]*(/utf-8|/source-charset)', root_code) is not None
     if has_cjk and not has_flag:
-        r.fail("源文件里有中文，但根 xmake 的**代码**里没有 "
-               "`add_cxflags(\"/utf-8\", ...)` —— MSVC 会对每个文件报 C4819，"
-               "把真正的警告淹掉；加了 /WX 就是硬错")
+        r.fail("a source file carries CJK characters while the code of the root xmake has no "
+               "`add_cxflags(\"/utf-8\", ...)`. MSVC reports one C4819 per file, which buries "
+               "the real warnings and is a hard error under /WX")
     elif has_cjk:
-        r.note("源文件含中文，已给 MSVC 加 /utf-8")
+        r.note("a source file carries CJK characters and /utf-8 is passed to MSVC")
 
-    # ── 3. 用了谁的头就要声明谁（按 include 的传递闭包） ─────────────
+    # 3. Using a package's header requires declaring it, over the transitive include closure
     incdirs = [
         os.path.join(PKGS, p, "include")
         for p in pkgs
@@ -145,7 +155,7 @@ def run():
     ]
 
     def _external_closure(path, seen=None, ext=None, depth=0):
-        """一个 TU 展开后会碰到的**外部**头。内部头照 include 递归进去。"""
+        """The external headers one TU reaches once expanded. Internal headers are recursed into along their includes."""
         if seen is None:
             seen, ext = set(), set()
         if depth > 6 or path in seen or not os.path.exists(path):
@@ -177,16 +187,17 @@ def run():
                         if inc.startswith(prefix):
                             needed.add(owner)
         for miss in sorted(needed - declared):
-            r.fail("%s 的 include 闭包里有 %s 的头，但没有 add_packages(%r) —— "
-                   "includedirs 继承不到，编译器会报「无法打开包括文件」。"
-                   "注意闭包：这个包自己可能一行 %s 的 include 都没写，"
-                   "是经 pier/ 的头带进来的" % (pkg, miss, miss, miss))
+            r.fail("the include closure of %s reaches a header of %s while there is no "
+                   "add_packages(%r). The includedirs are not inherited and the compiler reports "
+                   "that it cannot open the include file. Note the closure: this package may "
+                   "write no %s include of its own and reach it through a header under pier/"
+                   % (pkg, miss, miss, miss))
         for extra in sorted(declared - needed - LINK_ONLY):
-            r.note("%s 声明了 %r 但没有对应的 include —— 若它只在链接期起作用，"
-                   "把它加进本检查的 LINK_ONLY" % (pkg, extra))
+            r.note("%s declares %r with no matching include. If it acts at link time only, add "
+                   "it to LINK_ONLY in this check" % (pkg, extra))
 
     if not r.failures:
-        r.note("每个包声明的外部依赖都覆盖了它实际 include 的头")
+        r.note("the external dependencies each package declares cover the headers it actually includes")
     return r
 
 

@@ -1,4 +1,5 @@
-/** runtime/SysInfo.cpp —— 系统信息与环境变量。纯 OS 调用，双目标均编入。 */
+/** runtime/SysInfo.cpp: system information and environment variables. Plain OS calls,
+ *  compiled into both targets. */
 #include <string>
 
 #include "ll/api/utils/SystemUtils.h"
@@ -32,7 +33,7 @@ namespace pier::api_impl
                 case PIER_SYS_LOCAL_TIME:
                 {
                     auto t = ll::sys_utils::getLocalTime();
-                    // std::tm 字段 + ms，规整成人读的数值。
+                    // std::tm fields plus milliseconds, normalized to human values.
                     std::string out = "{year:" + snbtNum(t.tm_year + 1900)
                         + ",month:" + snbtNum(t.tm_mon + 1)
                         + ",day:" + snbtNum(t.tm_mday)

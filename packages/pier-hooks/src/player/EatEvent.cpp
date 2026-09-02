@@ -1,12 +1,11 @@
-/** player/EatEvent.cpp —— 玩家吃完或喝完手上那件东西。
- *
- * completeUsingItem 是「使用计时走完」的终点：食物、药水、牛奶、望远镜、盾牌举
- * 完都从这里出去。事件在 origin 之前发出，载荷里的 item 还是那件即将被消耗的物
- * 品；之后再问已经变成空气或空瓶。
- *
- * 只观察。这条路上取消会把玩家卡在「一直举着」的状态：客户端播完了动画而服务端
- * 没结算。要禁食物就在 LL 的 PlayerUseItemEvent 那一层拦住开始使用。
- */
+/** player/EatEvent.cpp: a player finished eating or drinking what they held.
+ * completeUsingItem is where a use timer running out ends up: food, potions, milk, a
+ * spyglass and a raised shield all leave through it. The event is emitted before origin,
+ * so the item in the payload is still the one about to be consumed; asking afterwards
+ * yields air or an empty bottle.
+ * Observation only. Cancelling on this path leaves the player stuck holding the item
+ * forever, with the client having played the animation while the server never settled it.
+ * Banning a food means stopping the use at the start, in PlayerUseItemEvent in LL. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -27,7 +26,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& eatDef(); // 前向
+        HookEventDef& eatDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             PlayerCompleteUsingItemHook,
@@ -73,8 +72,8 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[PlayerUseItemCompleteEvent] Player::completeUsingItem 的 detour 安装失败"
-                        "（code={}）。", r);
+                        "[hooks/EatEvent] the Player::completeUsingItem detour failed to install "
+                        "with code={}", r);
                 }
                 return r == 0;
             }

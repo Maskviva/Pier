@@ -1,18 +1,18 @@
 /**
- * pier-lane/Lane.cpp —— 同工具链快车道。
+ * pier-lane/Lane.cpp: the same-toolchain fast lane.
  *
- * service_call 的形状是 (名字, UTF-8) -> UTF-8，跨语言的最大公约数。两个同语言模组
- * 之间用它等于每次判定都序列化一遍，类型信息在字符串里全丢，字段名打错的表现是「这
- * 个人没权限」。本车道只服务一个特例：两边由同一次工具链编出，那时两个 cdylib 里 C
- * 布局函数表逐字节相同，指针可以直接递。
+ * service_call has the shape (name, UTF-8) -> UTF-8, the greatest common divisor
+ * across languages. Between two mods in one language it serializes on every decision,
+ * loses all type information inside the string, and turns a misspelled field name
+ * into "this player has no permission". This lane serves one case, where both sides
+ * came out of the same toolchain build, so the C-layout function tables in the two
+ * cdylibs are byte-identical and a pointer can be handed over directly.
  *
- * 宿主必须掺一脚，理由同 Bus.cpp 但更狠一层：Bus 是回调指针悬垂，这里是整张函数表悬
- * 垂。FreeLibrary 之后代码段已被 unmap 而消费方手里只有一个不会变的指针。宿主只提供
- * 两样：一格永不释放的存活标志（在宿主堆上，FreeLibrary 碰不到，卸载后读它仍合法），
- * 以及卸载时替未归还的租约补调 release（在 FreeLibrary 之前跑，提供方在自己的 dylib
- * 里释放自己的东西）。
- *
- * 宿主不解释 data 与 vtable 里的任何一个字节，也不解释指纹，只做相等比较。
+ * The host takes part for the reason Bus.cpp gives, one step further: Bus risks a
+ * dangling callback pointer, this risks a whole dangling function table. It provides
+ * a never-freed liveness cell on the host heap that FreeLibrary cannot reach, so
+ * reading it after an unload stays legal, and a release call for every outstanding
+ * lease at unload, before FreeLibrary. It interprets no byte of data or vtable.
  */
 #include <atomic>
 #include <cstddef>
@@ -37,11 +37,13 @@ namespace pier::lane
 {
     namespace
     {
-        /** 和服务名一样的上限，理由也一样：够写 `some-mod:some-lane`，又短到
-         *  一个野指针被当成字符串读时变不成几兆的 map 键。 */
+        /** The same cap as a service name, for the same reason. Long enough for
+         *  `some-mod:some-lane`, short enough that a wild pointer read as a string
+         *  cannot become a multi-megabyte map key. */
         constexpr size_t kMaxName = 128;
 
-        /** 最小 JSON 字符串转义。lane_list 是手拼 JSON 的，名字是外部输入。 */
+        /** Minimal JSON string escaping. lane_list assembles JSON by hand and the
+         *  names are external input. */
         std::string jsonEscape(std::string_view s)
         {
             std::string out;
@@ -83,60 +85,63 @@ namespace pier::lane
         }
 
         /**
-         * 一条车道的存活标志。
+         * The liveness flag of one lane.
          *
-         * 单独一个堆分配、永不 delete。地址必须在提供方 `FreeLibrary` 之
-         * 后依然可读 —— 消费方就是靠读它来发现提供方走了的，如果这一格本身
-         * 被释放了，那个检查自己就成了 use-after-free。
+         * A separate heap allocation that is never deleted. The address must stay
+         * readable after FreeLibrary on the provider, because reading it is how a
+         * consumer discovers the provider is gone. Freeing the cell would turn that
+         * check itself into a use-after-free.
          */
         struct AliveCell
         {
             std::atomic<uint32_t> flag{1};
-            /** 消费方正停在这条车道的表项里的次数。见 PierLaneRef::busy。
-             *  和 flag 同住一格、同样永不释放 —— 卸载路径读它的时候，持有它
-             *  的那个消费方可能已经没了。 */
+            /** Number of consumers currently sitting inside an entry of this lane.
+             *  See PierLaneRef::busy. It shares the cell with flag and is likewise
+             *  never freed, because the unload path reads it at a moment when the
+             *  consumer holding it may already be gone. */
             std::atomic<uint32_t> busy{0};
         };
 
         struct Lane
         {
-            HostedMod* mod = nullptr; // 只作身份用：只比较指针值，绝不解引用
-            // 存活复核走这个 weak_ptr，而不是 `mod->shared_from_this()`
-            // —— 后者本身就是一次盲解引用；主线程上 unload 与调用串行所以撞
-            // 不上，但 acquire 允许别的线程调。
+            HostedMod* mod = nullptr; // Identity only. Compared, never dereferenced.
+            // Liveness is rechecked through this weak_ptr and not through
+            // `mod->shared_from_this()`, which would itself be a blind dereference.
+            // On the main thread unload and calls are serialized so they cannot
+            // collide, but acquire may be called from another thread.
             std::weak_ptr<HostedMod> owner;
             std::string name;
             PierLaneDesc desc{};
-            AliveCell* alive = nullptr; // 泄漏的，见上
+            AliveCell* alive = nullptr; // Leaked on purpose, see above
             uint32_t leases = 0;
         };
 
         struct Lease
         {
-            HostedMod* holder = nullptr; // 消费方
+            HostedMod* holder = nullptr; // The consumer
             uint64_t laneId = 0;
         };
 
         std::mutex gMutex;
-        std::unordered_map<uint64_t, Lane> gLanes;         // publish id -> 车道
-        std::unordered_map<std::string, uint64_t> gByName; // 名字 -> publish id（独占）
-        std::unordered_map<uint64_t, Lease> gLeases;       // lease id -> 租约
+        std::unordered_map<uint64_t, Lane> gLanes;         // publish id -> lane
+        std::unordered_map<std::string, uint64_t> gByName; // name -> publish id, exclusive
+        std::unordered_map<uint64_t, Lease> gLeases;       // lease id -> lease
         uint64_t gNextLaneId = 1;
         uint64_t gNextLeaseId = 1;
 
         /**
-         * 提供方的模组还在不在。和 Bus/Services 一样：拿 weak_ptr 复核，别信裸指针。
+         * Whether the provider mod is still there. As in Bus and Services, liveness is
+         * rechecked through a weak_ptr and the raw pointer is not trusted.
          *
-         * 故意不查 isEnabled()。ModManager::enable() 先调 onEnable 回调、回调返回之
-         * 后才把状态翻成 Enabled，所以模组在自己的 on_load 或 on_enable 里发布车道
-         * 时 isEnabled() 一律是 false —— 而那两处正是发布车道唯一合理的时机，查了的
-         * 结果是车道永远发布不出去，报的还是「名字被占了」。
+         * isEnabled() is deliberately not consulted. ModManager::enable() calls the
+         * onEnable callback first and flips the state to Enabled only after it
+         * returns, so isEnabled() is false whenever a mod publishes a lane from its
+         * own on_load or on_enable, which are the only sensible moments to publish.
+         * Consulting it would make publishing impossible and report a name clash.
          *
-         * 这个检查本来也保护不了什么：它想挡的「别调进一段已 unmap 的代码」由存活标
-         * 志（宿主持有、永不释放的那格 atomic，卸载时写 0）和 retireLane（在
-         * lib.free() 之前替所有租约补调 release）挡着，都与 enabled 无关。模组被禁用
-         * 但还没卸载时代码段仍映射着、函数表仍可调；想在禁用时停掉车道的模组应该在
-         * 自己的 on_disable 里撤销。
+         * It would protect little anyway. Calling into an unmapped code section is
+         * covered by the liveness flag and by retireLane, neither depending on enabled.
+         * A mod wanting its lane stopped on disable unpublishes it in on_disable.
          */
         bool providerAlive(Lane const& lane)
         {
@@ -146,11 +151,13 @@ namespace pier::lane
         }
 
         /**
-         * 撤销一条车道：清存活标志 → 替所有未归还的租约补调 release → 摘表。
+         * Retires one lane. Clears the liveness flag, releases every outstanding
+         * lease on the provider's behalf, then removes the table entries.
          *
-         * 调用时不许持 gMutex：`release` 会跳进提供方的 dylib，而那边完全
-         * 可能再调回 `lane_*`（比如在 Drop 里撤销自己另一条车道）。持锁跨过
-         * dylib 边界的第一次重入就是死锁 —— 总线的派发路径已经踩过一次了。
+         * gMutex must not be held across this call. `release` jumps into the
+         * provider's dylib, which may well call back into `lane_*`, for instance
+         * unpublishing another of its own lanes from a Drop. Holding a lock across a
+         * dylib boundary deadlocks on the first re-entry.
          */
         void retireLane(uint64_t laneId)
         {
@@ -165,8 +172,9 @@ namespace pier::lane
                 if (it == gLanes.end()) return;
                 Lane& lane = it->second;
 
-                // 先断电再拆线：任何还没跑到调用点的消费方从这一刻起看到的是
-                // 「没了」，而不是一张即将失效的表。
+                // Cut the power before the wiring. From this moment a consumer that
+                // has not yet reached its call site sees the lane as gone rather
+                // than as a table about to become invalid.
                 if (lane.alive) lane.alive->flag.store(0, std::memory_order_release);
 
                 release = lane.desc.release;
@@ -189,15 +197,15 @@ namespace pier::lane
                 auto byName = gByName.find(lane.name);
                 if (byName != gByName.end() && byName->second == laneId) gByName.erase(byName);
                 gLanes.erase(it);
-                // AliveCell 有意不 delete —— 见文件头。
+                // The AliveCell is deliberately not deleted, see the file header.
             }
 
-            // 锁外。发布时自己持有的那一份 + 每个未归还的租约各一份。
-            // 只替未归还的租约补调 release —— 这是 abi.h（lane_publish /
-            // lane_unpublish 的说明）唯一承诺的事。旧实现还多调了一次「publish 时
-            // 的那一份」，而契约从未记载过这次释放：按文档实现引用计数的提供方
-            // 会被多减一次（下溢 → 释放后使用）。发布时移交的那份引用由提供方
-            // 在 unpublish 之后自行回收。
+            // Outside the lock. release is called once per outstanding lease and
+            // for nothing else, which is all abi.h promises under lane_publish and
+            // lane_unpublish. The reference handed over at publish time is reclaimed
+            // by the provider itself after unpublish. Releasing that one here too
+            // would decrement a provider that implements refcounting from the
+            // documentation once too often, underflowing into a use-after-free.
             if (release)
             {
                 for (uint32_t i = 0; i < outstanding; ++i) release(data);
@@ -205,8 +213,9 @@ namespace pier::lane
             if (outstanding > 0)
             {
                 hostLogger().warn(
-                    "快车道 '{}'：撤销时还有 {} 个租约没归还，已代为释放。消费方模组在卸载前"
-                    "应该自己 drop 掉车道句柄 —— 这条日志说明有一个没做到。",
+                    "[lane] '{}' retired with {} lease(s) still outstanding, released on "
+                    "behalf of the consumers; a consumer mod is expected to drop its lane "
+                    "handles before unload and at least one did not",
                     name, outstanding
                 );
             }
@@ -222,8 +231,8 @@ namespace pier::lane
                 if (desc->struct_size < sizeof(PierLaneDesc))
                 {
                     hostLogger().error(
-                        "快车道：PierLaneDesc 比宿主认识的小（{} < {}）—— "
-                        "模组是针对更旧的 ABI 编的，拒绝发布。",
+                        "[lane] publish refused, PierLaneDesc is smaller than the host "
+                        "expects ({} < {}); the mod was built against an older ABI",
                         desc->struct_size, static_cast<uint32_t>(sizeof(PierLaneDesc))
                     );
                     return 0;
@@ -231,8 +240,9 @@ namespace pier::lane
                 if (desc->protocol != PIER_LANE_PROTOCOL)
                 {
                     hostLogger().error(
-                        "快车道：协议版本 {} != 宿主的 {}，拒绝发布。这一条拒绝只影响这条车道，"
-                        "模组本身照常加载，消费方会降级回 service 通道。",
+                        "[lane] publish refused, protocol {} does not match the host's {}; "
+                        "only this lane is affected, the mod still loads and consumers fall "
+                        "back to the service channel",
                         desc->protocol, PIER_LANE_PROTOCOL
                     );
                     return 0;
@@ -240,17 +250,18 @@ namespace pier::lane
                 if (!desc->vtable) return 0;
                 if (desc->fingerprint == 0)
                 {
-                    // 0 在 acquire 那一侧是「不校验」的意思。提供方报 0 等于把
-                    // 闸门自己拆了，而拆闸门的后果是静默的内存错乱，不是崩溃。
-                    hostLogger().error("快车道：指纹为 0 是保留值，拒绝发布。");
+                    // On the acquire side 0 used to mean "do not verify". A provider
+                    // reporting 0 would dismantle the gate itself, and the result of
+                    // dismantling it is silent memory corruption rather than a crash.
+                    hostLogger().error("[lane] publish refused, fingerprint 0 is reserved");
                     return 0;
                 }
 
                 std::string name = toString(nameRaw);
                 if (name.empty() || name.size() > kMaxName) return 0;
 
-                // 发布只能由模组自己在主线程上做，此时它一定活着；
-                // weak_ptr 就在这里、这一次拿。
+                // Only the mod itself can publish, on the main thread, where it is
+                // certainly alive. The weak_ptr is taken here and only here.
                 std::weak_ptr<HostedMod> owner;
                 try
                 {
@@ -266,16 +277,18 @@ namespace pier::lane
                 auto taken = gByName.find(name);
                 if (taken != gByName.end())
                 {
-                    // 和 service 一样是硬失败。两个模组提供同一条车道不是
-                    // 「都跑」，是一个消费方没法挑选的歧义答案；静默后来居上会
-                    // 让结果取决于模组加载顺序，而那个顺序在装了任何一个不相干
-                    // 的模组之后就会变。
+                    // A hard failure, as with a service. Two mods providing the same
+                    // lane is an ambiguous answer a consumer cannot choose between,
+                    // not both of them running. Letting the later one win silently
+                    // would make the result depend on mod load order, and that order
+                    // changes as soon as any unrelated mod is installed.
                     auto held = gLanes.find(taken->second);
                     std::string holder = held != gLanes.end() && held->second.mod
                                              ? std::string(held->second.mod->getName())
                                              : std::string("<unknown>");
                     hostLogger().error(
-                        "快车道 '{}' 已经被模组 '{}' 占用，拒绝第二个发布者。", name, holder
+                        "[lane] '{}' is already published by mod '{}', second publisher refused",
+                        name, holder
                     );
                     return 0;
                 }
@@ -287,12 +300,12 @@ namespace pier::lane
                 lane.name = name;
                 lane.desc = *desc;
                 lane.desc.struct_size = static_cast<uint32_t>(sizeof(PierLaneDesc));
-                lane.alive = new AliveCell(); // 有意泄漏
+                lane.alive = new AliveCell(); // Leaked on purpose
                 gLanes.emplace(id, lane);
                 gByName.emplace(name, id);
 
                 hostLogger().debug(
-                    "快车道 '{}' 上线（指纹 0x{:016x}）", name, desc->fingerprint
+                    "[lane] '{}' published, fingerprint 0x{:016x}", name, desc->fingerprint
                 );
                 return id;
             PIER_API_GUARD_END
@@ -306,7 +319,7 @@ namespace pier::lane
                 {
                     std::lock_guard lock(gMutex);
                     auto it = gLanes.find(pubId);
-                    // 限定在调用方自己名下：一个模组不能撤销另一个模组的车道。
+                    // Scoped to the caller. A mod cannot unpublish another mod's lane.
                     if (it == gLanes.end() || it->second.mod != raw) return false;
                 }
                 retireLane(pubId);
@@ -318,15 +331,17 @@ namespace pier::lane
             PierModHandle modHandle, PierStr nameRaw, uint64_t wantFingerprint, PierLaneRef* out)
         {
             PIER_API_GUARD_BEGIN
-                // 只要求到 `alive` 为止 —— 那是这条车道能用的最小形状。要求
-                // sizeof(PierLaneRef) 会让每次追加字段都把老消费方一刀切掉，
-                // 正是 abi.h 顶上那条「追加式变更不该收窄可加载范围」在说的事。
+                // Only up to `alive` is required, which is the minimum shape a lane
+                // needs to be usable. Requiring sizeof(PierLaneRef) would cut off
+                // every older consumer on each appended field, which is what the rule
+                // at the top of abi.h forbids: an additive change must not narrow the
+                // loadable range.
                 constexpr uint32_t kMinRefSize =
                     offsetof(PierLaneRef, alive) + sizeof(uint32_t const*);
                 if (!out || out->struct_size < kMinRefSize) return PIER_LANE_REFUSED;
 
-                // 先清干净。半填的 out 加上一个被忽略的返回码，等于把野指针交
-                // 出去。
+                // Clear it first. A half-filled out plus an ignored return code hands
+                // the caller a wild pointer.
                 out->lease = 0;
                 out->fingerprint = 0;
                 out->data = nullptr;
@@ -356,24 +371,27 @@ namespace pier::lane
                     if (it == gLanes.end()) return PIER_LANE_NOT_FOUND;
                     Lane& lane = it->second;
 
-                    // 自取没有意义：同一个模组里直接调那个函数就行，不用绕两次
-                    // FFI 加一把锁，而且真构成循环时那是最难读的一种栈形状。
+                    // Acquiring from itself is pointless. Within one mod the function
+                    // can be called directly, without two FFI hops and a lock, and a
+                    // real cycle here produces one of the least readable stack shapes.
                     if (lane.mod == consumer) return PIER_LANE_REFUSED;
                     if (!providerAlive(lane)) return PIER_LANE_NOT_FOUND;
 
-                    // 指纹先于一切。这是整条车道存在的前提：布局没确认相同之
-                    // 前，一个指针都不能递出去。填 fingerprint 是为了让消费方能
-                    // 打出一条能指导下一步的日志 ——「不匹配」四个字对服主
-                    // 没用。
+                    // The fingerprint comes before everything else. It is the premise
+                    // the whole lane rests on: not one pointer is handed over before
+                    // the layout is confirmed identical. fingerprint is filled in so
+                    // the consumer can log something a server operator can act on,
+                    // which the word "mismatch" on its own is not.
                     out->fingerprint = lane.desc.fingerprint;
 
-                    // 指纹 0 不再表示「不校验」。那个口子给出去的不是诊断数据，
-                    // 是完整的 vtable + data 裸指针，消费方随后会把它当成自己的函
-                    // 数表解引用、按自己的偏移调函数指针 —— 布局没核对过就递指针，
-                    // 正是文件头那条纪律要防的事，而这是唯一能绕过它的路径。诊断需
-                    // 求由 lane_list 覆盖（名字、模组、指纹、协议、租约数），它一
-                    // 个指针都不给。SDK 侧的指纹函数算出 0 会换成 1，所以这个拒绝
-                    // 对正常调用方不可见。
+                    // Fingerprint 0 does not mean "do not verify". Such an opening
+                    // hands out raw vtable and data pointers rather than diagnostic
+                    // data, and the consumer dereferences them as its own function
+                    // table through its own offsets. Handing over pointers with an
+                    // unverified layout is what the file header forbids, and this is
+                    // the only path that could bypass it. Diagnostics go through
+                    // lane_list, which gives out no pointer. The SDK turns a computed
+                    // fingerprint of 0 into 1, so this refusal never reaches a caller.
                     if (wantFingerprint == 0 || wantFingerprint != lane.desc.fingerprint)
                     {
                         return PIER_LANE_FINGERPRINT;
@@ -391,7 +409,8 @@ namespace pier::lane
                     out->vtable = lane.desc.vtable;
                     out->alive =
                         lane.alive ? reinterpret_cast<uint32_t const*>(&lane.alive->flag) : nullptr;
-                    // 追加字段：老消费方填的 struct_size 到不了这里，不写就是了。
+                    // An appended field. The struct_size an older consumer fills in
+                    // does not reach this far, so it simply is not written.
                     if (out->struct_size >= offsetof(PierLaneRef, busy) + sizeof(uint32_t*))
                     {
                         out->busy =
@@ -399,11 +418,12 @@ namespace pier::lane
                     }
                 }
 
-                // 锁外，理由同 retireLane：retain 跳进提供方的 dylib。
+                // Outside the lock, for the reason retireLane gives: retain jumps
+                // into the provider's dylib.
                 if (retain) retain(data);
                 return PIER_LANE_OK;
-                // 0 是 LANE_OK：异常时绝不能说「拿到了」—— REFUSED 和它其余的
-                // 拒绝路径一致。
+                // 0 is LANE_OK, so an exception must never report success. REFUSED
+                // matches the other refusal paths of this entry point.
             PIER_API_GUARD_END_VAL(PIER_LANE_REFUSED)
         }
 
@@ -418,9 +438,9 @@ namespace pier::lane
                 {
                     std::lock_guard lock(gMutex);
                     auto it = gLeases.find(leaseId);
-                    // 提供方走掉时宿主已经替这条租约调过 release 并把它摘了。
-                    // 这里返回 false 而不是再调一次 —— 再调一次就是 double
-                    // free。
+                    // When the provider went away the host already called release for
+                    // this lease and removed it. Returning false here rather than
+                    // calling again avoids a double free.
                     if (it == gLeases.end()) return false;
                     if (it->second.holder != consumer) return false;
 
@@ -452,9 +472,10 @@ namespace pier::lane
                         char fp[32];
                         std::snprintf(fp, sizeof(fp), "0x%016llx",
                                       static_cast<unsigned long long>(lane.desc.fingerprint));
-                        // 转义：车道名由提供方给，模组名来自 manifest —— 两个
-                        // 都是外部输入，直接拼进 JSON 里一个引号就能把这份输出
-                        // 撕开。
+                        // Escaped, because the lane name comes from the provider and
+                        // the mod name from a manifest. Both are external input and a
+                        // single quote concatenated straight into the JSON would tear
+                        // this output apart.
                         out += "{\"name\":\"";
                         out += jsonEscape(lane.name);
                         out += "\",\"mod\":\"";
@@ -479,15 +500,18 @@ namespace pier::lane
         }
 
         /**
-         * 卸载否决：这个模组提供的车道里，有没有哪条正停在调用中。
+         * Unload veto. Reports whether any lane this mod provides is currently inside
+         * a call.
          *
-         * 「全部服务器线程调用」挡住了并发卸载，挡不住重入卸载：提供方的表项
-         * 自己触发一次命令派发、那条命令把提供方卸了，于是 FreeLibrary 发生在
-         * 一个仍然停在提供方代码里的栈帧下面。存活标志对此无能为力 —— 消费方
-         * 早就读过它了。
+         * The rule that every call happens on the server thread blocks a concurrent
+         * unload but not a re-entrant one. An entry of the provider triggers a command
+         * dispatch and that command unloads the provider, so FreeLibrary runs beneath
+         * a frame still sitting in provider code. The liveness flag cannot help, since
+         * the consumer read it long before.
          *
-         * 所以在这里拒绝，而不是先卸再崩。返回车道名给调用方拼错误信息用；名
-         * 字活在 gLanes 里，由宿主持有，和提供方的 dylib 无关。
+         * The refusal therefore happens here rather than crashing after the unload.
+         * The lane name is returned for the caller's error message. It lives in
+         * gLanes, is owned by the host and is independent of the provider's dylib.
          */
         char const* vetoWhy(HostedMod* mod)
         {
@@ -498,19 +522,19 @@ namespace pier::lane
                 if (lane.mod != mod || !lane.alive) continue;
                 if (lane.alive->busy.load(std::memory_order_acquire) != 0)
                 {
-                    held = "快车道 '" + lane.name + "' 正停在调用中";
+                    held = "fast lane '" + lane.name + "' is currently inside a call";
                     return held.c_str();
                 }
             }
             return nullptr;
         }
 
-        /** 拆除（stage 40）。两件事，顺序要紧。 */
+        /** Teardown at stage 40. Two things, and the order matters. */
         void teardown(HostedMod* mod)
         {
-            // 一、先把这个模组消费的租约还掉。提供方还活着，`release` 能正
-            //     常跑；不还的话提供方的状态会被一个已经不存在的模组一直
-            //     retain 着。
+            // 1. Return the leases this mod consumes. The provider is still alive so
+            //    `release` runs normally. Without this the provider's state stays
+            //    retained by a mod that no longer exists.
             std::vector<uint64_t> mine;
             {
                 std::lock_guard lock(gMutex);
@@ -539,9 +563,10 @@ namespace pier::lane
                 if (release) release(data);
             }
 
-            // 二、再撤掉它发布的车道。这一步必须在 `FreeLibrary` 之前完成
-            //     —— Teardown 全部阶段跑完之后 ModHost 才 lib.free()，顺序由那
-            //     里保证；否则 `release` 就跳进了已经 unmap 的代码段。
+            // 2. Retire the lanes it publishes. This must complete before
+            //    FreeLibrary. ModHost calls lib.free() only after every teardown stage
+            //    has run, which guarantees the order. Otherwise `release` would jump
+            //    into an already unmapped code section.
             std::vector<uint64_t> published;
             {
                 std::lock_guard lock(gMutex);

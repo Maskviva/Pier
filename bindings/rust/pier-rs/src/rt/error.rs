@@ -1,13 +1,16 @@
-//! 这一层唯一的错误类型。
+//! The only error type of this layer.
 //!
-//! 只有一个 `String` 而不是一棵错误枚举树，是刻意的：跨 ABI 边界回来的失败
-//! 信息**本来就是一句人话**（宿主 sink 出来的一行字），把它拆成枚举需要在
-//! 两侧维护一份错误码表，而那张表的每一次漂移都是静默的。
+//! One `String` rather than a tree of error enums, deliberately: the failure information
+//! coming back across the ABI boundary is already a sentence in prose, a line the host
+//! sank, and splitting it into an enum would need an error code table maintained on both
+//! sides, whose every drift is silent.
 //!
-//! 代价是调用方不能按类型分支处理。目前没有哪个下游需要 —— 真需要了再加
-//! 枚举，但那时候错误码必须先进 `abi.h`（契约 §〇：ABI 是产品）。
+//! The cost is that a caller cannot branch on the type. No downstream needs that today,
+//! and when one really does an enum can be added, at which point the error codes go into
+//! `abi.h` first (contract §0: the ABI is the product).
 
-/// 一次 ABI 调用失败的原因。消息面向**人**，可以直接打进日志。
+/// Why one ABI call failed. The message is meant for a human and can go straight into a
+/// log.
 #[derive(Debug)]
 pub struct Error(pub String);
 

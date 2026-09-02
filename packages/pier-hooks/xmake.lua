@@ -1,20 +1,25 @@
--- pier-hooks —— 用原生 detour 合成的事件。
+-- pier-hooks: events synthesized with native detours.
 --
--- 这些事件在 LeviLamina 和原版里都没有对应的可订阅项；每个 .cpp 一个事件，
--- 自注册成一个 EventProvider 的条目，加一个事件不用改任何表。全部服务端专属。
+-- Neither LeviLamina nor vanilla offers a subscribable counterpart for these. One event
+-- per .cpp, each self-registering as an entry of one EventProvider, so adding an event
+-- changes no table. Server only.
 target("pier-hooks")
     set_kind("object")
-    -- object 而不是 static：本包的每个 TU 都靠**文件级静态对象**把自己注册进
-    -- 宿主的 SPI，没有任何外部符号引用它们。静态库里这种 obj 会被链接器整个
-    -- 丢掉，症状是功能**静默消失**（契约 §一 规则四）。`object-kind` 机检守着。
+    -- object and not static. Every TU in this package registers itself into the host
+    -- SPI through a file-level static object and no external symbol references them.
+    -- Inside a static library the linker drops such an object entirely, and the
+    -- symptom is a capability that disappears silently (contract §1 rule 4). The
+    -- `object-kind` check guards this.
     set_languages("c++20")
-    -- 不依赖 pier-api：本包和它是**兄弟能力包**，之间零边（契约 §一 规则一）。
-    -- 合成事件接进 subscribe_event 的解析，走的是宿主的 spi::EventProvider，
-    -- 方向是「注册进宿主」而不是「调用 api」—— 所以这里没有 pier-api。
+    -- No dependency on pier-api. The two are sibling capability packages with no edge
+    -- between them (contract §1 rule 1). Synthetic events are spliced into
+    -- subscribe_event resolution through the host's spi::EventProvider, so the direction
+    -- is registering into the host and not calling api, and pier-api does not appear
+    -- here.
     add_deps("pier-abi", "pier-support", "pier-host")
     add_includedirs("include", {public = true})
-    -- detour 用 ll/api/memory/Hook.h，事件载荷读的是 mc/ 的类型 —— 两者的
-    -- includedirs 都由这个包带进来。漏了它这个包一个 TU 都编不过。
+    -- Detours use ll/api/memory/Hook.h and event payloads read mc/ types, and this
+    -- package brings in the includedirs for both. Without it not one TU here compiles.
     add_packages("levilamina")
     if not is_config("target_type", "client") then
         add_files("src/engine/*.cpp", "src/player/*.cpp",

@@ -1,18 +1,17 @@
-/** world/Edit.cpp —— 批量世界编辑的原生入口。
- *
- * 把引擎三个现成入口接出来，绕开 api_set_block 底下那条 setblock 控制台命令：
- * 带状态写方块走 BlockSerializationUtils::tryGetBlockFromNBT 加
- * BlockSource::setBlock，写方块实体走 BlockSource::getBlockEntity 加
- * BlockActor::load，从 NBT 放实体走 ActorFactory::loadActor 加 Level::addEntity。
- *
- * 命令那条路做不了三件事：方块状态只能把序列化 NBT 翻成 ["k"=v] 命令语法，翻错
- * 一处整条命令失败而那一格静默不变（楼梯朝向、原木轴向、门的左右开都丢过）；方
- * 块实体写不回去，箱子内容、告示牌文字、刷怪笼的怪复制过去就没了；实体只认类型
- * 名，变种、装备、年龄全丢。同时省掉命令解析、权限检查与分发三层开销。
- *
- * /setblock 那条路保留：玩家手写的方块规格走命令解析最省事。本文件是新入口而不
- * 是替换，旧模组一行不改照样跑。
- */
+/** world/Edit.cpp: native entry points for bulk world editing.
+ * Three existing engine entry points are exposed, bypassing the setblock console command
+ * underneath api_set_block. A stateful block write goes through
+ * BlockSerializationUtils::tryGetBlockFromNBT plus BlockSource::setBlock, a block entity write
+ * through BlockSource::getBlockEntity plus BlockActor::load, and placing an actor from NBT through
+ * ActorFactory::loadActor plus Level::addEntity. Three things the command path cannot do. Block
+ * states must be translated from serialized NBT into the ["k"=v] command syntax, and one bad
+ * translation fails the whole command while the cell silently stays as it was, which has cost
+ * stair facing, log axis and door hinge side. Block entities cannot be written back at all, so
+ * chest contents, sign text and the mob inside a spawner are lost on a copy. Actors are addressed
+ * by type name only, so variant, equipment and age are lost. It also removes the three layers of
+ * command parsing, permission checking and dispatch. The /setblock path stays, because a block
+ * spec typed by a player is easiest through command parsing. This file adds entry points rather
+ * than replacing them, and an existing mod runs unchanged. / */
 #ifndef PIER_BUILD_CLIENT
 
 #include <memory>
@@ -86,17 +85,19 @@ namespace pier::api_impl
                 std::string_view states = sv(states_snbt);
                 if (states.empty())
                 {
-                    // 没有状态要覆盖：默认状态就是答案，一次解析都不用做。
+                    // No state to override, so the default state is the answer and
+                    // no parsing is needed at all.
                     return bs->setBlock(
                         BlockPos{x, y, z}, *def, update_flags, nullptr, bridge::blockEditContext());
                 }
 
-                // 从默认方块的序列化标签出发，只覆盖调用方给出的那几个状态。
-                //
-                // 这样做而不是让调用方自己拼整个 {name,states,version}：version
-                // 必须是当前版本，而调用方没有可靠办法知道它。填错（或者不填）
-                // 会让引擎把这次写入当成远古存档跑一遍升级表 —— 表现是「我明明
-                // 写的是这个状态，放出来却是另一个」。
+                // Starts from the serialization tag of the default block and overrides
+                // only the states the caller supplied, rather than having the caller
+                // assemble the whole {name,states,version}. version must be the current
+                // one and a caller has no reliable way to know it. A wrong or missing
+                // version makes the engine treat the write as an ancient save and run
+                // the upgrade table, which shows up as writing one state and getting a
+                // different one.
                 CompoundTag tag = def->getSerializationId();
                 auto extra = CompoundTag::fromSnbt(states);
                 if (!extra) return false;
@@ -126,16 +127,19 @@ namespace pier::api_impl
                 if (!level || !bs) return false;
                 BlockPos pos{x, y, z};
                 auto* be = bs->getBlockEntity(pos);
-                // 那一格没有方块实体 —— 调用方的顺序错了（应该先放方块再填内
-                // 容），或者放的方块本来就没有方块实体。报 false，别装作成功。
+                // There is no block entity at that cell, either because the caller has
+                // the order wrong and should place the block before filling it, or
+                // because the block placed has no block entity at all. Reported as
+                // false rather than pretending to succeed.
                 if (!be) return false;
 
                 auto parsed = CompoundTag::fromSnbt(sv(snbt));
                 if (!parsed) return false;
 
-                // 快照里的 x/y/z 是源位置。不改的话，某些方块实体（活塞、
-                // 命令方块）会按那个坐标去找自己，结果是「内容对了，行为错
-                // 了」。
+                // The x, y and z in the snapshot are the source position. Left
+                // unchanged, some block entities such as pistons and command blocks
+                // look themselves up at that coordinate, and the result is right
+                // contents with wrong behavior.
                 (*parsed)["x"] = x;
                 (*parsed)["y"] = y;
                 (*parsed)["z"] = z;
@@ -143,8 +147,9 @@ namespace pier::api_impl
                 DefaultDataLoadHelper helper{};
                 be->load(*level, *parsed, helper);
                 be->setChanged();
-                // setChanged 只标脏。少了这一步，服务端是对的、客户端还是空箱
-                // 子，直到区块重载 —— 而那时玩家早就以为复制失败了。
+                // setChanged only marks it dirty. Without this step the server is
+                // correct while the client still shows an empty chest until the chunk
+                // reloads, by which time the player has concluded the copy failed.
                 be->onChanged(*bs);
                 return true;
             PIER_API_GUARD_END
@@ -177,10 +182,11 @@ namespace pier::api_impl
                     tag["Pos"] = std::move(pos);
                 }
 
-                // NewUniqueIdsDataLoadHelper：把 NBT 里的 UniqueID 映射成**新
-                // 的** id。这正是 /structure load 放实体时走的东西。沿用快照里
-                // 的 id 会和源实体撞号，而撞号的表现是两个实体被引擎当成同一个
-                // —— 一个凭空消失、另一个行为错乱，且没有任何日志。
+                // NewUniqueIdsDataLoadHelper maps the UniqueID in the NBT onto a new
+                // id, which is what /structure load uses when it places actors. Keeping
+                // the id from the snapshot collides with the source actor, and a
+                // collision makes the engine treat two actors as one: one vanishes and
+                // the other misbehaves, with nothing in the log.
                 NewUniqueIdsDataLoadHelper helper{*level};
                 auto owner = level->getActorFactory().loadActor(&tag, helper);
                 if (!owner) return false;
@@ -205,10 +211,11 @@ namespace pier::api_impl
                 if (!a || !sink) return false;
                 auto hr = a->traceRay(max_dist, include_actors, include_blocks);
 
-                // 老的 actor_trace_ray 只发 mPos（一个浮点命中点）。命中点正好
-                // 落在方块的面上，所以 floor() 有一半概率落到隔壁那一格 ——
-                // 任何「照着准星选方块」的功能都因此做不了。mBlock 和 mFacing
-                // 一直都在 HitResult 里，只是没往外发。
+                // actor_trace_ray emits only mPos, a floating point hit point. That
+                // point lands exactly on the face of a block, so floor() picks the
+                // neighboring cell about half the time, which makes any select-the-
+                // block-under-the-crosshair feature impossible. mBlock and mFacing are
+                // in HitResult already and are emitted here.
                 std::string out = "{type:" + snbtNum(static_cast<int>(hr.mType));
                 out += ",block:[" + snbtNum(hr.mBlock.x) + "," + snbtNum(hr.mBlock.y) + ","
                     + snbtNum(hr.mBlock.z) + "]";
@@ -219,8 +226,9 @@ namespace pier::api_impl
                 int64_t entityId = 0;
                 if (hr.mType == HitResultType::Entity)
                 {
-                    // mEntity 是 WeakEntityRef；tryUnwrap<Actor>() 是 LL 给的安
-                    // 全解引用（实体已经消失时返回空，而不是给一个悬垂指针）。
+                    // mEntity is a WeakEntityRef and tryUnwrap<Actor>() is the safe
+                    // dereference LL provides, yielding empty when the actor is already
+                    // gone rather than a dangling pointer.
                     if (auto hit = hr.mEntity.tryUnwrap<Actor>())
                     {
                         entityId = hit->getOrCreateUniqueID().rawID;
@@ -232,11 +240,13 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        //  液体层（含水）
+        //  The liquid layer, meaning waterlogging
         //
-        // Bedrock 的「含水」是同一格上的第二个方块，不是方块状态：主层放楼
-        // 梯，液体层放 water。get_block / set_block 只看主层，所以含水的方块
-        // 复制过去水会消失 —— 主层完全正确，缺的是另一层。
+        // Waterlogging in Bedrock is a second block on the same cell and not a block
+        // state: the main layer holds the stairs and the liquid layer holds water.
+        // get_block and set_block see the main layer only, so copying a waterlogged
+        // block loses the water. The main layer is entirely correct and the other layer
+        // is what is missing.
 
         bool api_get_extra_block(
             int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink)
@@ -246,8 +256,8 @@ namespace pier::api_impl
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!bs) return false;
                 auto const& block = bs->getExtraBlock(BlockPos{x, y, z});
-                // 空液体层返回的是 air，如实传出去 —— 调用方据此判断「这格没有
-                // 含水」。
+                // An empty liquid layer returns air and that is passed through as is,
+                // which is how a caller tells that the cell is not waterlogged.
                 sink(ctx, ps(block.getTypeName()));
                 return true;
             PIER_API_GUARD_END

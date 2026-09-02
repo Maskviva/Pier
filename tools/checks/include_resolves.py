@@ -1,20 +1,24 @@
 # -*- coding: utf-8 -*-
-"""include-resolves —— 每一条内部 `#include` 都必须**逐字符**解析得到一个真实文件。
+"""include-resolves: every internal `#include` must resolve character for character to a
+real file.
 
-契约 §九 原本没有这一条，加进来的理由是它盯的那一类事故在开发机上**永远
-不会显形**：
+Contract §9 did not originally have this one. It was added because the class of accident
+it watches never surfaces on a development machine:
 
-  Windows 的 NTFS 大小写不敏感。`#include "pier/dimensions/base/NativeDimensions.h"`
-  在磁盘上只有 `native_dimensions.h` 时，MSVC 照样编过。同一个头在同一个包
-  里出现两种拼法（`NativeDimensions.cpp` 写小写、`Bridge.cpp` 写大写）不会
-  有任何提示 —— 直到某天在 Linux 上跑一次 CI 或有人用大小写敏感的卷，
-  才会突然「文件不存在」。
+  NTFS on Windows is case insensitive.
+  `#include "pier/dimensions/base/NativeDimensions.h"` compiles under MSVC while the disk
+  holds only `native_dimensions.h`. The same header spelled two ways inside one package,
+  lowercase in `NativeDimensions.cpp` and uppercase in `Bridge.cpp`, produces no hint at
+  all, until one day CI runs on Linux or someone uses a case-sensitive volume and the
+  file suddenly does not exist.
 
-这正是编译器查不到、clippy 查不到的那一类，也就是 §九 说的「才值得写脚本」。
+That is exactly the class the compiler cannot find and clippy cannot find, which is what
+§9 calls worth a script.
 
-顺带把「include 了一个还不存在的头」一起报出来 —— 那是**功能缺席**的
-最早信号：Slots.cpp 引用 `dim/CustomDimensionManager.h` 而它还没写，
-说明这个包此刻编不过，而台账里那一行是 ⬜。两处必须对得上。
+It also reports an include of a header that does not exist yet, which is the earliest
+signal of an absent capability: Slots.cpp referencing `dim/CustomDimensionManager.h`
+before it is written means the package does not compile at this moment, and the matching
+ledger row is outstanding. The two have to agree.
 """
 
 import os
@@ -53,8 +57,9 @@ def run():
                     inc = m.group(1)
                     if any(os.path.exists(os.path.join(d, inc)) for d in incdirs):
                         continue
-                    # 找一找是不是只差大小写 —— 这个区分决定了修法完全不同：
-                    # 大小写不符 = 改一个字母；真缺失 = 还有一整个文件没写。
+                    # Look for a match differing only in case. The distinction decides
+                    # entirely different fixes: a case mismatch is one letter, while a real
+                    # absence means a whole file is still unwritten.
                     lower = inc.lower()
                     hit = None
                     for d in incdirs:
@@ -69,13 +74,14 @@ def run():
                         missing.append((rel, i, inc))
 
     for rel, i, inc, hit in casewrong:
-        r.fail("%s:%d 大小写不符：写的是 %r，磁盘上是 %r（Windows 上编得过，"
-               "大小写敏感的文件系统上直接找不到文件）" % (rel, i, inc, hit))
+        r.fail("%s:%d case mismatch: written as %r while the disk holds %r; this compiles on "
+               "Windows and the file simply does not exist on a case-sensitive filesystem"
+               % (rel, i, inc, hit))
     for rel, i, inc in missing:
-        r.fail("%s:%d include 了不存在的头 %r —— 这个包此刻编不过" % (rel, i, inc))
+        r.fail("%s:%d includes the nonexistent header %r, so this package does not compile at this moment" % (rel, i, inc))
 
     if not r.failures:
-        r.note("%d 个源文件的内部 include 全部逐字符解析成功" % n)
+        r.note("every internal include across %d source file(s) resolved character for character" % n)
     return r
 
 

@@ -4,9 +4,10 @@ namespace pier
 {
     namespace
     {
-        // 值初始化：所有函数指针起始为 NULL。这不是巧合而是契约 ——
-        // 「能力缺席 = 槽位 NULL」（§2.1）的第一半就在这一行；
-        // 第二半是缺席的包根本不会注册槽位包来覆盖它。
+        // Value initialization, so every function pointer starts as NULL. This line
+        // carries the first half of the contract rule that an absent capability means
+        // a NULL slot (§2.1). The second half is that an absent package never
+        // registers a slot pack to overwrite it.
         PierApi gApi{};
     } // namespace
 

@@ -1,15 +1,17 @@
-//! 实体 —— 按 `ActorUniqueID` 寻址的一切，玩家也在内。
+//! Actors: everything addressed by an `ActorUniqueID`, players included.
 //!
-//! # id 是身份，不是指针
+//! # An id is an identity and not a pointer
 //!
-//! [`Entity`] 里只有一个 `i64`。每次调用宿主都重新查一遍活体表，所以一个
-//! `Entity` 值可以跨 tick 留着：实体死了之后调用返回 `Err`，而不是跳进
-//! 一块已经释放的内存。代价是每次调用都有一次查表，热路径上要自己缓存结果。
+//! An [`Entity`] holds one `i64`. The host looks the live table up again on every call, so
+//! an `Entity` value can be kept across ticks: once the actor dies a call returns `Err`
+//! rather than jumping into freed memory. The cost is one lookup per call, so a hot path
+//! caches the result itself.
 //!
-//! # 玩家从这里过一遍才能用实体能力
+//! # A player passes through here to use actor capabilities
 //!
-//! `Player::as_entity()` 走 `player_resolve` 拿到 id。反过来不成立 ——
-//! 一个实体 id 未必是玩家，也没有从 id 反查选择器的槽。
+//! `Player::as_entity()` goes through `player_resolve` for the id. The reverse does not
+//! hold: an actor id is not necessarily a player, and there is no slot resolving an id back
+//! into a selector.
 
 mod actions;
 mod props;
@@ -23,7 +25,7 @@ use crate::rt::ffi::{call_out_str, r_owned};
 use crate::sys;
 use crate::types::{PositionF64, RayHit};
 
-/// 一条状态效果。
+/// One status effect.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Effect {
     pub id: String,
@@ -32,21 +34,21 @@ pub struct Effect {
     pub visible: bool,
 }
 
-/// 实体的轴对齐包围盒。
+/// The axis-aligned bounding box of an actor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Aabb {
     pub min: PositionF64,
     pub max: PositionF64,
 }
 
-/// `list_actors` 报出来的一条。
+/// One entry `list_actors` reports.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActorEntry {
     pub id: i64,
     pub type_name: String,
 }
 
-/// 一个实体。零成本包一个 `ActorUniqueID`。
+/// One actor. A zero-cost wrapper around an `ActorUniqueID`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Entity(i64);
 
@@ -59,11 +61,11 @@ impl Entity {
         self.0
     }
 
-    /// 枚举活着的实体。`dim` 为 `None` 时跨全部维度。
+    /// Enumerates live actors. A `dim` of `None` spans every dimension.
     ///
-    /// 这个槽没有失败位 —— 关卡没就绪时它一条都不报。所以空表既可能是
-    /// 「这个维度里没有实体」，也可能是「关卡还没起来」，调用方要自己
-    /// 用 `Host::gaming_status()` 分辨。
+    /// This slot has no failure bit and reports nothing while the level is not ready, so an
+    /// empty table means either that the dimension holds no actor or that the level has not
+    /// come up, and a caller tells them apart with `Host::gaming_status()`.
     pub fn list(dim: Option<i32>) -> Vec<ActorEntry> {
         if !crate::has_slot!(list_actors) {
             return Vec::new();
@@ -82,46 +84,47 @@ impl Entity {
         out
     }
 
-    /// 这个 id 现在还指向一个活着的实体吗。
+    /// Whether this id still points at a live actor.
     ///
-    /// 判据是「类型名读不读得出来」：任何一个能被解析到的实体都有类型名，
-    /// 解析不到的会让 `actor_get_str` 返回 false。
+    /// The criterion is whether the type name can be read: every actor that resolves has one,
+    /// and one that does not makes `actor_get_str` return false.
     pub fn exists(&self) -> bool {
         self.text(sys::PIER_ASTR_TYPE_NAME).is_ok()
     }
 
     pub fn snapshot(&self) -> Result<NbtValue> {
-        let f = crate::require_slot!(actor_snapshot, "读取实体快照");
+        let f = crate::require_slot!(actor_snapshot, "reading an actor snapshot");
         let text = call_out_str(|ctx, sink| unsafe { f(self.0, ctx, sink) })
-            .ok_or_else(|| Error(format!("实体 {} 解析不到，取不了快照", self.0)))?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("实体快照 SNBT 解析失败：{e}")))
+            .ok_or_else(|| Error(format!("actor {} does not resolve, so no snapshot can be taken", self.0)))?;
+        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the actor snapshot SNBT failed: {e}")))
     }
 
-    // ── 属性 ──────────────────────────────────────────────────
+    // Properties
 
-    /// 读一个 `PIER_APROP_*` 数值属性。
+    /// Reads a `PIER_APROP_*` numeric property.
     pub fn num(&self, prop: i32) -> Result<f64> {
-        let f = crate::require_slot!(actor_get_num, "读取实体数值属性");
+        let f = crate::require_slot!(actor_get_num, "reading a numeric actor property");
         let mut out = 0.0f64;
         let ok = unsafe { f(self.0, prop, &mut out) };
         if ok {
             Ok(out)
         } else {
             Err(Error(format!(
-                "读不出实体 {} 的属性 {prop}（实体不在了，或宿主不认识这个属性号）",
+                "property {prop} of actor {} could not be read: it is gone, or the host does not recognize the property number",
                 self.0
             )))
         }
     }
 
-    /// 读一个 `PIER_ASTR_*` 字符串属性。
+    /// Reads a `PIER_ASTR_*` string property.
     pub fn text(&self, prop: i32) -> Result<String> {
-        let f = crate::require_slot!(actor_get_str, "读取实体字符串属性");
+        let f = crate::require_slot!(actor_get_str, "reading a string actor property");
         call_out_str(|ctx, sink| unsafe { f(self.0, prop, ctx, sink) })
-            .ok_or_else(|| Error(format!("读不出实体 {} 的字符串属性 {prop}", self.0)))
+            .ok_or_else(|| Error(format!("string property {prop} of actor {} could not be read", self.0)))
     }
 
-    /// 位置（`Actor::getPosition`）。玩家的脚下坐标见 [`Entity::feet_pos`]。
+    /// The position, from `Actor::getPosition`. For the feet coordinate of a player see
+    /// [`Entity::feet_pos`].
     pub fn pos(&self) -> Result<PositionF64> {
         Ok((
             self.num(sys::PIER_APROP_POS_X)?,
@@ -154,7 +157,7 @@ impl Entity {
         ))
     }
 
-    /// 视线方向的单位向量。
+    /// The unit vector of the line of sight.
     pub fn view_vector(&self) -> Result<PositionF64> {
         Ok((
             self.num(sys::PIER_APROP_VIEW_X)?,
@@ -163,7 +166,7 @@ impl Entity {
         ))
     }
 
-    /// `(pitch, yaw)`。
+    /// `(pitch, yaw)`.
     pub fn rotation(&self) -> Result<(f64, f64)> {
         Ok((
             self.num(sys::PIER_APROP_ROT_PITCH)?,
@@ -179,7 +182,7 @@ impl std::fmt::Display for Entity {
 }
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut Vec<ActorEntry>`。
+/// `ctx` must be a valid `*mut Vec<ActorEntry>`.
 unsafe extern "C" fn push_actor(ctx: *mut c_void, id: sys::PierActorId, type_name: sys::PierStr) {
     (*ctx.cast::<Vec<ActorEntry>>()).push(ActorEntry {
         id,
@@ -187,12 +190,13 @@ unsafe extern "C" fn push_actor(ctx: *mut c_void, id: sys::PierActorId, type_nam
     });
 }
 
-/// 解析两个射线槽的应答。
+/// Parses the reply of both ray slots.
 ///
-/// 两种形状的差别只在方块那一支（一个给 `block` + `facing`，一个只给 `pos`），
-/// 所以一个解析器吃两种：缺哪个字段就用另一个补，都缺才报错。
+/// The two shapes differ only in the block branch, where one gives `block` plus `facing`
+/// and the other only `pos`, so one parser takes both: a missing field is filled from the
+/// other and only both missing is an error.
 pub(crate) fn parse_ray_hit(text: &str) -> Result<RayHit> {
-    let v = NbtValue::parse(text).map_err(|e| Error(format!("射线结果 SNBT 解析失败：{e}")))?;
+    let v = NbtValue::parse(text).map_err(|e| Error(format!("parsing the ray result SNBT failed: {e}")))?;
     let kind = v.opt_str("type").unwrap_or("none").to_owned();
     let pos = v.get_vec3("pos").unwrap_or((0.0, 0.0, 0.0));
     match kind.as_str() {
@@ -200,13 +204,13 @@ pub(crate) fn parse_ray_hit(text: &str) -> Result<RayHit> {
             let id = v
                 .opt_i64("entity_id")
                 .or_else(|| v.opt_i64("entity"))
-                .ok_or_else(|| Error("射线报了命中实体，却没给实体 id".to_owned()))?;
+                .ok_or_else(|| Error("the ray reported hitting an actor and gave no actor id".to_owned()))?;
             Ok(RayHit::Entity { id, pos })
         }
         "block" => {
             let block = match v.get_block_pos("block") {
                 Ok(b) => b,
-                // 只给了精确坐标的那一支：向下取整得到所在格。
+                // The branch giving only an exact coordinate: floored into the cell it is in.
                 Err(_) => (
                     pos.0.floor() as i32,
                     pos.1.floor() as i32,
@@ -221,6 +225,6 @@ pub(crate) fn parse_ray_hit(text: &str) -> Result<RayHit> {
             })
         }
         "none" => Ok(RayHit::None),
-        other => Err(Error(format!("射线结果的 type 是不认识的 {other:?}"))),
+        other => Err(Error(format!("the type of the ray result is an unrecognized {other:?}"))),
     }
 }

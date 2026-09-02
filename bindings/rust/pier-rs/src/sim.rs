@@ -1,16 +1,17 @@
-//! 模拟玩家 —— 服务端造出来的真 `ServerPlayer`。
+//! Simulated players: a real `ServerPlayer` the server builds.
 //!
-//! 造出来之后，**每一个按名字寻址的玩家 API 都对它成立**：传送、血量、背包、
-//! 踢出。这里只放它独有的那一族「让它做点什么」的动作。
+//! Once built, every by-name player API applies to it: teleporting, health, inventory and
+//! kicking. Only the family of make-it-do-something actions unique to it lives here.
 //!
-//! # 动作走一个多路槽
+//! # Actions go through one multiplexed slot
 //!
-//! `sim_do` 收「动词 + 参数 SNBT」，动词表在宿主侧长，不占新的表槽位。
-//! 代价是拼错的动词要到运行期才报错，所以这里把每个动词包成一个具名方法。
+//! `sim_do` takes a verb plus argument SNBT, and the verb table grows on the host side
+//! without taking a new table slot. The cost is that a misspelled verb is reported only at
+//! runtime, so each verb is wrapped here as a named method.
 //!
-//! # 真玩家永远不会被操控
+//! # A real player is never driven
 //!
-//! 宿主在 `isSimulatedPlayer()` 上把关，对真玩家的调用直接失败。
+//! The host gates on `isSimulatedPlayer()` and a call against a real player fails outright.
 
 use crate::nbt::NbtValue;
 use crate::player::Player;
@@ -18,30 +19,30 @@ use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{collect_strs, s};
 use crate::sel::PlayerSel;
 
-/// 一个模拟玩家。
+/// One simulated player.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimPlayer {
     name: String,
 }
 
-/// 造一个模拟玩家。名字已被真玩家占用时失败。
+/// Builds a simulated player. It fails when the name is taken by a real player.
 pub fn spawn(name: &str, dim: i32, x: f64, y: f64, z: f64) -> Result<SimPlayer> {
-    let f = crate::require_slot!(sim_spawn, "生成模拟玩家");
+    let f = crate::require_slot!(sim_spawn, "spawning a simulated player");
     if unsafe { f(s(name), dim, x, y, z) } {
         Ok(SimPlayer {
             name: name.to_owned(),
         })
     } else {
         Err(Error(format!(
-            "生成不了模拟玩家 {name}（名字被占用、关卡没就绪，或维度 {dim} 不可用）"
+            "the simulated player {name} could not be spawned: the name is taken, the level is not ready, or dimension {dim} is unavailable"
         )))
     }
 }
 
-/// 当前活着的模拟玩家。
+/// The simulated players currently alive.
 ///
-/// 模拟玩家会跟着存档活过重启，而内存里的句柄不会 —— 重启之后用这个把它们
-/// 找回来。
+/// A simulated player survives a restart with the save while an in-memory handle does not,
+/// so this is how they are found again after a restart.
 pub fn list() -> Vec<SimPlayer> {
     if !crate::has_slot!(sim_list) {
         return Vec::new();
@@ -56,8 +57,8 @@ pub fn list() -> Vec<SimPlayer> {
 }
 
 impl SimPlayer {
-    /// 按名字接上一个已经存在的模拟玩家。**不检查**它是不是真的存在，
-    /// 检查用 [`SimPlayer::is_simulated`]。
+    /// Attaches by name to a simulated player that already exists. It does not check whether
+    /// it really exists; [`SimPlayer::is_simulated`] does that.
     pub fn by_name(name: impl Into<String>) -> SimPlayer {
         SimPlayer { name: name.into() }
     }
@@ -66,7 +67,7 @@ impl SimPlayer {
         &self.name
     }
 
-    /// 当成普通玩家用，拿到全套玩家 API。
+    /// Uses it as an ordinary player, giving the full player API.
     pub fn player(&self) -> Player {
         Player::by_name(self.name.clone())
     }
@@ -75,7 +76,7 @@ impl SimPlayer {
         PlayerSel::Name(self.name.clone())
     }
 
-    /// 这个名字现在确实指向一个活着的模拟玩家吗。
+    /// Whether this name currently points at a live simulated player.
     pub fn is_simulated(&self) -> bool {
         if !crate::has_slot!(sim_is) {
             return false;
@@ -86,18 +87,19 @@ impl SimPlayer {
         }
     }
 
-    /// 跑一个动词。参数是 SNBT；无参时传 `"{}"`。
+    /// Runs one verb. The argument is SNBT, and `"{}"` is passed when there is none.
     ///
-    /// 动词表在宿主侧，这里的具名方法只是它的一层门面。宿主不认识的动词、
-    /// 形状不对的参数、或者目标不是模拟玩家，都是 `Err`。
+    /// The verb table is on the host side and the named methods here are a facade over it. A
+    /// verb the host does not recognize, an argument of the wrong shape, and a target that is
+    /// not a simulated player are all an `Err`.
     pub fn act(&self, verb: &str, args_snbt: &str) -> Result<()> {
-        let f = crate::require_slot!(sim_do, "驱动模拟玩家");
+        let f = crate::require_slot!(sim_do, "driving a simulated player");
         let ok = unsafe { f(self.sel().raw(), s(verb), s(args_snbt)) };
         if ok {
             Ok(())
         } else {
             Err(Error(format!(
-                "模拟玩家 {} 的动作 `{verb}` 失败（动词不认识、参数形状不对，或它不是模拟玩家）",
+                "the action `{verb}` on simulated player {} failed: the verb is unrecognized, the argument shape is wrong, or it is not a simulated player",
                 self.name
             )))
         }
@@ -135,7 +137,7 @@ impl SimPlayer {
         self.act0("stop_destroy")
     }
 
-    /// 直接走过去。`face_target` 决定走的时候是不是面朝目标。
+    /// Walks straight there. `face_target` decides whether it faces the target while walking.
     pub fn move_to(&self, x: f64, y: f64, z: f64, speed: f64, face_target: bool) -> Result<()> {
         self.act(
             "move_to",
@@ -150,7 +152,7 @@ impl SimPlayer {
         )
     }
 
-    /// 寻路过去。和 [`SimPlayer::move_to`] 的区别是会绕开障碍。
+    /// Paths there. Unlike [`SimPlayer::move_to`] it goes around obstacles.
     pub fn navigate_to(&self, x: f64, y: f64, z: f64, speed: f64) -> Result<()> {
         self.act(
             "navigate_to",
@@ -168,12 +170,12 @@ impl SimPlayer {
         self.act("look_at", &NbtValue::vec3(x, y, z).to_snbt())
     }
 
-    /// 挖一个方块。`face` 是朝向面，默认 1（上）。
+    /// Mines one block. `face` is the face, defaulting to 1, meaning up.
     pub fn destroy_block(&self, x: i32, y: i32, z: i32, face: i32) -> Result<()> {
         self.act("destroy_block", &block_args(x, y, z, face))
     }
 
-    /// 挖视线里那一个。`hand` 是手长（方块）。
+    /// Mines the one in the line of sight. `hand` is the reach, in blocks.
     pub fn destroy_look_at(&self, hand: f64) -> Result<()> {
         self.act(
             "destroy_look",

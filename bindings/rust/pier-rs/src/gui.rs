@@ -1,15 +1,18 @@
-//! 表单 —— 发给玩家的三种界面，回调异步到达。
+//! Forms: the three screens sent to a player, whose callback arrives asynchronously.
 //!
-//! # 回调**至多**跑一次，也可能一次都不跑
+//! # The callback runs at most once and may never run
 //!
-//! 玩家回应（或关掉表单）时回调在服务器线程上跑一次。但如果模组在玩家回应
-//! 之前被停用，宿主会把这次回调**静音** —— 它永远不来。所以：
+//! When the player answers, or closes the form, the callback runs once on the server
+//! thread. But if the mod is disabled before the player answers, the host mutes that
+//! callback and it never arrives. Therefore:
 //!
-//! * 回调是 `FnOnce`，跑完就释放；
-//! * 静音的那一路里，装着闭包的那块内存**故意泄漏**。能释放它的代码住在
-//!   可能已经卸载的动态库里，释放才是真正的 use-after-free。
+//! * the callback is an `FnOnce` and is freed once it has run;
+//! * on the muted path the memory holding the closure is leaked on purpose. The code able
+//!   to free it lives in a dynamic library that may already be unloaded, and freeing it is
+//!   the real use-after-free.
 //!
-//! 推论：别把「一定要做的收尾」放进表单回调。玩家可以永远不点。
+//! It follows that cleanup that has to happen does not belong in a form callback: a player
+//! may never click.
 
 use core::ffi::c_void;
 
@@ -21,10 +24,10 @@ use crate::rt::logger::Logger;
 use crate::rt::runtime::rt;
 use crate::sys;
 
-/// 自定义表单里一个控件回传的值。
+/// The value one control of a custom form returns.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FormValue {
-    /// 下拉框 / 步进滑块选中的下标。
+    /// The selected index of a dropdown or a step slider.
     Index(usize),
     Number(f64),
     Text(String),
@@ -66,25 +69,28 @@ impl FormValue {
     }
 }
 
-/// 玩家对一个表单的回应。
+/// A player's answer to a form.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FormResponse {
-    /// 玩家关掉了表单。`reason` 是引擎给的取消原因，拿不到时是 -1。
+    /// The player closed the form. `reason` is the cancellation reason from the engine, or
+    /// -1 when it cannot be read.
     Cancelled { reason: i32 },
-    /// 简单表单：点了第几个按钮。
+    /// A simple form: which button was pressed.
     Button(usize),
-    /// 模态表单：`true` 是上面那个按钮。
+    /// A modal form: `true` is the upper button.
     Modal { upper: bool },
-    /// 自定义表单：按控件名索引。
+    /// A custom form, indexed by control name.
     ///
-    /// `values` 是原始值，`texts` 是下拉框/步进滑块选中项的**文本** ——
-    /// 两份都给是因为选项列表可能在发出之后变了，只有下标的话对不回去。
+    /// `values` holds the raw values and `texts` the text of the selected item of a dropdown
+    /// or step slider. Both are given because the option list may have changed after the form
+    /// was sent, and an index alone cannot be matched back.
     Custom {
         values: std::collections::BTreeMap<String, FormValue>,
         texts: std::collections::BTreeMap<String, String>,
     },
-    /// 宿主回了一个这一侧读不懂的形状。**不吞掉** —— 静默当成取消会让
-    /// 「玩家点了确定但什么都没发生」变成一个查不下去的问题。
+    /// The host answered with a shape this side cannot read. It is not swallowed: silently
+    /// treating it as a cancellation would make the player pressing confirm and nothing
+    /// happening an untraceable problem.
     Unknown { raw: String },
 }
 
@@ -93,7 +99,7 @@ impl FormResponse {
         matches!(self, FormResponse::Cancelled { .. })
     }
 
-    /// 自定义表单里取一个控件的值。
+    /// Reads the value of one control of a custom form.
     pub fn value(&self, name: &str) -> Option<&FormValue> {
         match self {
             FormResponse::Custom { values, .. } => values.get(name),
@@ -101,7 +107,7 @@ impl FormResponse {
         }
     }
 
-    /// 自定义表单里取一个控件选中项的文本。
+    /// Reads the text of the selected item of one control of a custom form.
     pub fn text(&self, name: &str) -> Option<&str> {
         match self {
             FormResponse::Custom { texts, .. } => texts.get(name).map(|s| s.as_str()),
@@ -110,7 +116,7 @@ impl FormResponse {
     }
 }
 
-/// 简单表单：一列按钮。
+/// A simple form: a column of buttons.
 #[derive(Debug, Clone, Default)]
 pub struct SimpleForm {
     title: String,
@@ -139,7 +145,7 @@ impl SimpleForm {
         self
     }
 
-    /// 带图标的按钮。`image_type` 取 `"path"` 或 `"url"`。
+    /// A button with an icon. `image_type` is `"path"` or `"url"`.
     pub fn button_with_image(mut self, text: &str, image: &str, image_type: &str) -> SimpleForm {
         self.elements.push(NbtValue::obj([
             ("kind", "button".into()),
@@ -172,10 +178,11 @@ impl SimpleForm {
         self
     }
 
-    /// 发出去。
+    /// Sends it.
     ///
-    /// 一个按钮都没有的表单玩家点不动，只能关掉 —— 这里提前挡下，因为它
-    /// 几乎总是「列表拼空了」而不是有意为之。
+    /// A form with no button at all cannot be pressed and can only be closed. It is stopped
+    /// here in advance, because it is almost always a list that assembled empty rather than
+    /// something intended.
     pub fn send(
         self,
         player: &Player,
@@ -188,7 +195,7 @@ impl SimpleForm {
             .count();
         if buttons == 0 {
             return Err(Error(format!(
-                "简单表单 {:?} 一个按钮都没有，玩家点不动它",
+                "the simple form {:?} has no button at all and a player cannot press it",
                 self.title
             )));
         }
@@ -201,7 +208,7 @@ impl SimpleForm {
     }
 }
 
-/// 模态表单：一段文字加两个按钮。
+/// A modal form: some text and two buttons.
 #[derive(Debug, Clone)]
 pub struct ModalForm {
     title: String,
@@ -245,7 +252,7 @@ impl ModalForm {
     }
 }
 
-/// 自定义表单：输入框、开关、下拉框、滑块。
+/// A custom form: input fields, toggles, dropdowns and sliders.
 #[derive(Debug, Clone, Default)]
 pub struct CustomForm {
     title: String,
@@ -333,11 +340,12 @@ impl CustomForm {
         self
     }
 
-    /// 滑块。
+    /// A slider.
     ///
-    /// 越界的默认值、或者 `(max-min)` 不是 `step` 的整数倍，会让基岩客户端
-    /// **整个表单不渲染**（玩家看到的是「打开就没了」）。宿主侧会钳制并告警，
-    /// 但传进去之前自己算对更好。
+    /// An out-of-range default, or a `(max-min)` that is not a whole multiple of `step`,
+    /// makes the Bedrock client render nothing of the form at all, which the player sees as
+    /// it opening and disappearing. The host clamps and warns, and getting it right before
+    /// passing it in is better.
     pub fn slider(
         mut self,
         name: &str,
@@ -390,14 +398,14 @@ fn choice(kind: &str, name: &str, text: &str, options: &[&str], default: usize) 
 
 type Callback = dyn FnOnce(FormResponse) + Send + 'static;
 
-/// 三种表单共用的发送路径。
+/// The send path all three form kinds share.
 fn send(
     player: &Player,
     kind: i32,
     form_snbt: &str,
     cb: impl FnOnce(FormResponse) + Send + 'static,
 ) -> Result<()> {
-    let f = crate::require_slot!(form_send, "发送表单");
+    let f = crate::require_slot!(form_send, "sending a form");
     let boxed: Box<Box<Callback>> = Box::new(Box::new(cb));
     let user = Box::into_raw(boxed);
     let ok = unsafe {
@@ -413,16 +421,18 @@ fn send(
     if ok {
         Ok(())
     } else {
-        // 宿主没收下，闭包还在这一侧，收回所有权。
+        // The host did not take it, the closure is still on this side, and ownership comes
+        // back.
         drop(unsafe { Box::from_raw(user) });
         Err(Error(format!(
-            "给玩家 {player} 发表单失败（不在线，或表单 SNBT 不合法）"
+            "sending a form to player {player} failed: they are offline, or the form SNBT is invalid"
         )))
     }
 }
 
 /// # Safety
-/// `user` 必须是 `send` 里 `Box<Box<Callback>>::into_raw` 的产物，且只被调一次。
+/// `user` must come from the `Box<Box<Callback>>::into_raw` inside `send` and be called
+/// once.
 unsafe extern "C" fn trampoline(user: *mut c_void, result_snbt: sys::PierStr) {
     if user.is_null() {
         return;
@@ -432,11 +442,11 @@ unsafe extern "C" fn trampoline(user: *mut c_void, result_snbt: sys::PierStr) {
     let response = parse_response(raw);
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || (*f)(response)));
     if outcome.is_err() {
-        Logger::get().error("表单回调 panic 了。已就地拦下 —— 这次回应被丢弃。");
+        Logger::get().error("a form callback panicked. It was caught here and this answer was discarded.");
     }
 }
 
-/// 解析宿主写回来的结果 SNBT。
+/// Parses the result SNBT the host wrote back.
 fn parse_response(raw: &str) -> FormResponse {
     let Ok(v) = NbtValue::parse(raw) else {
         return FormResponse::Unknown {
@@ -449,7 +459,7 @@ fn parse_response(raw: &str) -> FormResponse {
         };
     }
     match v.get("button") {
-        // 模态表单回的是 "upper"/"lower"，简单表单回的是下标。
+        // A modal form answers "upper" or "lower" while a simple form answers an index.
         Some(NbtValue::String(which)) => {
             return FormResponse::Modal {
                 upper: which == "upper",
@@ -484,9 +494,10 @@ fn parse_response(raw: &str) -> FormResponse {
     }
 }
 
-/// SNBT 的标签类型带着控件语义：整型来自下拉框/步进滑块的下标，浮点来自
-/// 滑块，字符串来自输入框。开关在宿主侧也走整型，所以 0/1 归到 `Index`，
-/// 需要布尔的调用方用 [`FormValue::as_bool`]。
+/// The SNBT tag type carries the control meaning: an integer comes from the index of a
+/// dropdown or step slider, a float from a slider and a string from an input field. A
+/// toggle also goes through an integer on the host side, so 0 and 1 land in `Index` and a
+/// caller needing a boolean uses [`FormValue::as_bool`].
 fn to_form_value(v: &NbtValue) -> FormValue {
     match v {
         NbtValue::String(s) => FormValue::Text(s.clone()),

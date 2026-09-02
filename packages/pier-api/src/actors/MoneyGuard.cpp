@@ -15,20 +15,21 @@ namespace pier::api_impl
 {
     namespace
     {
-        // LegacyMoney 在 LeviLamina manifest 里的名字。
+        // The name LegacyMoney carries in its LeviLamina manifest.
         constexpr std::string_view kMoneyModName = "LegacyMoney";
 
-        // LegacyMoney 的一个稳定导出符号。它声明为 extern "C"，x64 MSVC 上
-        // 导出名不修饰 —— 正是这串字符。LLMoney_Get 在，整个 LLMoney_* 家
-        // 族就都在（它们一起发布）。
+        // A stable exported symbol of LegacyMoney. It is declared extern "C" and on
+        // x64 MSVC the exported name is undecorated, so it is exactly this string. If
+        // LLMoney_Get is present the whole LLMoney_* family is, since they ship
+        // together.
         constexpr std::string_view kProbeSymbol = "LLMoney_Get";
 
-        // -1 = 还没探测；0 = 符号缺失；1 = 符号在。
-        // 拥有符号的 DLL 没法在进程中途换掉，所以观测到一次就永远不用再
-        // 解析。
+        // -1 means not probed yet, 0 means the symbol is missing and 1 means it is
+        // present. The DLL owning the symbol cannot be swapped mid-process, so one
+        // observation is enough and it is never resolved again.
         std::atomic<int> gSymbolState{-1};
 
-        // 不管哪个检查先失败，每进程只告警一次。
+        // Warns once per process, whichever check fails first.
         std::atomic_flag gWarned = ATOMIC_FLAG_INIT;
 
         bool symbolPresent()
@@ -38,11 +39,12 @@ namespace pier::api_impl
             {
                 return cached == 1;
             }
-            // resolve() 带 disableErrorOutput=true 时未命中返回 nullptr 且
-            // 不刷日志；措辞归宿主这边管。
+            // With disableErrorOutput=true, resolve() returns nullptr on a miss and
+            // logs nothing. The wording belongs to the host side.
             void* addr = ll::memory::SymbolView{kProbeSymbol}.resolve(true);
             int result = addr != nullptr ? 1 : 0;
-            // 良性竞争：两个线程可能都解析一遍；答案相同，后写者赢。
+            // A benign race. Two threads may both resolve, the answer is the same and
+            // the later write wins.
             gSymbolState.store(result, std::memory_order_release);
             return result == 1;
         }
@@ -62,12 +64,12 @@ namespace pier::api_impl
         {
             if (gWarned.test_and_set(std::memory_order_relaxed))
             {
-                return; // 已经警告过
+                return; // Already warned
             }
             hostLogger().warn(
-                "找不到可用的 LLMoney 后端（{}）。money::* 接口本次全部空转："
-                "读取返回 0、写入返回失败。请检查是否安装并启用了 LegacyMoney"
-                "（模组名 \"{}\"）。",
+                "[money] no usable LLMoney backend ({}); every money::* entry point is "
+                "inert for this session, reads return 0 and writes fail; check that "
+                "LegacyMoney is installed and enabled, under mod name \"{}\"",
                 reason,
                 kMoneyModName
             );
@@ -76,16 +78,16 @@ namespace pier::api_impl
 
     bool moneyBackendReady() noexcept
     {
-        // 先做便宜的检查（模组表 + 状态），再做 memoize 过的符号探测。
-        // 任一失败即「未就绪」。
+        // The cheap checks first, the mod table and its state, then the memoized
+        // symbol probe. Either failing means not ready.
         if (!modLoadedAndEnabled())
         {
-            warnOnce("模组列表里没有已启用的 LegacyMoney");
+            warnOnce("no enabled LegacyMoney in the mod list");
             return false;
         }
         if (!symbolPresent())
         {
-            warnOnce("LegacyMoney 已加载，但解析不到导出符号 LLMoney_Get（版本不匹配或 DLL 损坏？）");
+            warnOnce("LegacyMoney is loaded but the LLMoney_Get export could not be resolved");
             return false;
         }
         return true;

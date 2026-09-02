@@ -1,24 +1,28 @@
-//! 契约里的基础类型与回调签名，逐个对着 `sdk/abi.h`。
+//! The fundamental types and callback signatures of the contract, one by one against
+//! `sdk/abi.h`.
 //!
-//! 这一层**不做任何封装**：没有 `Drop`、没有 `From`、没有生命周期。
-//! 它的全部职责是让 Rust 侧看到和 C 侧逐字节相同的形状。安全封装在
-//! `pier-rs`（crate 名 `levilamina`）那一层。
+//! This layer wraps nothing: no `Drop`, no `From`, no lifetimes. Its whole job is to make
+//! the Rust side see the same shape byte for byte as the C side. The safe wrapper is the
+//! `pier-rs` layer, whose crate name is `levilamina`.
 //!
-//! 分成两层的理由不是洁癖：这一层的每一个声明都必须能和 `abi.h` 逐字对上，
-//! 而对照是**机器做**的（`sys-mirrors-abi`）。一旦这里混进「顺手加个
-//! `impl Display`」之类的东西，对照就得先分辨哪些是契约、哪些是便利，
-//! 而那个分辨没有可靠的机器判据。
+//! The reason for two layers is not tidiness: every declaration here has to match
+//! `abi.h` word for word, and a machine does the matching, in `sys-mirrors-abi`. Once
+//! something like a convenient `impl Display` slips in here, the comparison first has to
+//! tell contract from convenience, and there is no reliable machine criterion for that.
 
 use core::ffi::c_void;
 
-/// UTF-8 字符串视图。**不保证 NUL 结尾**，长度是唯一的边界。
+/// A UTF-8 string view. NUL termination is not guaranteed and the length is the only
+/// bound.
 ///
-/// 对着 `abi.h` 的 `typedef struct PierStr { const char* ptr; size_t len; }`。
-/// v0 这里曾经是 `std::string_view` 的别名 —— 那让一份「C ABI」依赖了 MSVC
-/// 标准库的布局细节，还得配一段运行期自检来赎罪。现在布局由这份声明本身
-/// 定义，自检因此可以删掉：**布局由声明定义，就不需要验证声明**。
+/// It matches `typedef struct PierStr { const char* ptr; size_t len; }` in `abi.h`. An
+/// alias for `std::string_view` here would make a C ABI depend on MSVC standard library
+/// layout details and would need a runtime self-check to atone for it. The layout is
+/// defined by this declaration itself, which is why no self-check is needed: a layout
+/// defined by a declaration does not need the declaration verified.
 ///
-/// 所有权见契约 §三：谁产出谁释放，接收方只在回调期间读，要留就拷贝。
+/// Ownership follows contract §3: whoever produces frees, a receiver reads only during
+/// the callback, and anything kept must be copied.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PierStr {
@@ -27,18 +31,19 @@ pub struct PierStr {
 }
 
 impl PierStr {
-    /// 空串。**不是** NULL —— 宿主允许 `ptr` 为空且 `len == 0`，
-    /// 但统一走这个构造能让「空」只有一种表示。
+    /// The empty string, which is not NULL. The host allows a null `ptr` with
+    /// `len == 0`, and going through this one constructor keeps empty to a single
+    /// representation.
     pub const EMPTY: Self = Self {
         ptr: core::ptr::null(),
         len: 0,
     };
 
-    /// 从一个 Rust 串借出视图。
+    /// Borrows a view from a Rust string.
     ///
     /// # Safety
-    /// 调用方必须保证 `s` 在宿主读完之前一直活着。跨过 ABI 边界之后
-    /// 借用检查器帮不上忙 —— 这正是这一层被标成 `unsafe` 的原因。
+    /// The caller must keep `s` alive until the host has finished reading it. The borrow
+    /// checker cannot help across an ABI boundary, which is why this layer is `unsafe`.
     #[inline]
     pub fn borrow(s: &str) -> Self {
         Self {
@@ -48,27 +53,29 @@ impl PierStr {
     }
 }
 
-/// 宿主管理的模组实例句柄，对模组不透明。
+/// A handle to a mod instance managed by the host, opaque to the mod.
 pub type PierModHandle = *mut c_void;
-/// 事件监听器句柄。
+/// An event listener handle.
 pub type PierListenerHandle = *mut c_void;
-/// 实体的运行期 id。
+/// The runtime id of an actor.
 pub type PierActorId = i64;
-/// KvDb 句柄。
+/// A KvDb handle.
 pub type PierKvDbHandle = *mut c_void;
-/// 数据包 hook 句柄。
+/// A packet hook handle.
 pub type PierPacketHookHandle = *mut c_void;
-/// 客户端热键句柄。
+/// A client hotkey handle.
 pub type PierKeyHandle = *mut c_void;
-/// 热键动作码（按下 / 抬起 …）。
+/// A hotkey action code, such as press or release.
 pub type PierKeyAction = i32;
-/// 热键的焦点影响。
+/// The focus impact of a hotkey.
 pub type PierFocusImpact = i32;
 
-/// `get_player_position` 的返回。`found == false` 时坐标无意义。
+/// The return of `get_player_position`. With `found == false` the coordinates mean
+/// nothing.
 ///
-/// 这个结构体本身就是契约 §5.2 的一个例子：「查不到这个玩家」和「他站在
-/// 原点」必须分得开，所以 `found` 是独立的一位，而不是靠坐标全零来表示。
+/// This struct is itself an example of contract §5.2: not finding the player and the
+/// player standing at the origin have to stay apart, so `found` is a separate bit rather
+/// than being expressed by all-zero coordinates.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PierPlayerPos {
@@ -79,7 +86,8 @@ pub struct PierPlayerPos {
     pub found: bool,
 }
 
-/// 玩家选择器：`kind` 说明 `value` 怎么解释（名字 / XUID / UUID …）。
+/// A player selector, where `kind` says how to interpret `value`, as a name, an XUID, a
+/// UUID and so on.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PierPlayerSel {
@@ -87,7 +95,8 @@ pub struct PierPlayerSel {
     pub value: PierStr,
 }
 
-/// 容器引用：要么是某个玩家身上的容器，要么是世界里某个坐标上的。
+/// A container reference, either a container on a player or one at a coordinate in the
+/// world.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PierContainerRef {
@@ -99,10 +108,11 @@ pub struct PierContainerRef {
     pub z: i32,
 }
 
-/// 提供方发布一条同工具链快车道时对它自己的描述。
+/// How a provider describes a same-toolchain fast lane when publishing it.
 ///
-/// `data` / `vtable` 由**提供方**分配并保证存活（契约 §三）。宿主一个字节
-/// 都不解释，只做相等比较和存活标记。
+/// `data` and `vtable` are allocated by the provider, which also keeps them alive
+/// (contract §3). The host interprets not one byte of them and only compares for equality
+/// and marks liveness.
 #[repr(C)]
 pub struct PierLaneDesc {
     pub struct_size: u32,
@@ -110,17 +120,18 @@ pub struct PierLaneDesc {
     pub fingerprint: u64,
     pub data: *mut c_void,
     pub vtable: *const c_void,
-    /// C 侧允许为 NULL（abi.h：「可为 NULL」）；非 `Option` 的函数指针在 Rust
-    /// 里读到 NULL 是未定义行为（V-41）。`Option<fn>` 与裸指针同布局。
+    /// The C side allows NULL, as abi.h states. Reading NULL through a non-`Option`
+    /// function pointer is undefined behavior in Rust, and `Option<fn>` has the same
+    /// layout as a raw pointer.
     pub retain: Option<PierLaneRefFn>,
     pub release: Option<PierLaneRefFn>,
 }
 
-/// 取到的一条车道。
+/// A lane that was acquired.
 ///
-/// `alive` 指向宿主持有的、**永不释放**的存活标志：提供方消失的那一刻宿主
-/// 把它清零。消费方每次用 `data` / `vtable` 之前都要读它 —— 这是跨
-/// `FreeLibrary` 之后唯一还成立的判据。
+/// `alive` points at a liveness flag the host owns and never frees, which the host clears
+/// the moment the provider disappears. A consumer reads it before every use of `data` or
+/// `vtable`, since it is the only criterion that still holds across a `FreeLibrary`.
 #[repr(C)]
 pub struct PierLaneRef {
     pub struct_size: u32,
@@ -132,7 +143,7 @@ pub struct PierLaneRef {
     pub busy: *mut u32,
 }
 
-/// 一个数据包 hook 收到的事件。`body` 只在回调期间有效。
+/// The event a packet hook receives. `body` is valid only during the callback.
 #[repr(C)]
 pub struct PierPacketEvent {
     pub struct_size: u32,
@@ -146,7 +157,8 @@ pub struct PierPacketEvent {
     pub body_len: usize,
 }
 
-/// 回调想改写包头时填这里。只有返回 `PIER_PKT_REPLACE` 时才被读。
+/// Where a callback writes a rewritten packet header. It is read only when
+/// `PIER_PKT_REPLACE` is returned.
 #[repr(C)]
 pub struct PierPacketEdit {
     pub struct_size: u32,
@@ -155,11 +167,12 @@ pub struct PierPacketEdit {
     pub target_sub_id: u8,
 }
 
-/// 经济事件类型。
+/// The kind of an economy event.
 ///
-/// 名字里没有外部产品名（v0 叫 `LLMoneyEvent`）—— 那个名字和
-/// LegacyMoney 自己的头文件在全局作用域**撞名**，两头一起 include 直接
-/// 重定义。改名同时把外部产品名从契约面清掉了（契约 §七）。
+/// The name carries no external product name. A name matching the one in the LegacyMoney
+/// headers collides in the global scope, and including both at once redefines it outright.
+/// The rename also cleared an external product name off the contract surface
+/// (contract §7).
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PierMoneyEvent {
@@ -169,12 +182,13 @@ pub enum PierMoneyEvent {
     Trans = 3,
 }
 
-// ── 回调签名 ───────────────────────────────────────────────────────
+// Callback signatures.
 //
-// 全部是 `unsafe extern "C" fn`，没有一个是 `Option<...>` —— 契约里它们是
-// 裸函数指针类型（`typedef void (*PierTaskCb)(void*)`），传 NULL 是调用方的
-// bug 而不是一种合法取值。`PierApi` 的**槽位**才用 `Option`，因为空槽是
-// 「这个能力没编进宿主」的正式表示。
+// All are `unsafe extern "C" fn` and none is an `Option<...>`, because in the contract
+// they are raw function pointer types such as `typedef void (*PierTaskCb)(void*)`, where
+// passing NULL is a caller bug and not a valid value. Only the slots of `PierApi` use
+// `Option`, since an empty slot is the formal way to say the capability was not compiled
+// into the host.
 
 pub type PierTaskCb = unsafe extern "C" fn(user: *mut c_void);
 pub type PierStrSink = unsafe extern "C" fn(ctx: *mut c_void, s: PierStr);

@@ -1,17 +1,19 @@
-//! 方块 / 物品 / 计分板 / 维度规则 / 系统与服务器信息 —— 逐值对着 `sdk/abi.h`。
+//! Blocks, items, scoreboards, dimension rules, and system and server information, value by value
+//! against `sdk/abi.h`.
+//! All are `pub const i32` and not a Rust `enum`. The reason: on the ABI they are integers, and the
+//! host may be newer than the mod and hand back a value this side does not recognize. An `enum`
+//! meeting an unlisted discriminant is undefined behavior, while a constant is only a number that
+//! matched nothing, and the latter can be handled gracefully as the host reporting an unknown
+//! property while the former is memory unsafety.
 //!
-//! 全部是 `pub const i32` 而不是 Rust 的 `enum`。理由：ABI 上它们就是整数，
-//! 宿主可能比模组**新**，传回一个这一侧还不认识的值。`enum` 遇到未列出的
-//! 判别值是未定义行为，而常量只是一个没匹配上的数字 —— 后者可以被优雅地
-//! 处理成「这个宿主报了我不认识的属性」，前者是内存不安全。
+//! The values are ABI too and may only be appended, never reordered (contract §2.2). The agreement
+//! of names and values is guarded one by one by the `sys-mirrors-abi` check.
 //!
-//! 值也是 ABI，只能追加、不能重排（契约 §2.2）。名字与值的一致性由
-//! `sys-mirrors-abi` 机检逐个守着。
-//!
-//! 注释的**归属**也要对：`abi.h` 里跨行的尾注属于**上一项**，不是下一项。
-//! 第一版的转换器把它们原地搬了过来，于是每一条跨行尾注都挂到了错误的常量
-//! 上，最后一条还悬空成了编译错误（`expected item after doc comment`）——
-//! 那个编译错误是运气，前面那些挂错的没有任何提示。
+//! Comment ownership has to be right as well: a trailing comment that wraps in `abi.h` belongs to
+//! the item above it and not the one below. A converter moving them in place attaches every wrapped
+//! trailing comment to the wrong constant, and the last one dangles into a compile error, `expected
+//! item after doc comment`. That compile error is luck; the ones attached wrongly before it give no
+//! hint at all.
 
 // ── PierBlockNumProp ──────────────────────────────────────────
 
@@ -27,7 +29,7 @@ pub const PIER_BPROP_IS_CRAFTING_BLOCK: i32 = 3;
 pub const PIER_BPROP_IS_INTERACTIVE_BLOCK: i32 = 4;
 /// BlockSource::getBlockEntity(pos) != null
 pub const PIER_BPROP_HAS_BLOCK_ENTITY: i32 = 5;
-/// ── 追加：block gap fill ──
+/// Appended: block gap fill.
 /// Block::getLight
 pub const PIER_BPROP_LIGHT: i32 = 6;
 /// Block::getLightEmission
@@ -87,7 +89,7 @@ pub const PIER_BSTR_DESCRIPTION_ID: i32 = 2;
 pub const PIER_BSTR_DEBUG_STRING: i32 = 3;
 /// Block::mTags → SNBT string list ["a","b"]
 pub const PIER_BSTR_TAGS: i32 = 4;
-/// ── 追加 ──
+/// Appended.
 /// SNBT {state_name:value, …} all block states
 pub const PIER_BSTR_STATE: i32 = 5;
 /// SNBT [{min:[x,y,z],max:[x,y,z]}, …]
@@ -101,7 +103,7 @@ pub const PIER_BSTR_DISPLAY_NAME: i32 = 8;
 
 /// sarg=tag → out "0"/"1"  Block::hasTag
 pub const PIER_BACT_HAS_TAG: i32 = 0;
-/// ── 追加 ──
+/// Appended.
 /// sarg=state name → out value string  Block::getState
 pub const PIER_BACT_GET_STATE: i32 = 1;
 /// sarg=item SNBT → pop resource at pos  Block::popResource
@@ -133,7 +135,7 @@ pub const PIER_IPROP_IS_ARMOR: i32 = 8;
 pub const PIER_IPROP_IS_DAMAGEABLE: i32 = 9;
 /// ItemStackBase::isDamaged
 pub const PIER_IPROP_IS_DAMAGED: i32 = 10;
-/// ── 追加：item gap fill ──
+/// Appended: item gap fill.
 /// ItemStackBase::getMaxDamage
 pub const PIER_IPROP_MAX_DAMAGE: i32 = 11;
 /// ItemStackBase::isUnbreakable
@@ -179,7 +181,7 @@ pub const PIER_ISTR_NAME: i32 = 1;
 pub const PIER_ISTR_CUSTOM_NAME: i32 = 2;
 /// ItemStackBase::getRawNameId
 pub const PIER_ISTR_RAW_NAME_ID: i32 = 3;
-/// ── 追加 ──
+/// Appended.
 /// SNBT list ["l1","l2"]  ItemStackBase::getCustomLore
 pub const PIER_ISTR_LORE: i32 = 4;
 /// SNBT list ["minecraft:stone", …]
@@ -205,7 +207,7 @@ pub const PIER_IOP_SET_DAMAGE: i32 = 1;
 pub const PIER_IOP_SET_COUNT: i32 = 2;
 /// sarg=SNBT list ["l1","l2"]  ItemStackBase::setCustomLore
 pub const PIER_IOP_SET_LORE: i32 = 3;
-/// ── 追加 ──
+/// Appended.
 /// narg=0/1               ItemStackBase::setUnbreakable
 pub const PIER_IOP_SET_UNBREAKABLE: i32 = 4;
 /// narg=damage            ItemStackBase::hurtAndBreak
@@ -264,7 +266,8 @@ pub const PIER_DIMRULE_FIRE_SPREAD: i32 = 4;
 pub const PIER_DIMRULE_MOB_GRIEFING: i32 = 5;
 /// projectile spawns
 pub const PIER_DIMRULE_PROJECTILE: i32 = 6;
-/// ── 第二批（挂载点参考 LegacyScriptEngine 的同名事件） ──
+/// Second batch; the hook points follow the events of the same names in
+/// LegacyScriptEngine.
 /// pistons moving blocks
 pub const PIER_DIMRULE_PISTON_PUSH: i32 = 7;
 /// water/lava spreading

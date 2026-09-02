@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
-"""abi-additive —— `PierApi` 只许在末尾追加（契约 §2.2）。
+"""abi-additive: `PierApi` may only be appended to (contract §2.2).
 
-盯的是什么：重排或删除一个槽会让**所有已编译的模组**在那一槽之后集体
-错位调用 —— 调用 `bus_publish` 实际打到别的函数指针上，没有任何诊断。
-编译器看不见这件事：两边各自都编得过，错位只在运行期显形。
+What it watches: reordering or deleting a slot makes every already-compiled mod call the
+wrong function pointer from that slot onward, so a call to `bus_publish` lands somewhere
+else with no diagnostic at all. The compiler cannot see this, since both sides compile on
+their own and the mismatch surfaces only at runtime.
 
-比对对象是 `tools/abi-v1.slots`（基线快照，随 ABI 一起提交）。
-判据只有一条：**基线是当前槽序的前缀**。
-追加不改版本；一旦这条断了，`PIER_ABI_VERSION` 和 `PIER_ABI_MIN_SUPPORTED`
-必须同时推进 —— 检查会把这个要求一起验了。
+The comparison runs against `tools/abi-v1.slots`, the baseline snapshot committed with the
+ABI. There is one criterion: the baseline is a prefix of the current slot order.
+Appending does not change the version, and once that criterion breaks,
+`PIER_ABI_VERSION` and `PIER_ABI_MIN_SUPPORTED` must advance together, which this check
+verifies as well.
 
-刷新基线的时机：只有真的推进了版本号时，用 `--bless` 重写快照。
-平时它是只读的事实。
+When to refresh the baseline: only when the version really advanced, by rewriting the
+snapshot with `--bless`. Otherwise it is a read-only fact.
 """
 
 import os
@@ -43,8 +45,8 @@ def _load_lock():
 
 def _write_lock(slots, ver, mn):
     with open(LOCK, "w", encoding="utf-8") as f:
-        f.write("# PierApi 槽序基线 —— abi-additive 机检的比对对象。\n")
-        f.write("# 只有推进 PIER_ABI_VERSION 时才允许用 --bless 重写。\n")
+        f.write("# The PierApi slot order baseline, what the abi-additive check compares against.\n")
+        f.write("# Rewriting it with --bless is allowed only when PIER_ABI_VERSION advances.\n")
         f.write("!version %s\n!min %s\n" % (ver, mn))
         for s in slots:
             f.write(s + "\n")
@@ -59,47 +61,49 @@ def run(bless=False):
     mn = d.get("PIER_ABI_MIN_SUPPORTED", "?").rstrip("u")
 
     if ver != mn:
-        r.note("VERSION=%s MIN_SUPPORTED=%s（区间兼容，合法）" % (ver, mn))
+        r.note("VERSION=%s MIN_SUPPORTED=%s, a compatible range, which is valid" % (ver, mn))
 
     lock = _load_lock()
     if lock is None:
         if bless:
             _write_lock(slots, ver, mn)
-            r.note("基线不存在，已写入 %d 槽（v%s）" % (len(slots), ver))
+            r.note("no baseline existed, so %d slot(s) were written (v%s)" % (len(slots), ver))
             return r
-        r.fail("基线 tools/abi-v1.slots 不存在 —— 先跑一次 --bless 固化 v1")
+        r.fail("the baseline tools/abi-v1.slots does not exist; run --bless once to fix v1 in place")
         return r
 
     if bless:
         _write_lock(slots, ver, mn)
-        r.note("基线已重写：%d 槽（v%s）" % (len(slots), ver))
+        r.note("the baseline was rewritten with %d slot(s) (v%s)" % (len(slots), ver))
         return r
 
     base = lock["slots"]
-    r.note("基线 %d 槽（v%s）→ 当前 %d 槽（v%s）" % (len(base), lock["version"], len(slots), ver))
+    r.note("baseline %d slot(s) (v%s) against %d current slot(s) (v%s)" % (len(base), lock["version"], len(slots), ver))
 
     if len(slots) < len(base):
-        r.fail("槽位变少了：%d → %d（删除是非追加变更）" % (len(base), len(slots)))
+        r.fail("the slot count fell from %d to %d; a deletion is not an append" % (len(base), len(slots)))
 
     n = min(len(base), len(slots))
     for i in range(n):
         if base[i] != slots[i]:
-            r.fail("第 %d 槽从 %r 变成了 %r —— 重排/替换，不是追加" % (i, base[i], slots[i]))
+            r.fail("slot %d changed from %r to %r, which is a reorder or a replacement and not an append" % (i, base[i], slots[i]))
 
     if r.failures:
-        # 非追加变更是允许的，但必须同时推进两个版本号 —— 否则老模组会
-        # 拿着「看起来兼容」的版本号装上一张已经错位的表。
+        # A non-append change is allowed, but both version numbers must advance together,
+        # otherwise an old mod loads an already-misaligned table under a version number
+        # that looks compatible.
         if ver == lock["version"]:
             r.fail(
-                "上面是非追加变更，但 PIER_ABI_VERSION 还停在 %s —— "
-                "契约 §2.2 要求 VERSION 与 MIN_SUPPORTED 同时推进到同一个数" % ver
+                "the change above is not an append while PIER_ABI_VERSION still reads %s; "
+                "contract §2.2 requires VERSION and MIN_SUPPORTED to advance together to the "
+                "same number" % ver
             )
         elif ver != mn:
-            r.fail("非追加变更时 MIN_SUPPORTED(%s) 必须等于 VERSION(%s)" % (mn, ver))
+            r.fail("on a non-append change MIN_SUPPORTED(%s) must equal VERSION(%s)" % (mn, ver))
     elif len(slots) > len(base):
-        r.note("纯追加 %d 槽 —— 版本号按契约不动，正确" % (len(slots) - len(base)))
+        r.note("%d slot(s) appended, so the version stays where the contract says, which is correct" % (len(slots) - len(base)))
         if ver != lock["version"]:
-            r.fail("只是追加却动了版本号（%s → %s）—— 那等于宣布一次不存在的不兼容"
+            r.fail("an append alone moved the version (%s to %s), which announces an incompatibility that does not exist"
                    % (lock["version"], ver))
 
     return r

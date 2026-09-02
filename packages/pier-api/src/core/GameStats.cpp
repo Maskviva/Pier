@@ -1,4 +1,5 @@
-/** core/GameStats.cpp —— 游戏状态只读槽：gaming_status、tick、人数、暂停。 */
+/** core/GameStats.cpp: read-only game state slots for gaming_status, tick, player
+ *  count and pause. */
 #include "ll/api/service/GamingStatus.h"
 
 #include "mc/world/level/Level.h"
@@ -53,7 +54,7 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
-                if (!level) return true; // 安全默认：不知道就当暂停
+                if (!level) return true; // Safe default: unknown counts as paused
                 return level->getSimPaused();
             PIER_API_GUARD_END
         }

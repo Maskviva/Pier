@@ -1,16 +1,15 @@
-/**
- * hooks/protect/RideEvent.cpp —— 合成事件 "PlayerRideEvent"，可取消。
- *
- * 原版 ActorStartRidingEvent 是骑上之后才触发的通知，拒绝不了。钩点取
- * Actor::canAddPassenger 而非 Actor::startRiding：前者是载具的否决权，回答
- * 「不」是每个调用方本来就处理好的结果；在 startRiding 里拒绝等于对一个已经决
- * 定要骑上去的函数撒谎。
- *
- * 随之而来的反转：this 是载具，参数是骑乘者。搞反会检查船的权限而不是玩家的，
- * 且只在地皮边界处失效。x/y/z 取载具位置，因为问题是这个人能不能用那个载具。
- *
- * 载荷 {eventId, x, y, z, dim, vehicle, _player:{…}}，vehicle 为实体类型名。
- */
+/** hooks/protect/RideEvent.cpp: the synthetic, cancellable "PlayerRideEvent".
+ * The vanilla ActorStartRidingEvent is a notification fired after mounting and cannot
+ * refuse. The hook point is Actor::canAddPassenger and not Actor::startRiding: the former
+ * is the vehicle's own veto and answering no is an outcome every caller already handles,
+ * while refusing inside startRiding lies to a function that has already decided the mount
+ * happens.
+ * The roles are reversed accordingly: this is the vehicle and the argument is the rider.
+ * Swapping them checks the boat's permission instead of the player's and fails only at a
+ * plot boundary. x, y and z are the vehicle position, because the question is whether
+ * this person may use that vehicle.
+ * Payload {eventId, x, y, z, dim, vehicle, _player:{...}}, where vehicle is the actor
+ * type name. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -27,8 +26,8 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& rideDef();      // 前向：玩家上骑乘物
-        HookEventDef& actorRideDef(); // 前向：非玩家实体上骑乘物
+        HookEventDef& rideDef();      // Forward: a player mounts
+        HookEventDef& actorRideDef(); // Forward: a non-player actor mounts
 
         LL_TYPE_INSTANCE_HOOK(
             PlayerRideHook,
@@ -77,8 +76,9 @@ namespace pier::hooks
             }
             else
             {
-                // 非玩家乘客（船里的村民、矿车里的猪）：载荷给类型和 id，不伪造
-                // _player，消费方按有没有 _player 分辨两条路径。
+                // A non-player passenger, such as a villager in a boat or a pig in a
+                // minecart. The payload carries the type and the id and fabricates no
+                // _player, so a consumer tells the two paths apart by its presence.
                 snbt += ",\"passenger\":\"" + snbtEscape(passengerName) + "\""
                     + ",\"passengerId\":"
                     + snbtNum(static_cast<int64_t>(passenger.getOrCreateUniqueID().rawID)) + "L";
@@ -87,7 +87,7 @@ namespace pier::hooks
 
             if (dispatchHookEventCancellable(def, snbt))
             {
-                return false; // 载具谢绝这位乘客
+                return false; // The vehicle declines this passenger
             }
             return origin(passenger);
         }
@@ -95,8 +95,8 @@ namespace pier::hooks
         HookEventDef gDef{"PlayerRideEvent", [] { return PlayerRideHook::hook() == 0; }};
         HookEventDef& rideDef() { return gDef; }
 
-        // 同一个 detour 供两个事件 id 使用：谁先被订阅谁装钩子，LL 的 hook 幂
-        // 等，第二次调用返回 0。
+        // One detour serves two event ids: whichever is subscribed first installs the
+        // hook, and hook() in LL is idempotent so the second call returns 0.
         HookEventDef gActorDef{"ActorRideEvent", [] { return PlayerRideHook::hook() == 0; }};
         HookEventDef& actorRideDef() { return gActorDef; }
 

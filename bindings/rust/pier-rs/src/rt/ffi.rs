@@ -1,24 +1,25 @@
-//! `PierStr` 与 Rust 字符串之间的收口，以及几个通用的 sink。
+//! Where `PierStr` and Rust strings meet, plus a few general sinks.
 //!
-//! 契约 §三 的落地点：跨边界的缓冲区由产出方分配、产出方释放，接收方只在
-//! 回调期间读。这里的每一个 sink 都在回调内把数据**拷走**，返回之后原指针
-//! 就当作失效。
+//! Where contract §3 lands: a buffer crossing the boundary is allocated and freed by the
+//! producer and read by the receiver only during the callback. Every sink here copies the
+//! data out inside the callback and treats the original pointer as dead afterwards.
 
 use core::ffi::c_void;
 
 use crate::sys;
 
-/// 借出一个 Rust 串给宿主读。
+/// Lends a Rust string to the host to read.
 ///
-/// # 生命周期
-/// 返回的 `PierStr` 借着 `text` 的内存。调用点必须保证 `text` 活到宿主读完，
-/// 也就是**活过那一次 ABI 调用**。所有调用点都是
-/// `unsafe { (api.f)(.., s(&owned), ..) }` 的形状，`owned` 是同一个语句里
-/// 的局部变量 —— 这个形状本身就是保证。
+/// # Lifetime
+/// The returned `PierStr` borrows the memory of `text`. The call site must keep `text`
+/// alive until the host has finished reading, meaning across that one ABI call. Every call
+/// site has the shape `unsafe { (api.f)(.., s(&owned), ..) }` where `owned` is a local in
+/// the same statement, and that shape is itself the guarantee.
 ///
-/// 不返回 `unsafe fn`：构造视图本身没有不安全操作，不安全的是**用它**，
-/// 而用它的地方已经在 `unsafe` 块里了。把 `unsafe` 标在这里只会让每个调用点
-/// 多一层噪音，反而淹掉真正需要看的那一行。
+/// It is not an `unsafe fn`: constructing the view performs no unsafe operation and using
+/// it is what is unsafe, and the places that use it are already inside an `unsafe` block.
+/// Marking it here would add a layer of noise at every call site and bury the line that
+/// really needs looking at.
 pub(crate) fn s(text: &str) -> sys::PierStr {
     sys::PierStr {
         ptr: text.as_ptr() as *const core::ffi::c_char,
@@ -26,19 +27,20 @@ pub(crate) fn s(text: &str) -> sys::PierStr {
     }
 }
 
-/// 把宿主交来的 `PierStr` 借成 `&str`。
+/// Borrows a `PierStr` the host handed over as a `&str`.
 ///
-/// 校验 UTF-8，因为这些字节**最终源自客户端**（玩家名、聊天、命令输出）：
-/// `from_utf8_unchecked` 的未定义行为只要有人把名字改成一段坏字节就触发。
+/// UTF-8 is validated, because these bytes ultimately come from a client, as a player name, chat or
+/// command output, and the undefined behavior of `from_utf8_unchecked` is triggered by anyone
+/// setting their name to a bad byte sequence.
 ///
-/// 非法时截到最后一个合法字节（借用不变、不分配），记一条**一次性**告警，
-/// debug 构建下断言。截断而不是返回 `Result`：这个函数在事件回调热路径上
-/// 每 tick 跑几十次，让每个调用点处理一个几乎不发生的分支，实际结果是大家
-/// 写 `.unwrap()`。截断 + 告警让坏数据**可见**且不致命 —— 契约 §5.1 的
-/// 第二种做法。
+/// Invalid input is truncated at the last valid byte, keeping the borrow and allocating nothing,
+/// with a one-time warning and an assertion in a debug build. Truncating rather than returning a
+/// `Result`: this function runs dozens of times per tick on the event callback hot path, and making
+/// every call site handle a branch that almost never happens ends with everyone writing
+/// `.unwrap()`. Truncating with a warning makes bad data visible without being fatal, which is the
+/// second approach of contract §5.1.
 ///
-/// # Safety
-/// `raw` 必须指向宿主在当前回调期间保证有效的内存。
+/// # Safety `raw` must point at memory the host guarantees valid for the current callback.
 pub(crate) unsafe fn r<'a>(raw: sys::PierStr) -> &'a str {
     if raw.ptr.is_null() {
         return "";
@@ -47,12 +49,12 @@ pub(crate) unsafe fn r<'a>(raw: sys::PierStr) -> &'a str {
     match core::str::from_utf8(bytes) {
         Ok(s) => s,
         Err(e) => {
-            debug_assert!(false, "宿主交来的字节不是 UTF-8：{e}");
+            debug_assert!(false, "the bytes the host handed over are not UTF-8: {e}");
             static WARNED: core::sync::atomic::AtomicBool =
                 core::sync::atomic::AtomicBool::new(false);
             if !WARNED.swap(true, core::sync::atomic::Ordering::Relaxed) {
                 crate::Logger::get().warn(&format!(
-                    "宿主交来的字符串不是合法 UTF-8（第 {} 字节起），已截断；这条只报一次。",
+                    "the string the host handed over is not valid UTF-8 from byte {} onward and was truncated; this is reported once.",
                     e.valid_up_to()
                 ));
             }
@@ -61,20 +63,20 @@ pub(crate) unsafe fn r<'a>(raw: sys::PierStr) -> &'a str {
     }
 }
 
-// ── 通用 sink ─────────────────────────────────────────────────────
+// General sinks. Every sink copies the data out inside the callback. `ctx` is the address
+// of the caller's container on the stack, passed in by the adjacent `collect_*` or
+// `call_out_*`, and the two have to be read as a pair.
 //
-// 每个 sink 都在回调内把数据拷走。`ctx` 是调用方栈上那个容器的地址，由紧挨
-// 着的 `collect_*` / `call_out_*` 传进去 —— 两者必须成对读。
-//
-// **只放有调用方的 sink。** 没人调过的 helper，它对 `ctx` 类型的 `# Safety`
-// 断言就从来没被检验过 —— 那不是「准备好了」，是「看起来准备好了」。
+// Only sinks with a caller belong here. A helper nobody has called has never had its
+// `# Safety` assertion about the `ctx` type tested, which is looking ready rather than
+// being ready.
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut Vec<String>`。
-/// 拷贝一份宿主字符串。非法 UTF-8 **不截断**：`r()` 的截断会把一条事件载荷
-/// 在第一个坏字节处砍成两半，其后的 dim/取消位全部丢失（V-19）；这里改成
-/// `from_utf8_lossy`，坏字节变成 U+FFFD，结构保住。凡是要拿走所有权的地方
-/// 都该用它。
+/// `ctx` must be a valid `*mut Vec<String>`.
+/// Copies a host string. Invalid UTF-8 is not truncated: the truncation in `r()` would cut
+/// an event payload in half at the first bad byte and lose the dim and the cancel bit that
+/// follow. This uses `from_utf8_lossy` instead, so a bad byte becomes U+FFFD and the
+/// structure survives. Anywhere that takes ownership should use it.
 pub(crate) unsafe fn r_owned(raw: sys::PierStr) -> String {
     if raw.ptr.is_null() {
         return String::new();
@@ -87,7 +89,7 @@ pub(crate) unsafe fn r_owned(raw: sys::PierStr) -> String {
                 core::sync::atomic::AtomicBool::new(false);
             if !WARNED.swap(true, core::sync::atomic::Ordering::Relaxed) {
                 crate::Logger::get().warn(&format!(
-                    "宿主交来的字符串不是合法 UTF-8（第 {} 字节起），坏字节已替换为 U+FFFD；这条只报一次。",
+                    "the string the host handed over is not valid UTF-8 from byte {} onward; the bad bytes were replaced with U+FFFD. This is reported once.",
                     e.valid_up_to()
                 ));
             }
@@ -101,16 +103,17 @@ pub(crate) unsafe extern "C" fn push_string(ctx: *mut c_void, item: sys::PierStr
 }
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut Option<String>`。
+/// `ctx` must be a valid `*mut Option<String>`.
 pub(crate) unsafe extern "C" fn set_string(ctx: *mut c_void, item: sys::PierStr) {
     *ctx.cast::<Option<String>>() = Some(r_owned(item));
 }
 
-/// 调一个「成功就往 sink 里写一次」的槽，把那一次写取回来。
+/// Calls a slot that writes once into the sink on success and returns that one write.
 ///
-/// 注意 `Some("")` 和 `None` 是**两件事**（契约 §5.2）：前者是「宿主回答了，
-/// 答案是空串」，后者是「宿主说这次调用失败了」。所以成功但没写的情况归成
-/// `Some(String::new())` 而不是 `None`。
+/// Note that `Some("")` and `None` are two different things (contract §5.2): the first
+/// means the host answered and the answer is an empty string, the second that the host
+/// said the call failed. Succeeding without writing therefore becomes
+/// `Some(String::new())` and not `None`.
 pub(crate) fn call_out_str(
     f: impl FnOnce(*mut c_void, sys::PierStrSink) -> bool,
 ) -> Option<String> {
@@ -123,25 +126,28 @@ pub(crate) fn call_out_str(
     }
 }
 
-/// 调一个「往 sink 里写零到多次」的槽，把全部写入收成一个 Vec。
+/// Calls a slot that writes zero or more times into the sink and collects every write into
+/// a Vec.
 pub(crate) fn collect_strs(f: impl FnOnce(*mut c_void, sys::PierStrSink)) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     f((&mut out as *mut Vec<String>).cast(), push_string);
     out
 }
 
-// ── 字节 sink ─────────────────────────────────────────────────────
+// Byte sinks
 //
-// 上一版这里没有收字节的 helper，理由写在模块头：没有调用方的 helper，它对
-// `ctx` 类型的 `# Safety` 断言从来没被任何真实调用点检验过。现在
-// `nbt::to_binary` 是它的第一个调用方，条件满足了。
+// There was no byte-collecting helper here before, for the reason the module header
+// gives: a helper with no caller has never had its `# Safety` assertion about the `ctx`
+// type tested at a real call site. `nbt::to_binary` is now its first caller and the
+// condition is met.
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut Option<Vec<u8>>`。
+/// `ctx` must be a valid `*mut Option<Vec<u8>>`.
 pub(crate) unsafe extern "C" fn set_bytes(ctx: *mut c_void, data: *const u8, len: usize) {
     let slot = &mut *ctx.cast::<Option<Vec<u8>>>();
-    // `len == 0` 时 `data` 允许为 NULL，而 `from_raw_parts(null, 0)` 仍然是
-    // 未定义行为（它要求指针非空且对齐），所以这一支必须单独走。
+    // With `len == 0` the `data` may be NULL while `from_raw_parts(null, 0)` is still
+    // undefined behavior, since it requires a non-null aligned pointer, so this branch has
+    // to be taken separately.
     *slot = Some(if data.is_null() || len == 0 {
         Vec::new()
     } else {
@@ -149,8 +155,8 @@ pub(crate) unsafe extern "C" fn set_bytes(ctx: *mut c_void, data: *const u8, len
     });
 }
 
-/// 调一个「成功就往字节 sink 里写一次」的槽。语义同 [`call_out_str`]：
-/// `Some(vec![])` 是「答案是空」，`None` 是「这次调用失败了」。
+/// Calls a slot that writes once into a byte sink on success. The meaning matches
+/// [`call_out_str`]: `Some(vec![])` is an empty answer and `None` is a failed call.
 pub(crate) fn call_out_bytes(
     f: impl FnOnce(*mut c_void, sys::PierBytesSink) -> bool,
 ) -> Option<Vec<u8>> {
@@ -163,25 +169,27 @@ pub(crate) fn call_out_bytes(
     }
 }
 
-// ── 键值 sink ─────────────────────────────────────────────────────
+// Key-value sinks
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut Vec<(String, String)>`。
+/// `ctx` must be a valid `*mut Vec<(String, String)>`.
 pub(crate) unsafe extern "C" fn push_kv(ctx: *mut c_void, key: sys::PierStr, value: sys::PierStr) {
     (*ctx.cast::<Vec<(String, String)>>()).push((r_owned(key), r_owned(value)));
 }
 
-/// 调一个「往键值 sink 里写零到多次」的槽（`kvdb_iter`）。
+/// Calls a slot that writes zero or more times into a key-value sink, such as `kvdb_iter`.
 pub(crate) fn collect_kv(f: impl FnOnce(*mut c_void, sys::PierKvSink)) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     f((&mut out as *mut Vec<(String, String)>).cast(), push_kv);
     out
 }
 
-/// 收一个「零到多次写入」的字符串槽，但**每一条都是二进制**（存档键含 0 字节）。
+/// Collects a string slot that writes zero or more times where every entry is binary,
+/// since a save key contains zero bytes.
 ///
-/// 和 [`collect_strs`] 的区别只在这里：`level_chunk_keys` 报的是原始存档键，
-/// 走 UTF-8 转换会把它损坏成一个删不掉的键。所以这一条按字节收。
+/// That is the only difference from [`collect_strs`]: `level_chunk_keys` reports raw save
+/// keys, and a UTF-8 conversion would corrupt one into a key that cannot be deleted, so
+/// this one collects bytes.
 pub(crate) fn collect_raw(f: impl FnOnce(*mut c_void, sys::PierStrSink)) -> Vec<Vec<u8>> {
     let mut out: Vec<Vec<u8>> = Vec::new();
     f((&mut out as *mut Vec<Vec<u8>>).cast(), push_raw);
@@ -189,7 +197,7 @@ pub(crate) fn collect_raw(f: impl FnOnce(*mut c_void, sys::PierStrSink)) -> Vec<
 }
 
 /// # Safety
-/// `ctx` 必须是一个有效的 `*mut Vec<Vec<u8>>`。
+/// `ctx` must be a valid `*mut Vec<Vec<u8>>`.
 unsafe extern "C" fn push_raw(ctx: *mut c_void, item: sys::PierStr) {
     let bytes = if item.ptr.is_null() || item.len == 0 {
         Vec::new()
@@ -199,10 +207,11 @@ unsafe extern "C" fn push_raw(ctx: *mut c_void, item: sys::PierStr) {
     (*ctx.cast::<Vec<Vec<u8>>>()).push(bytes);
 }
 
-/// 借出一段原始字节给宿主读，形状是 `PierStr`。
+/// Lends a span of raw bytes to the host to read, shaped as a `PierStr`.
 ///
-/// `level_delete_key` 吃的是 `level_chunk_keys` 报出来的那串字节，它不是 UTF-8。
-/// 走 `s` 需要先有个 `&str`，而那一步本身就是损坏。
+/// `level_delete_key` takes the byte string `level_chunk_keys` reported, which is not
+/// UTF-8. Going through `s` would need a `&str` first, and that step is itself the
+/// corruption.
 pub(crate) fn s_raw(bytes: &[u8]) -> sys::PierStr {
     sys::PierStr {
         ptr: bytes.as_ptr() as *const core::ffi::c_char,

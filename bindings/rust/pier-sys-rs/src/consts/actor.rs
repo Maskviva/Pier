@@ -1,17 +1,19 @@
-//! 实体属性、字符串属性与动作码 —— 逐值对着 `sdk/abi.h`。
+//! Actor properties, string properties and action codes, value by value against `sdk/abi.h`.
 //!
-//! 全部是 `pub const i32` 而不是 Rust 的 `enum`。理由：ABI 上它们就是整数，
-//! 宿主可能比模组**新**，传回一个这一侧还不认识的值。`enum` 遇到未列出的
-//! 判别值是未定义行为，而常量只是一个没匹配上的数字 —— 后者可以被优雅地
-//! 处理成「这个宿主报了我不认识的属性」，前者是内存不安全。
+//! All are `pub const i32` and not a Rust `enum`. The reason: on the ABI they are integers, and the
+//! host may be newer than the mod and hand back a value this side does not recognize. An `enum`
+//! meeting an unlisted discriminant is undefined behavior, while a constant is only a number that
+//! matched nothing, and the latter can be handled gracefully as the host reporting an unknown
+//! property while the former is memory unsafety.
 //!
-//! 值也是 ABI，只能追加、不能重排（契约 §2.2）。名字与值的一致性由
-//! `sys-mirrors-abi` 机检逐个守着。
+//! The values are ABI too and may only be appended, never reordered (contract §2.2). The agreement
+//! of names and values is guarded one by one by the `sys-mirrors-abi` check.
 //!
-//! 注释的**归属**也要对：`abi.h` 里跨行的尾注属于**上一项**，不是下一项。
-//! 第一版的转换器把它们原地搬了过来，于是每一条跨行尾注都挂到了错误的常量
-//! 上，最后一条还悬空成了编译错误（`expected item after doc comment`）——
-//! 那个编译错误是运气，前面那些挂错的没有任何提示。
+//! Comment ownership has to be right as well: a trailing comment that wraps in `abi.h` belongs to
+//! the item above it and not the one below. A converter moving them in place attaches every wrapped
+//! trailing comment to the wrong constant, and the last one dangles into a compile error, `expected
+//! item after doc comment`. That compile error is luck; the ones attached wrongly before it give no
+//! hint at all.
 
 // ── PierActorNumProp ──────────────────────────────────────────
 
@@ -53,7 +55,7 @@ pub const PIER_APROP_IS_RIDING: i32 = 16;
 pub const PIER_APROP_IS_TAME: i32 = 17;
 /// (G) Actor::getSpeedInMetersPerSecond
 pub const PIER_APROP_SPEED: i32 = 18;
-/// ── 追加：actor gap fill ──
+/// Appended: actor gap fill.
 /// (G) Actor::getViewVector().x
 pub const PIER_APROP_VIEW_X: i32 = 19;
 /// (G) Actor::getViewVector().y
@@ -119,7 +121,7 @@ pub const PIER_APROP_HAS_PASSENGER: i32 = 47;
 pub const PIER_ASTR_TYPE_NAME: i32 = 0;
 /// Actor::getNameTag
 pub const PIER_ASTR_NAME_TAG: i32 = 1;
-/// ── 追加 ──
+/// Appended.
 /// Actor::getScoreTag
 pub const PIER_ASTR_SCORE_TAG: i32 = 2;
 /// Actor::getFilteredNameTag
@@ -156,7 +158,7 @@ pub const PIER_AACT_CLEAR_EFFECTS: i32 = 11;
 pub const PIER_AACT_HURT: i32 = 12;
 /// sarg=attribute name ("minecraft:health" …) → out value
 pub const PIER_AACT_ATTRIBUTE_GET: i32 = 13;
-/// ── 追加 ──
+/// Appended.
 /// a=variant             Actor::setVariant
 pub const PIER_AACT_SET_VARIANT: i32 = 14;
 /// a=variant             Actor::setMarkVariant

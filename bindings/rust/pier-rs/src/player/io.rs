@@ -1,7 +1,8 @@
-//! 玩家的出站通道：聊天、标题、粒子、原始数据包。
+//! The outbound channels of a player: chat, titles, particles and raw packets.
 //!
-//! 这些**都是发包**，所以它们共享同一组失败模式（人不在线就发不出去），
-//! 也共享同一条纪律：文本一律走结构化的包，不拼命令行。
+//! All of these send packets, so they share the same failure mode, that nothing goes out
+//! when the person is offline, and the same discipline: text always goes through a
+//! structured packet and never an assembled command line.
 
 use crate::player::Player;
 use crate::rt::error::{Error, Result};
@@ -9,38 +10,40 @@ use crate::rt::ffi::s;
 use crate::types::{MessageType, TitleKind, TitleTimes};
 
 impl Player {
-    // ── 消息与标题 ────────────────────────────────────────────
+    // Messages and titles
 
     pub fn send_message(&self, msg: &str) -> Result<()> {
-        let f = crate::require_slot!(player_send_message, "给玩家发消息");
+        let f = crate::require_slot!(player_send_message, "sending a message to a player");
         let ok = unsafe { f(self.sel.raw(), s(msg)) };
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("玩家 {} 不在线，消息没发出去", self.sel)))
+            Err(Error(format!("player {} is offline and the message did not go out", self.sel)))
         }
     }
 
-    /// 指定 `TextPacketType` 发一条。
+    /// Sends one with a given `TextPacketType`.
     pub fn tell(&self, msg: &str, kind: MessageType) -> Result<()> {
-        let f = crate::require_slot!(player_send_message_typed, "给玩家发定类型消息");
+        let f = crate::require_slot!(player_send_message_typed, "sending a typed message to a player");
         let ok = unsafe { f(self.sel.raw(), s(msg), kind.as_i32()) };
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("玩家 {} 不在线，消息没发出去", self.sel)))
+            Err(Error(format!("player {} is offline and the message did not go out", self.sel)))
         }
     }
 
-    /// 发一条标题。
+    /// Sends one title.
     ///
-    /// 走的是真的 `SetTitlePacket`，不是拼一条 `/title` 命令 —— 后者会把
-    /// 文本原样贴进命令行，一个名字里带引号或 `@e` 的地皮就成了命令注入。
+    /// It goes through a real `SetTitlePacket` and not an assembled `/title` command, which
+    /// would paste the text into a command line verbatim and turn a plot whose name contains a
+    /// quote or an `@e` into a command injection.
     ///
-    /// `times` 给了就先发一个 Times 包，让时序确定；不给则沿用客户端上一次
-    /// 存下来的时长。三段时长不能只给一半，那个组合宿主直接拒绝。
+    /// A given `times` sends a Times packet first so the timing is definite, and omitting it
+    /// reuses the durations the client stored last. The three durations cannot be given in
+    /// part, a combination the host refuses outright.
     pub fn send_title(&self, kind: TitleKind, text: &str, times: Option<TitleTimes>) -> Result<()> {
-        let f = crate::require_slot!(player_send_title, "给玩家发标题");
+        let f = crate::require_slot!(player_send_title, "sending a title to a player");
         let t = times.unwrap_or(TitleTimes::new(-1, -1, -1));
         let ok = unsafe {
             f(
@@ -56,7 +59,7 @@ impl Player {
             Ok(())
         } else {
             Err(Error(format!(
-                "给玩家 {} 发标题失败（不在线，或 {kind:?} 这一种宿主拒绝）",
+                "sending a title to player {} failed: they are offline, or the host refuses the {kind:?} kind",
                 self.sel
             )))
         }
@@ -75,34 +78,36 @@ impl Player {
         self.send_title(TitleKind::Clear, "", None)
     }
 
-    // ── 网络 ──────────────────────────────────────────────────
+    // Networking
 
-    /// 只给这一个玩家生成粒子。
+    /// Spawns a particle for this one player only.
     ///
-    /// 和 `World::spawn_particle` 的区别是别人看不见 —— 后者走的是整个维度的
-    /// 广播。做选区高亮之类的东西必须用这一个，否则全服都看得到。
+    /// Unlike `World::spawn_particle`, nobody else sees it, since that one broadcasts across
+    /// the whole dimension. Something like a selection highlight has to use this one, otherwise
+    /// the whole server sees it.
     pub fn spawn_particle(&self, dim: i32, effect: &str, x: f64, y: f64, z: f64) -> Result<()> {
-        let f = crate::require_slot!(spawn_particle_for, "给单个玩家生成粒子");
+        let f = crate::require_slot!(spawn_particle_for, "spawning a particle for one player");
         let ok = unsafe { f(self.sel.raw(), dim, s(effect), x, y, z) };
         if ok {
             Ok(())
         } else {
-            Err(Error(format!("玩家 {} 不在线，粒子没发出去", self.sel)))
+            Err(Error(format!("player {} is offline and the particle did not go out", self.sel)))
         }
     }
 
-    /// 往这个玩家的连接上塞一个原始数据包。
+    /// Pushes a raw packet onto the connection of this player.
     ///
-    /// **逃生口**：`body` 是当前游戏版本的线格式，版本一变就得跟着改，
-    /// 这一点由调用方负责。有具名入口的时候优先用具名的。
+    /// An escape hatch: `body` is the wire format of the current game version and has to
+    /// follow every version change, which is the caller's responsibility. A named entry point
+    /// is preferred wherever one exists.
     pub fn send_packet(&self, packet_id: i32, body: &[u8]) -> Result<()> {
-        let f = crate::require_slot!(send_packet, "发送原始数据包");
+        let f = crate::require_slot!(send_packet, "sending a raw packet");
         let ok = unsafe { f(self.sel.raw(), packet_id, body.as_ptr(), body.len()) };
         if ok {
             Ok(())
         } else {
             Err(Error(format!(
-                "给玩家 {} 发 id={packet_id} 的包失败（不在线、id 造不出包，或包体在这个版本上形状不对）",
+                "sending the packet with id={packet_id} to player {} failed: they are offline, the id builds no packet, or the body has the wrong shape on this version",
                 self.sel
             )))
         }

@@ -1,9 +1,11 @@
 #pragma once
-// pier-api 包内共享的解析助手。私有 include（契约 §一：能力包之间
-// 互不 include）—— 这里的一切只服务本包各域的 TU。
+// Resolution helpers shared inside the pier-api package. A private include, since
+// capability packages do not include each other (contract §1), so everything here
+// serves only the TUs of this package's own domains.
 //
-// 收进来的判据：至少两个域要用，且属于「把 ABI 侧的引用解析成引擎对象」
-// 这一件事。只有一个域用的助手留在那个域自己的 TU 里。
+// The bar for admission: at least two domains need it, and it belongs to the single
+// job of resolving an ABI-side reference into an engine object. A helper used by one
+// domain stays in that domain's own TU.
 
 #include <cstdint>
 #include <optional>
@@ -25,67 +27,80 @@ class Player;
 
 namespace pier::bridge
 {
-    /** Level 就绪则返回指针，否则 nullptr。服务端取 getLevel()，
-     *  客户端构建取 getMultiPlayerLevel() —— 唯一一处目标分支。 */
+    /** The Level pointer once it is ready, otherwise nullptr. The server build uses
+     *  getLevel() and the client build uses getMultiPlayerLevel(), which is the only
+     *  target branch here. */
     [[nodiscard]] Level* levelReady();
 
-    /** 维度 id → BlockSource。已建维度直取；自定义维度（id ≥ 3）经
-     *  spi::dimensionBridge 强制建出（能力包缺席时降级为只认原版并
-     *  warn 一次）。失败 nullptr，调用方必须按失败处理（§5.1）。 */
+    /** Dimension id to BlockSource. An already built dimension is taken directly. A
+     *  custom dimension with id 3 or above is forced into existence through
+     *  spi::dimensionBridge, and when that package is absent this degrades to vanilla
+     *  dimensions only and warns once. Returns nullptr on failure, which the caller
+     *  must treat as a failure (§5.1). */
     [[nodiscard]] BlockSource* blockSourceOf(int32_t dimId);
 
-    /** 玩家选择器（kind: 0=账号名 1=xuid 2=uuid；账号名落空再按显示名
-     *  过一遍 —— 改名牌插件改的是 NameTag）。找不到 nullptr。 */
+    /** Player selector, where kind 0 is the account name, 1 is the xuid and 2 is the
+     *  uuid. When the account name finds nothing, a second pass matches the display
+     *  name, because a name-tag plugin changes the NameTag. nullptr when not found. */
     [[nodiscard]] Player* resolvePlayer(PierPlayerSel sel);
 
-    /** ActorUniqueID → Actor（不含已移除的）。找不到 nullptr。 */
+    /** ActorUniqueID to Actor, excluding removed ones. nullptr when not found. */
     [[nodiscard]] Actor* resolveActor(PierActorId id);
 
-    /** 容器引用 → Container。which: 0=背包 1=末影箱 2=盔甲 3=手
-     *  4=方块容器(dim,x,y,z)。盔甲/手是货真价实的 Container（经
-     *  ActorEquipment 拿 SimpleContainer），不是快照 NBT。 */
+    /** Container reference to Container. which is 0 for the inventory, 1 for the
+     *  ender chest, 2 for armor, 3 for hands and 4 for a block container at
+     *  (dim,x,y,z). Armor and hands are real Containers, obtained as SimpleContainer
+     *  through ActorEquipment, and not snapshot NBT. */
     [[nodiscard]] Container* resolveContainer(PierContainerRef ref);
 
-    /** 任何已注册维度 id → `/execute in` 认的名字。未知返回空串，
-     *  调用方必须失败 —— 绝不回退主世界（回退曾把别的维度的写操作全部
-     *  砸进生存主世界）。 */
+    /** Any registered dimension id to the name `/execute in` accepts. An unknown id
+     *  returns an empty string and the caller must fail. Falling back to the overworld
+     *  is never correct, because it lands every write meant for another dimension in
+     *  the survival overworld. */
     [[nodiscard]] std::string dimensionSelector(int32_t dim);
 
-    /** 原版三维度的名字（0/1/2 之外一律按 overworld 报）。只给「肯定是
-     *  原版」的展示场景用；解析用 dimensionSelector。 */
+    /** Name of one of the three vanilla dimensions. Anything outside 0, 1 and 2 is
+     *  reported as overworld. For display where the dimension is certainly vanilla.
+     *  Resolution uses dimensionSelector. */
     [[nodiscard]] char const* dimensionName(int dim);
 
-    /** 以服务器身份（Owner 权限）执行一条控制台命令。客户端构建恒 false。 */
+    /** Runs one console command as the server, at Owner permission. Always false in
+     *  the client build. */
     bool runConsoleCommand(std::string const& cmd);
 
-    /** 玩家身份 + 位置一行：{name,xuid,uuid,dim,x,y,z}。 */
+    /** Player identity and position on one line: {name,xuid,uuid,dim,x,y,z}. */
     [[nodiscard]] std::string playerSummarySnbt(Player& p);
 
-    /** ItemStack ↔ SNBT。fromSnbt 对畸形输入不抛（输入最终来自
-     *  客户端），失败 nullopt 并留日志。 */
+    /** ItemStack to and from SNBT. fromSnbt does not throw on malformed input, since
+     *  that input ultimately comes from a client. It returns nullopt on failure and
+     *  leaves a log line. */
     [[nodiscard]] std::string itemToSnbt(ItemStack const& item);
     [[nodiscard]] std::optional<ItemStack> itemFromSnbt(std::string_view snbt);
 
-    /** NBT 数值 → double；非数值给 def。 */
+    /** NBT number to double. A non-numeric value yields def. */
     [[nodiscard]] double nbtToDouble(CompoundTagVariant const& val, double def);
 
-    /** 方块规格解析。World 与 Edit 两个 TU 共用 —— 两处解析方块的规则必须
-     *  是同一套，否则 `//set` 和 `setblock` 会对同一个名字给出不同结果。
-     *  定义在 world/BlockResolve.cpp（双目标；旧版把它们放在 server-only 的
-     *  Edit.cpp 里、却被双目标的 World.cpp 引用 —— 客户端目标链接必断，这
-     *  次把归属摆正）。 */
+    /** Block specification parsing, shared by the World and Edit TUs. Both must parse
+     *  a block by the same rules, otherwise a fill and a setblock would resolve the
+     *  same name differently. Defined in world/BlockResolve.cpp, which is compiled
+     *  into both targets. Defining them in the server-only Edit.cpp while the
+     *  both-target World.cpp references them breaks the client link. */
 
-    /** 序列化 NBT（{name,states,version}）→ Block；跑引擎版本升级表。 */
+    /** Serialized NBT of the form {name,states,version} to Block, running the engine
+     *  version upgrade table. */
     [[nodiscard]] Block const* blockFromTag(CompoundTag const& tag);
-    /** SNBT 文本 → Block（内部走 blockFromTag）。失败 nullptr。 */
+    /** SNBT text to Block, internally through blockFromTag. nullptr on failure. */
     [[nodiscard]] Block const* blockFromSnbt(std::string_view snbt);
-    /** 方块名 → 默认状态。找不到时 nullptr，绝不给占位方块。 */
+    /** Block name to default state. nullptr when not found, never a placeholder
+     *  block. */
     [[nodiscard]] Block const* defaultBlockNamed(std::string_view name);
-    /** 写方块用的变更来源（= commandsChange，理由见 BlockResolve.cpp）。 */
+    /** The change source a block write uses, which is commandsChange. The reason is
+     *  in BlockResolve.cpp. */
     [[nodiscard]] BlockChangeContext blockEditContext();
 
-    /** 事件载荷富化：把 LL serializeRefObj 发出的反射指针桩
-     *  `{_type_,_pointer_}` 解成消费方读得懂的字段（_player/dim/
-     *  _identifier/…）。定义与理由见 Enrich.cpp 文件头。 */
+    /** Event payload enrichment. Resolves the reflection pointer stubs
+     *  `{_type_,_pointer_}` emitted by LL serializeRefObj into fields a consumer can
+     *  read, such as _player, dim and _identifier. The definition and the reasoning
+     *  are in the Enrich.cpp file header. */
     [[nodiscard]] std::string enrichEventData(CompoundTag const& data);
 } // namespace pier::bridge

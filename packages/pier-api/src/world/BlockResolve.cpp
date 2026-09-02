@@ -1,8 +1,10 @@
-/** world/BlockResolve.cpp —— 方块规格解析与写方块的变更来源。
+/** world/BlockResolve.cpp: block specification parsing and the change source used
+ *  when writing blocks.
  *
- * 单独成 TU 的理由：World.cpp（双目标）和 Edit.cpp（服务端专属）都要用同
- * 一套解析规则。旧版把定义放在 Edit.cpp 里，World 的客户端目标一链接就缺
- * 符号 —— 归属摆正到这里，双目标编入。
+ * It is a TU of its own because World.cpp, compiled into both targets, and Edit.cpp,
+ * which is server only, need the same parsing rules. Defining them in Edit.cpp would
+ * leave the client target of World.cpp with an unresolved symbol at link time, so
+ * they live here and are compiled into both targets.
  */
 #include "pier/api/bridge.h"
 
@@ -20,7 +22,7 @@ namespace pier::bridge
 {
     namespace
     {
-        /** 补上 minecraft: 前缀。注册表里的键是带命名空间的。 */
+        /** Adds the minecraft: prefix. Registry keys carry a namespace. */
         std::string qualify(std::string_view name)
         {
             std::string s{name};
@@ -31,9 +33,10 @@ namespace pier::bridge
 
     Block const* blockFromTag(CompoundTag const& tag)
     {
-        // tryGetBlockFromNBT 会顺带跑引擎的版本升级表：老存档里的
-        // {name:"minecraft:wool",states:{color:…}} 能被正确升级成新方块。
-        // 这正是所要的；手工解析 states 做不到这一步。
+        // tryGetBlockFromNBT also runs the engine upgrade table, so an old save
+        // holding {name:"minecraft:wool",states:{color:...}} is upgraded to the
+        // current block correctly. That is what is wanted here and parsing states by
+        // hand cannot do it.
         auto pair = BlockSerializationUtils::tryGetBlockFromNBT(tag, nullptr);
         return pair.second;
     }
@@ -46,12 +49,14 @@ namespace pier::bridge
     }
 
     /**
-     * 方块名 → 默认状态。找不到时返回 nullptr，不返回「未知方块」。
+     * Block name to default state. Returns nullptr when the name is not found, rather
+     * than an unknown block.
      *
-     * `getDefaultBlockState` 对不认识的名字会给一个占位方块而不是报错，
-     * 于是 `//set 拼错的名字` 会安静地把整片地区填成那个占位方块。
-     * 这里比对一次 type_name 把它挡住 —— 调用方拿到 false 可以回落到
-     * 命令路径去拿一句真正的错误信息。
+     * `getDefaultBlockState` answers an unrecognized name with a placeholder block
+     * instead of an error, so a set operation with a misspelled name would quietly
+     * fill an entire region with that placeholder. Comparing type_name once blocks
+     * that, and a caller receiving false can fall back to the command path for a real
+     * error message.
      */
     Block const* defaultBlockNamed(std::string_view name)
     {
@@ -62,12 +67,13 @@ namespace pier::bridge
     }
 
     /**
-     * 写方块时用哪个「变更来源」。
+     * Which change source a block write uses.
      *
-     * 用 `commandsChange()` 而不是 `structureChange()`：这条路取代的正是
-     * `/setblock`，保持同一个来源意味着**别的插件挂在方块变更上的钩子看到
-     * 的东西不变**。换成 structure 会让一部分保护插件突然不再拦截 ——
-     * 那种「换了个实现，别人的插件失效了」的坑，值得用一段注释钉住。
+     * `commandsChange()` and not `structureChange()`. This path replaces `/setblock`,
+     * and keeping the same source means a hook another plugin installed on block
+     * changes sees exactly what it saw before. Switching to structure would make some
+     * protection plugins stop intercepting, which is the kind of breakage that is
+     * invisible until someone else's plugin fails.
      */
     BlockChangeContext blockEditContext() { return BlockChangeContext::commandsChange(); }
 } // namespace pier::bridge

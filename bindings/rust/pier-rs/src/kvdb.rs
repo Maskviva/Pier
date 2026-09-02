@@ -1,54 +1,56 @@
-//! 键值库 —— 模组自己的持久化存储。
+//! The key-value store: a mod's own persistent storage.
 //!
-//! # 这一族是**线程安全**的
+//! # This family is thread safe
 //!
-//! ABI 上 `kvdb_*` 明确标了内部有锁（契约 §四的例外之一），任何线程都能调。
-//! 其余的域几乎都只能在服务器线程上用，这一族是少数几个能在
-//! `std::thread::spawn` 里直接用的。
+//! The ABI marks `kvdb_*` as internally locked, one of the exceptions of contract §4, so any thread
+//! may call it. Almost every other domain works on the server thread alone, and this is one of the
+//! few usable straight from a `std::thread::spawn`.
 //!
-//! # 路径被圈在模组自己的数据目录里
+//! # Paths are confined to the mod's own data directory
 //!
-//! `..` 和绝对路径由宿主拒绝。句柄由宿主持有，模组卸载时强制关闭并打一条
-//! 告警 —— 所以忘了关不会丢数据，但会在日志里留下痕迹。
+//! The host refuses `..` and an absolute path. The host owns the handle, force-closes it when the
+//! mod unloads and warns, so forgetting to close loses no data while leaving a trace in the log.
 
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, collect_kv, s};
 use crate::rt::runtime::rt;
 use crate::sys;
 
-/// 一个打开着的键值库。**Drop 即关闭。**
+/// One open key-value store. Dropping it closes it.
 pub struct KvDb {
     handle: sys::PierKvDbHandle,
     path: String,
 }
 
-// SAFETY：ABI 上这一族标了线程安全（宿主侧有互斥锁）。这里断言的只是
-// 「句柄这个值可以跨线程搬并使用」，而那正是宿主承诺的那条性质。
+// SAFETY: the ABI marks this family thread safe, with a mutex on the host side. What is
+// asserted here is only that the handle value may be moved across threads and used,
+// which is exactly the property the host promises.
 unsafe impl Send for KvDb {}
 unsafe impl Sync for KvDb {}
 
 impl KvDb {
-    /// 打开，不存在就建。
+    /// Opens it, creating it when it does not exist.
     pub fn open(path: &str) -> Result<KvDb> {
         KvDb::open_inner(path, true)
     }
 
-    /// 只打开已存在的。库不存在时是 `Err`，不会悄悄建一个空的 ——
-    /// 「读一个本该有数据的库」和「建一个新库」是两件事。
+    /// Opens an existing one only. A store that does not exist is an `Err` and no empty one is
+    /// quietly created: reading a store that should hold data and creating a new one are two
+    /// different things.
     pub fn open_existing(path: &str) -> Result<KvDb> {
         KvDb::open_inner(path, false)
     }
 
     fn open_inner(path: &str, create: bool) -> Result<KvDb> {
-        let f = crate::require_slot!(kvdb_open, "打开键值库");
+        let f = crate::require_slot!(kvdb_open, "opening a key-value store");
         let handle = unsafe { f(rt().handle(), s(path), create) };
         if handle.is_null() {
             return Err(Error(format!(
-                "打开不了键值库 {path}（路径越出了模组数据目录、含 `..`，{}）",
+                "the key-value store {path} could not be opened: the path leaves the mod data directory, contains `..`, {}",
                 if create {
-                    "或磁盘不可写"
+                    "or the disk is not writable"
                 } else {
-                    "或它还不存在"
+                    "or it does not exist yet"
                 }
             )));
         }
@@ -62,10 +64,10 @@ impl KvDb {
         &self.path
     }
 
-    /// 读一个键。键不存在时是 `None`。
+    /// Reads one key. A key that does not exist gives `None`.
     ///
-    /// 两道闸都要走，即使 `open` 已经成功过：`kvdb_get` 在表里排在
-    /// `kvdb_open` **后面**，偏移更大，前者覆盖得到不蕴含后者覆盖得到。
+    /// Both gates apply even after `open` has succeeded: `kvdb_get` sits after `kvdb_open` in
+    /// the table at a larger offset, and the first being covered does not imply the second is.
     pub fn get(&self, key: &str) -> Option<String> {
         if !crate::has_slot!(kvdb_get) {
             return None;
@@ -75,21 +77,21 @@ impl KvDb {
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
-        let f = crate::require_slot!(kvdb_set, "写入键值库");
+        let f = crate::require_slot!(kvdb_set, "writing to a key-value store");
         if unsafe { f(self.handle, s(key), s(value)) } {
             Ok(())
         } else {
-            Err(Error(format!("写不进键值库 {} 的键 {key}", self.path)))
+            Err(Error(format!("the key {key} could not be written to the key-value store {}", self.path)))
         }
     }
 
-    /// 删一个键。键本来就不存在时也算成功。
+    /// Deletes one key. A key that never existed also counts as a success.
     pub fn del(&self, key: &str) -> Result<()> {
-        let f = crate::require_slot!(kvdb_del, "删除键");
+        let f = crate::require_slot!(kvdb_del, "deleting a key");
         if unsafe { f(self.handle, s(key)) } {
             Ok(())
         } else {
-            Err(Error(format!("删不掉键值库 {} 的键 {key}", self.path)))
+            Err(Error(format!("the key {key} could not be deleted from the key-value store {}", self.path)))
         }
     }
 
@@ -113,7 +115,7 @@ impl KvDb {
         }
     }
 
-    /// 全部键值对。整库都读进内存，大库慎用。
+    /// Every key-value pair. The whole store is read into memory, so a large one needs care.
     pub fn iter(&self) -> Vec<(String, String)> {
         if !crate::has_slot!(kvdb_iter) {
             return Vec::new();
@@ -128,8 +130,9 @@ impl KvDb {
 impl Drop for KvDb {
     fn drop(&mut self) {
         if !crate::has_slot!(kvdb_close) {
-            // 打得开却关不上：宿主在模组卸载时会强制关闭并打一条告警，
-            // 所以这里不再重复报，但也绝不能去读一个够不着的槽。
+            // It opened and cannot be closed. The host force-closes it when the mod unloads and
+            // warns, so this does not report it again, and it must never read a slot it cannot
+            // reach.
             return;
         }
         if let Some(f) = crate::__rt::api().kvdb_close {

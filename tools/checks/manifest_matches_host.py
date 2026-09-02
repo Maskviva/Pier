@@ -1,21 +1,24 @@
 # -*- coding: utf-8 -*-
-"""manifest-matches-host —— 示例模组的 `manifest.json` 必须真能被宿主装上。
+"""manifest-matches-host: the `manifest.json` of an example mod must really load under the
+host.
 
-盯的是什么：宿主只认 `"type": "<ModHostName>"` 的模组（`ModControl.cpp` 里
-那一行硬判等），而 `ModHostName` 定义在 `hosted_mod.h`。示例里那个字符串
-写错一个字，模组就**根本不会被扫到** —— 没有报错，没有日志，它就是不在
-`/pier list` 里。
+What it watches: the host recognizes only a mod whose `"type"` equals `<ModHostName>`,
+compared literally on one line of `ModControl.cpp`, and `ModHostName` is defined in
+`hosted_mod.h`. One wrong character in that string in an example and the mod is never
+scanned at all: no error, no log line, it is simply absent from `/pier list`.
 
-这不是假想：v0 的示例 manifest 依赖的是 `"levilamina-rust-loader"`，
-而那个名字的模组在重命名之后已经不存在了，示例因此装不上。上一轮架构评审
-逐个文件读才发现的，正是「编译器查不到」的那一类。
+This is not hypothetical. The v0 example manifest depended on `"levilamina-rust-loader"`,
+a mod name that no longer existed after the rename, so the example could not load. It was
+found by reading file by file during an architecture review, which is exactly the class
+the compiler cannot find.
 
-三条判据：
+Three criteria:
 
-1. `type` 等于宿主的 `ModHostName`；
-2. `dependencies` 里的宿主名也等于它（写错就是依赖一个不存在的模组）；
-3. `entry` 和 crate 名对得上 —— cargo 产出的是 `<crate_name>.dll`，
-   crate 名里的 `-` 会变成 `_`，这一步最容易手滑。
+1. `type` equals the host's `ModHostName`;
+2. the host name inside `dependencies` equals it as well, since a wrong one depends on a
+   mod that does not exist;
+3. `entry` agrees with the crate name: cargo produces `<crate_name>.dll` and a `-` in a
+   crate name becomes `_`, which is the easiest step to slip on.
 """
 
 import json
@@ -35,18 +38,19 @@ def run():
     r = Result("manifest-matches-host")
 
     if not os.path.exists(HOSTED_MOD_H):
-        r.fail("找不到 hosted_mod.h —— 无从知道宿主认哪个 type")
+        r.fail("hosted_mod.h was not found, so which type the host recognizes cannot be determined")
         return r
     with open(HOSTED_MOD_H, encoding="utf-8") as f:
         m = re.search(r'ModHostName\s*=\s*"([^"]+)"', f.read())
     if not m:
-        r.fail("hosted_mod.h 里找不到 ModHostName 的定义")
+        r.fail("the definition of ModHostName was not found in hosted_mod.h")
         return r
     host = m.group(1)
-    r.note("宿主注册的模组类型名 = %r" % host)
+    r.note("the mod type name the host registers = %r" % host)
 
-    # 允许对**别的仓库**跑：Pier 的消费方（模组）同受这条判等约束，
-    # 而它们那边没有 hosted_mod.h —— 宿主名从这个仓库读，manifest 从那边扫。
+    # This may run against another repository: a consumer of Pier, meaning a mod, is bound
+    # by the same equality while having no hosted_mod.h of its own. The host name is read
+    # from this repository and the manifests are scanned over there.
     scan_root = sys.argv[1] if len(sys.argv) > 1 else ROOT
 
     found = 0
@@ -56,8 +60,9 @@ def run():
             continue
         p = os.path.join(dp, "manifest.json")
         rel = os.path.relpath(p, scan_root)
-        # V-44：仓库根目录的 manifest.json 是 pier 宿主自己的 LeviLamina 清单
-        #（type "native"），不是 pier 模组；扫进来必然误报 FAIL。
+        # The manifest.json at the repository root is the LeviLamina manifest of the pier
+        # host itself, with type "native", and not a pier mod. Scanning it would always
+        # produce a false failure.
         if os.path.abspath(dp) == os.path.abspath(scan_root):
             continue
         found += 1
@@ -65,22 +70,22 @@ def run():
             with open(p, encoding="utf-8") as f:
                 j = json.load(f)
         except Exception as e:  # noqa: BLE001
-            r.fail("%s 不是合法 JSON：%s" % (rel, e))
+            r.fail("%s is not valid JSON: %s" % (rel, e))
             continue
 
         if j.get("type") != host:
-            r.fail("%s 的 type 是 %r，宿主只认 %r —— 这个模组根本不会被扫到，"
-                   "而且不会有任何报错" % (rel, j.get("type"), host))
+            r.fail("the type of %s is %r while the host recognizes only %r, so this mod is never "
+                   "scanned and nothing is reported" % (rel, j.get("type"), host))
 
         deps = [d.get("name") for d in j.get("dependencies", []) if isinstance(d, dict)]
         if host not in deps:
-            r.fail("%s 的 dependencies 里没有 %r —— 装载顺序无从保证；"
-                   "当前是 %s" % (rel, host, deps))
+            r.fail("the dependencies of %s do not include %r, so the load order cannot be "
+                   "guaranteed; they currently are %s" % (rel, host, deps))
         for d in deps:
             if d and d != host and d.startswith(("levilamina-", "pier-")):
-                r.fail("%s 依赖 %r —— 这不是宿主的名字，多半是改名没改干净" % (rel, d))
+                r.fail("%s depends on %r, which is not the host name and is most likely a rename left half done" % (rel, d))
 
-        # entry 与 crate 名
+        # entry against the crate name
         cargo = os.path.join(dp, "Cargo.toml")
         if os.path.exists(cargo):
             with open(cargo, encoding="utf-8") as f:
@@ -97,13 +102,13 @@ def run():
             if name:
                 want = name.replace("-", "_") + ".dll"
                 if j.get("entry") != want:
-                    r.fail("%s 的 entry 是 %r，但 cargo 产出的是 %r"
-                           "（crate 名里的 - 会变成 _）" % (rel, j.get("entry"), want))
+                    r.fail("the entry of %s is %r while cargo produces %r; a - in a crate name "
+                           "becomes _" % (rel, j.get("entry"), want))
 
     if found == 0:
-        r.note("仓库里没有 manifest.json —— 没有示例模组可查")
+        r.note("the repository has no manifest.json, so there is no example mod to check")
     elif not r.failures:
-        r.note("%d 份 manifest 全部能被宿主装上" % found)
+        r.note("all %d manifest(s) load under the host" % found)
     return r
 
 

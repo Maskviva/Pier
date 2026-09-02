@@ -1,15 +1,16 @@
-//! 模组自己的日志入口。
+//! A mod's own logging entry point.
 //!
-//! 走的是 `PierApi::log`，宿主那边会挂到这个模组名下的 LeviLamina logger，
-//! 所以玩家在控制台看到的是 `[你的模组名] ...` 而不是 `[pier] ...`。
+//! It goes through `PierApi::log` and the host attaches it to the LeviLamina logger under
+//! this mod's name, so what appears in the console is `[the mod name] ...` and not
+//! `[pier] ...`.
 //!
-//! `log` 是 ABI 上明确标了**线程安全**的少数几个槽之一（契约 §四），
-//! 所以 `Logger` 可以随便 `Copy` 到任何线程上用。
+//! `log` is one of the few slots the ABI marks thread safe (contract §4), so a `Logger` can
+//! be `Copy`ed onto any thread freely.
 
 use crate::rt::ffi::s;
 use crate::rt::runtime::rt;
 
-/// 镜像 `ll::io::LogLevel`。数值是 ABI 的一部分。
+/// Mirrors `ll::io::LogLevel`. The values are part of the ABI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogLevel {
     Fatal = 0,
@@ -30,10 +31,11 @@ impl Logger {
 
     pub fn log(&self, level: LogLevel, msg: &str) {
         let rt = rt();
-        // `log` 是核心槽，宿主一定有它 —— 它在表头之后的第一个位置，
-        // 任何能通过版本闸的宿主都覆盖得到，所以这里不走 require_slot!。
-        // 但仍然查一次非空：一个填表填漏了的宿主不该让日志变成崩溃，
-        // 而日志恰恰是唯一能告诉人「出事了」的通道。
+        // `log` is a core slot every host has: it sits first after the header, any host that
+        // passes the version gate covers it, and require_slot! is therefore not used here.
+        // It is still checked for non-null: a host that left the table incomplete should not
+        // turn logging into a crash, and logging is the one channel that can say something went
+        // wrong.
         if let Some(f) = rt.api.log {
             unsafe { f(rt.handle(), level as i32, s(msg)) }
         }

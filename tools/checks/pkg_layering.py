@@ -1,30 +1,35 @@
 # -*- coding: utf-8 -*-
-"""pkg-layering / object-kind / optional-drops —— 分包三条（契约 §一）。
+"""pkg-layering, object-kind and optional-drops: the three packaging rules of contract §1.
 
-这三条放一个文件，因为它们查的是同一份事实（每个包的 xmake.lua + 每个源
-文件的 #include），只是判据不同。分三份会各写一遍目录遍历，然后各自漂移。
+The three share one file because they read the same facts, the xmake.lua of each package
+and the #include lines of each source file, and differ only in criteria. Three files would
+each write their own directory walk and then drift apart.
 
-## pkg-layering
-契约 §一 规则一：箭头只能向上，且那张图就是全部的边。
-两个方向都要查，因为它们能各自独立地撒谎：
-  - `add_deps` 声明的边（链接图）
-  - `#include` 实际用的边（编译图）
-v1 的实况是两张图对不上：契约画的是 DAG，真实是 api↔hooks 的环加一条
-host→api 的隐藏链接边。「逐个查 add_deps ✓」查的是声明，不是现实。
+Contract §1 rule 1: arrows point upward only, and that graph is the complete set of edges.
+Both directions are checked, because they can lie independently of each other:
 
-## object-kind
-契约 §一 规则四：所有包 `set_kind("object")`。
-静态库会让链接器丢弃**没有外部符号引用**的编译单元，而 SPI 注册全靠
-文件级静态对象 —— 被丢弃的症状是功能静默消失。这条检查还额外核对
-「这个包是不是真的只靠自注册进入产物」，好让报错能说清后果。
+  - the edges declared by `add_deps`, the link graph
+  - the edges actually used by `#include`, the compile graph
 
-## optional-drops
-契约 §一 规则三：删掉根 xmake 的 `includes(<可选包>)` 后照常编译。
-真正的判据要跑 xmake，这里做的是**静态的必要条件**：可选包的符号不许
-被任何别的包引用。这个条件不充分（还有构建系统层面的耦合），但它足以
-逮住 v1 那次事故 —— `ApiTable.cpp` 无条件转调 `bridge::laneModBusyName`，
-删掉 pier-lane 直接链接断裂。脚本报 PASS 只代表「静态部分过了」，
-交付前仍要真跑一次 `xmake f`，见 run-checks.py 的输出提示。
+In v1 the two graphs disagreed: the contract drew a DAG while reality held a cycle between
+api and hooks plus a hidden link edge from host to api. Checking `add_deps` one by one
+checks the declaration and not the reality.
+
+Contract §1 rule 4: every package is `set_kind("object")`. A static library lets the
+linker discard a translation unit with no external symbol reference, while SPI
+registration rests entirely on file-level static objects, and the symptom of a discarded
+one is a capability disappearing silently. This check also verifies whether a package
+really enters the artifact only through self-registration, so the failure message can
+state the consequence.
+
+Contract §1 rule 3: deleting `includes(<optional package>)` from the root xmake still
+compiles. The real criterion needs xmake to run, and what happens here is the static
+necessary condition: no symbol of an optional package may be referenced by any other
+package. That condition is not sufficient, since build-system coupling also exists, but it
+is enough to catch the v1 incident, where `ApiTable.cpp` unconditionally forwarded to
+`bridge::laneModBusyName` and deleting pier-lane broke the link outright. A pass means the
+static part passed, and a real `xmake f` still has to run before delivery, as the output of
+run-checks.py says.
 """
 
 import os
@@ -36,8 +41,8 @@ from _abi import ROOT, Result  # noqa: E402
 
 PKGS = os.path.join(ROOT, "packages")
 
-# 契约 §一 的那张图。这里是**规矩**的机器可读副本 —— 图变了，这里必须一起变，
-# 而不是反过来让脚本去描述现状。
+# The graph of contract §1. This is the machine-readable copy of the rule: a change to the
+# graph changes this too, rather than the script being made to describe the present state.
 ALLOWED_DEPS = {
     "pier-abi": set(),
     "pier-support": {"pier-abi"},
@@ -49,26 +54,28 @@ ALLOWED_DEPS = {
     "pier-client": {"pier-abi", "pier-support", "pier-host"},
 }
 
-# 能力包 —— 它们互为兄弟，之间零边。
+# Capability packages. They are siblings with no edge between them.
 CAPABILITY = {"pier-api", "pier-hooks", "pier-lane", "pier-dimensions", "pier-client"}
 
-# 可选包：从根 xmake 删掉那一行后必须照常编译。
+# Optional packages: deleting that line from the root xmake must still compile.
 OPTIONAL = {"pier-lane", "pier-dimensions"}
 
-# 目录本身现在就分开了：`packages/` 只放宿主本体的 C++ 分包，`bindings/<语言>/`
-# 放绑定。这一条曾经靠脚本里的语言判别器（有 xmake.lua 还是有 Cargo.toml）
-# 来区分 —— 那是目录没能表达一个已经存在的事实，而契约 §一 早就写着
-# 「这是两条独立的构建线」。判别器留着做兜底：`packages/` 下再冒出 Cargo.toml
-# 是分层出了问题，应当报出来，而不是被默默接受。
-# 绑定住在 `bindings/<语言>/` 下。
+# The directories now separate this themselves: `packages/` holds only the C++ packages of
+# the host proper and `bindings/<language>/` holds the bindings. A language discriminator
+# in the script, checking for an xmake.lua or a Cargo.toml, used to make the distinction,
+# which was the directory failing to express a fact that already held, since contract §1
+# has always said these are two independent build lines. The discriminator stays as a
+# backstop: another Cargo.toml appearing under `packages/` is a layering problem and should
+# be reported rather than quietly accepted.
+# The bindings live under `bindings/<language>/`.
 CARGO_DEPS = {
-    "pier-sys-rs": set(),                 # 只读 abi.h，零 crate 依赖
-    "pier-rs": {"pier-sys-rs"},           # 安全封装，只依赖裸 FFI 那一层
+    "pier-sys-rs": set(),                 # Reads abi.h only, no crate dependency
+    "pier-rs": {"pier-sys-rs"},           # The safe wrapper, depending only on the raw FFI layer
 }
 
 BINDINGS = os.path.join(ROOT, "bindings")
 
-# 每个包对外暴露的 include 前缀 —— 用来把 #include 归属到包。
+# The include prefix each package exposes, used to attribute an #include to a package.
 INCLUDE_OWNER = {
     "sdk/": "pier-abi",
     "pier/support/": "pier-support",
@@ -82,7 +89,7 @@ INCLUDE_OWNER = {
 
 
 def _pkg_dirs():
-    """xmake 包（有 xmake.lua 的那些）。"""
+    """The xmake packages, those with an xmake.lua."""
     return sorted(
         d for d in os.listdir(PKGS)
         if os.path.isdir(os.path.join(PKGS, d))
@@ -91,7 +98,7 @@ def _pkg_dirs():
 
 
 def _crate_dirs():
-    """cargo crate（有 Cargo.toml 的那些）。"""
+    """The cargo crates, those with a Cargo.toml."""
     return sorted(
         d for d in os.listdir(PKGS)
         if os.path.isdir(os.path.join(PKGS, d))
@@ -100,7 +107,7 @@ def _crate_dirs():
 
 
 def _unclassified():
-    """两种清单都不属于的目录。它们不会被任何一套判据覆盖 —— 必须报出来。"""
+    """Directories belonging to neither manifest kind. No set of criteria covers them, so they must be reported."""
     known = set(_pkg_dirs()) | set(_crate_dirs())
     return sorted(
         d for d in os.listdir(PKGS)
@@ -133,25 +140,25 @@ def _sources(pkg):
 
 
 def check_crates(r):
-    """cargo crate 的依赖判据：只能沿 CARGO_DEPS，且不许依赖任何 C++ 包。"""
+    """The dependency criterion for a cargo crate: only along CARGO_DEPS, and never on a C++ package."""
     xmake_pkgs = set(_pkg_dirs())
     for crate in _crate_dirs():
         if crate not in CARGO_DEPS:
-            r.fail("crate %s 不在契约 §一 的图里 —— 加绑定要先改契约" % crate)
+            r.fail("crate %s is not in the graph of contract §1; adding a binding starts with the contract" % crate)
             continue
         text = _read(os.path.join(PKGS, crate, "Cargo.toml"))
-        # `[dependencies]` 段里出现的 pier-* 名字
+        # The pier-* names appearing in the `[dependencies]` section
         m = re.search(r"^\[dependencies\](.*?)(?=^\[|\Z)", text, re.S | re.M)
         deps = set(re.findall(r"^\s*(pier-[\w-]+)", m.group(1), re.M)) if m else set()
         for d in deps - CARGO_DEPS[crate]:
-            r.fail("crate %s 依赖 %s —— 不在契约允许的边里" % (crate, d))
+            r.fail("crate %s depends on %s, which is not an edge the contract allows" % (crate, d))
         for d in deps & xmake_pkgs:
-            r.fail("crate %s 依赖 C++ 包 %s —— 两条构建线之间只有契约依赖，"
-                   "不许有构建依赖" % (crate, d))
+            r.fail("crate %s depends on the C++ package %s. The two build lines share only a "
+                   "contract dependency and never a build dependency" % (crate, d))
     if _crate_dirs():
-        r.note("cargo crate %d 个，依赖只沿 %s"
+        r.note("%d cargo crate(s), with dependencies only along %s"
                % (len(_crate_dirs()),
-                  "、".join("%s→%s" % (k, "、".join(v) or "(无)") for k, v in CARGO_DEPS.items())))
+                  ", ".join("%s -> %s" % (k, ", ".join(v) or "(none)") for k, v in CARGO_DEPS.items())))
 
 
 def _read(path):
@@ -164,22 +171,22 @@ def _read(path):
 def check_layering(r):
     unk = _unclassified()
     for d in unk:
-        r.fail("packages/%s 既没有 xmake.lua 也没有 Cargo.toml —— "
-               "任何一套判据都覆盖不到它" % d)
+        r.fail("packages/%s has neither an xmake.lua nor a Cargo.toml, so no set of criteria "
+               "covers it" % d)
     for pkg in _pkg_dirs():
         if pkg not in ALLOWED_DEPS:
-            r.fail("包 %s 不在契约 §一 的图里 —— 加包要先改契约" % pkg)
+            r.fail("package %s is not in the graph of contract §1; adding a package starts with the contract" % pkg)
             continue
         allowed = ALLOWED_DEPS[pkg]
 
         declared = _declared_deps(_xmake_of(pkg))
-        # 只看 pier-* 的边；外部依赖（levilamina 等）不归这条检查管。
+        # Only pier-* edges. An external dependency such as levilamina is outside this check.
         declared = {d for d in declared if d.startswith("pier-")}
         for d in declared - allowed:
-            kind = "横边（能力包互相认识）" if (pkg in CAPABILITY and d in CAPABILITY) else "越级/反向边"
-            r.fail("链接图：%s 的 add_deps 含 %s —— %s，契约 §一 规则一不允许" % (pkg, d, kind))
+            kind = "a sideways edge between capability packages" if (pkg in CAPABILITY and d in CAPABILITY) else "a skipping or reversed edge"
+            r.fail("link graph: the add_deps of %s contains %s, which is %s and rule 1 of contract §1 does not allow" % (pkg, d, kind))
 
-        # 编译图：#include 归属
+        # Compile graph: attributing an #include
         for src in _sources(pkg):
             rel = os.path.relpath(src, ROOT)
             with open(src, encoding="utf-8", errors="replace") as f:
@@ -191,13 +198,13 @@ def check_layering(r):
                     for prefix, owner in INCLUDE_OWNER.items():
                         if inc.startswith(prefix) and owner != pkg:
                             if owner not in allowed:
-                                kind = ("横边" if (pkg in CAPABILITY and owner in CAPABILITY)
-                                        else "越级/反向边")
-                                r.fail("编译图：%s:%d 的 #include \"%s\" 让 %s 依赖 %s —— %s"
+                                kind = ("a sideways edge" if (pkg in CAPABILITY and owner in CAPABILITY)
+                                        else "a skipping or reversed edge")
+                                r.fail("compile graph: the #include \"%s\" at %s:%d makes %s depend on %s, which is %s"
                                        % (rel, i, inc, pkg, owner, kind))
                             break
     if not r.failures:
-        r.note("链接图与编译图都只沿契约 §一 的边，能力包之间零横边")
+        r.note("the link graph and the compile graph both follow the edges of contract §1, with no sideways edge between capability packages")
 
 
 def check_object_kind(r2):
@@ -205,16 +212,16 @@ def check_object_kind(r2):
     for pkg in _pkg_dirs():
         text = _xmake_of(pkg)
         m = re.search(r'set_kind\("([^"]+)"\)', text)
-        kind = m.group(1) if m else "(未声明)"
+        kind = m.group(1) if m else "(not declared)"
         if pkg == "pier-abi":
             if kind != "headeronly":
-                r2.fail("pier-abi 应为 headeronly（零源文件），实为 %s" % kind)
+                r2.fail("pier-abi should be headeronly, with no source file, and is %s" % kind)
             continue
         if kind != "object":
             bad.append((pkg, kind))
 
     for pkg, kind in bad:
-        # 把后果说清楚：这个包有几个「只靠自注册进产物」的 TU？
+        # State the consequence: how many TUs of this package enter the artifact only through self-registration?
         selfreg = []
         for src in _sources(pkg):
             with open(src, encoding="utf-8", errors="replace") as f:
@@ -224,15 +231,16 @@ def check_object_kind(r2):
                 selfreg.append(os.path.relpath(src, ROOT))
         detail = ""
         if selfreg:
-            detail = ("；该包有 %d 个 TU 只靠文件级静态对象自注册"
-                      "（无外部符号引用），静态库会被链接器整 obj 丢弃，"
-                      "症状是功能静默消失：%s%s"
+            detail = (". This package has %d TU(s) registering themselves through a file-level "
+                      "static object with no external symbol reference, so a static library has "
+                      "the linker discard the whole object and the symptom is a capability "
+                      "disappearing silently: %s%s"
                       % (len(selfreg), ", ".join(os.path.basename(s) for s in selfreg[:4]),
                          " …" if len(selfreg) > 4 else ""))
-        r2.fail("%s 是 set_kind(\"%s\")，契约 §一 规则四要求 object%s" % (pkg, kind, detail))
+        r2.fail("%s is set_kind(\"%s\") while rule 4 of contract §1 requires object%s" % (pkg, kind, detail))
 
     if not bad:
-        r2.note("八个包的 set_kind 全部合规（pier-abi=headeronly，其余 object）")
+        r2.note("the set_kind of all eight packages is compliant: pier-abi is headeronly and the rest are object")
 
 
 def check_optional_drops(r3):
@@ -242,26 +250,27 @@ def check_optional_drops(r3):
 
     for opt in sorted(OPTIONAL):
         if 'includes("packages/%s")' % opt not in root_text:
-            r3.fail("根 xmake 里找不到 includes(\"packages/%s\") —— 可选包的判据无从执行" % opt)
+            r3.fail("the root xmake has no includes(\"packages/%s\"), so the criterion for an optional package cannot run" % opt)
 
-        # 该可选包的公开头前缀
+        # The public header prefix of that optional package
         prefix = [p for p, o in INCLUDE_OWNER.items() if o == opt]
         for pkg in _pkg_dirs():
             if pkg == opt:
                 continue
             if opt in _declared_deps(_xmake_of(pkg)):
-                r3.fail("%s 的 add_deps 里有可选包 %s —— 删掉它就链接不上" % (pkg, opt))
+                r3.fail("the add_deps of %s contains the optional package %s, so deleting it breaks the link" % (pkg, opt))
             for src in _sources(pkg):
                 with open(src, encoding="utf-8", errors="replace") as f:
                     for i, line in enumerate(f, 1):
                         m = re.match(r'\s*#\s*include\s*[<"]([^>"]+)[>"]', line)
                         if m and any(m.group(1).startswith(p) for p in prefix):
-                            r3.fail("%s:%d 引用了可选包 %s 的头 —— 删掉 %s 就编不过"
+                            r3.fail("%s:%d references a header of the optional package %s, so deleting %s stops it compiling"
                                     % (os.path.relpath(src, ROOT), i, opt, opt))
-        # 根 target 的 add_deps 允许提到它（那正是要删的那一行的同伴）
+        # The add_deps of the root target may mention it, being the companion of the line to be deleted
     if not r3.failures:
-        r3.note("可选包 %s 的符号无人跨包引用（静态必要条件通过；"
-                "充分判据仍是真跑一次 xmake f）" % "、".join(sorted(OPTIONAL)))
+        r3.note("no symbol of the optional package(s) %s is referenced across packages. The static "
+                "necessary condition passed; the sufficient criterion is still a real xmake f run"
+                % ", ".join(sorted(OPTIONAL)))
 
 
 def run():

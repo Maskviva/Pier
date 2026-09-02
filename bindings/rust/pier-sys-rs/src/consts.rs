@@ -1,12 +1,14 @@
-//! ABI 里的整数常量族，按主题分三个模块。
+//! The families of integer constants in the ABI, split into three modules by topic.
 //!
-//! 分模块只是为了方便读，**不是**语义边界 —— 全部经 `pub use` 平铺到
-//! `levilamina_sys::` 下，调用方不需要知道 `PIER_PPROP_HEALTH` 住在哪个文件。
+//! The split is for reading only and is not a semantic boundary: everything is flattened
+//! under `levilamina_sys::` through `pub use`, and a caller need not know which file
+//! `PIER_PPROP_HEALTH` lives in.
 //!
-//! 三个模块的一致性由 `sys-mirrors-abi` 机检守着：`abi.h` 里每一个 `enum`
-//! 成员，这里都要有同名同值的常量。这条检查是被现实逼出来的 ——
-//! `PIER_AACT_ADD_EFFECT` 因为在 `abi.h` 里的注释换了行，人工搬运时被整条
-//! 漏掉了，而漏一个常量的症状是「调 add_effect 实际执行了 remove_effect」。
+//! The agreement of the three modules is guarded by the `sys-mirrors-abi` check: every
+//! `enum` member in `abi.h` needs a constant of the same name and value here. Reality
+//! forced that check into existence, since `PIER_AACT_ADD_EFFECT` was dropped whole
+//! during manual transcription because its comment wrapped in `abi.h`, and a missing
+//! constant shows up as calling add_effect while remove_effect runs.
 
 pub mod actor;
 pub mod player;

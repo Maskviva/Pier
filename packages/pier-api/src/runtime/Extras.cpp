@@ -1,22 +1,25 @@
-/** runtime/Extras.cpp —— 追加槽。
+/** runtime/Extras.cpp: appended slots.
  *
- * 目前一格：level_set_biome，改生物群系，对应 worldedit 的 /we setbiome。加它是
- * 为了让上层不必再改 gamerule；gamerule 是整个存档一份的，用它做按世界的设置永远
- * 解释不通，服主改一个世界另一个世界跟着变。
+ * One slot so far, level_set_biome, which changes the biome and corresponds to the
+ * a worldedit setbiome command. It exists so callers do not reach for a gamerule. A
+ * gamerule is one value for the whole save, so using it for a per-world setting never
+ * works: an operator changing one world changes the other.
  *
- * 追加槽单独成文件，因为它们的生命周期和已有的不一样：靠 struct_size 守卫，随时
- * 可能因 BDS 改签名而单独调整。混进别的域之后，排查「哪些是新加的」只能翻 git。
- * 双目标编入，与旧构建矩阵一致。
+ * Appended slots live in their own file because their lifecycle differs from the
+ * existing ones. They are guarded by struct_size and may be adjusted on their own when
+ * BDS changes a signature. Mixed into another domain, which slots were appended could
+ * only be recovered from git. Compiled into both targets.
  *
- * 加新槽之前先读一遍现有的 190 格：删实体和设血量已由 actor_action 的
- * AACT_DESPAWN / AACT_HEAL 覆盖，再开独立槽只会让两份实现分岔。
+ * Read the existing 190 slots before adding one. Despawning an actor and setting
+ * health are covered by AACT_DESPAWN and AACT_HEAL on actor_action, and a separate
+ * slot would only fork the implementation.
  */
 #include <cstdint>
 #include <algorithm>
 #include <string>
 
-// `ChunkBlockPos.h` 在 `mc/world/level/` 下，不是 `.../level/chunk/` ——
-// 后者放的是 `LevelChunk.h`。两个名字都带 chunk，而目录不一样。
+// `ChunkBlockPos.h` sits under `mc/world/level/` and not `.../level/chunk/`, which
+// holds `LevelChunk.h`. Both names contain chunk while the directories differ.
 #include "mc/world/level/BlockPos.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/ChunkBlockPos.h"
@@ -51,22 +54,25 @@ namespace pier::api_impl
                     bridge::levelReady() ? &bridge::levelReady()->getBiomeRegistry() : nullptr;
                 if (!registry) return 0;
                 Biome const* target = registry->lookupByName(name);
-                // 名字不认识就一列都不设，而不是设成默认群系。悄悄换成平原
-                // 比报「没设上」糟得多：服主看到地形变了，但不是他要的那个。
+                // An unrecognized name sets no column at all rather than the default
+                // biome. Silently substituting plains is worse than reporting failure,
+                // because the operator sees the terrain change into something other
+                // than what was asked for.
                 if (!target) return 0;
 
                 if (minX > maxX) std::swap(minX, maxX);
                 if (minZ > maxZ) std::swap(minZ, maxZ);
 
-                // 区域无上限时一次调用就能把服务器线程冻住（调用方常把玩家
-                // 的选区直接传进来）；maxX == INT32_MAX 时 `++x` 溢出，循环永不
-                // 终止。用 64 位计数，并对面积设上限。
+                // Without an area cap one call can freeze the server thread, since
+                // callers often pass a player selection straight through, and with
+                // maxX == INT32_MAX the `++x` overflows and the loop never ends. The
+                // count is 64-bit and the area is capped.
                 constexpr int64_t kMaxColumns = int64_t{4096} * 4096;
                 int64_t const area = (int64_t{maxX} - minX + 1) * (int64_t{maxZ} - minZ + 1);
                 if (area > kMaxColumns)
                 {
                     hostLogger().error(
-                        "level_set_biome：区域 {} 列超过上限 {} —— 请分批调用", area, kMaxColumns);
+                        "[api] level_set_biome refused, area of {} columns exceeds the limit of {}; split the call", area, kMaxColumns);
                     return -1;
                 }
 
@@ -75,17 +81,20 @@ namespace pier::api_impl
                 {
                     for (int64_t z = minZ; z <= maxZ; ++z)
                     {
-                        // 逐列拿区块。没加载的跳过，不强加载 —— 强加载一片
-                        // 大区域会让主线程停住几秒，而调用方通常在玩家附近操作，
-                        // 那些区块本来就是加载的。
+                        // The chunk is fetched per column. An unloaded chunk is
+                        // skipped and never force-loaded, because force-loading a large
+                        // area stalls the main thread for seconds, and callers usually
+                        // work near a player where the chunks are loaded anyway.
                         LevelChunk* chunk = bs->getChunkAt(BlockPos(x, 0, z));
                         if (!chunk) continue;
-                        // 契约写的是按整列设，所以用 setBiome2d：它内部走
-                        // _setBiome(..., fillYDimension=true) 把整列 y 填成同一个
-                        // 群系，而 setBiome3d 只写 pos.y 那一个采样。位置用
-                        // ChunkBlockPos::from2D(x, z)，列坐标不需要 y；直接写
-                        // ChunkBlockPos(x, 0, z) 编不过，中间那个参数是
-                        // ChunkLocalHeight，不能从 int 隐式构造。
+                        // The contract specifies setting a whole column, so setBiome2d
+                        // is used. It calls _setBiome(..., fillYDimension=true) and
+                        // fills every y of the column with one biome, while setBiome3d
+                        // writes only the sample at pos.y. The position comes from
+                        // ChunkBlockPos::from2D(x, z), since a column coordinate needs
+                        // no y. Writing ChunkBlockPos(x, 0, z) does not compile, as the
+                        // middle parameter is a ChunkLocalHeight and does not convert
+                        // implicitly from int.
                         chunk->setBiome2d(
                             *target,
                             ChunkBlockPos::from2D(

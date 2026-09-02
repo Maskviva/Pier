@@ -1,43 +1,50 @@
-//! 模组交给宿主的那张表，以及入口符号的签名。
+//! The table a mod hands to the host, and the signature of the entry symbol.
 //!
-//! 这是握手的**模组侧**。宿主侧那半在 `pier-host/src/ModHost.cpp`，
-//! 顺序有讲究：先读长度、再读版本、最后比对目标标志。
+//! This is the mod side of the handshake. The host half lives in
+//! `pier-host/src/ModHost.cpp`, and the order matters: read the length first, then the
+//! version, then compare the target flags.
 
 use core::ffi::c_void;
 
 use crate::api::PierApi;
 use crate::types::PierModHandle;
 
-/// 模组在 `pier_main` 里填好、交给宿主的表。
+/// The table a mod fills in inside `pier_main` and hands to the host.
 ///
-/// 自带 `struct_size`，所以 vtable 也走「只追加」那条路：宿主只读模组声明
-/// 长度以内的字段，加一个回调不必升 ABI 版本、不必把已编译的模组判死。
+/// It carries its own `struct_size`, so the vtable follows the append-only path too: the
+/// host reads only the fields within the length the mod declared, and adding a callback
+/// needs no ABI version bump and condemns no already-compiled mod.
 ///
-/// 目标匹配走独立的 `mod_flags`，不往版本号高位藏标记 —— 挤在一个数里的话
-/// 每次判断都要先解包，而且那种标记护不住**没有重编**的模组。
+/// Target matching goes through a separate `mod_flags` and no marker is hidden in the
+/// high bits of the version number. Packed into one number, every test would have to
+/// unpack it first, and such a marker protects no mod that was not rebuilt.
 ///
-/// 宿主拿 `mod_flags` 和 `PierApi::host_flags` 的 bit 0 比对，不匹配就
-/// **明确拒绝装载**并说明原因。明确是关键：让它装上去，然后在第一个只有
-/// 一侧才有的槽位上崩掉，是查不下去的。
+/// The host compares bit 0 of `mod_flags` against `PierApi::host_flags` and, on a
+/// mismatch, refuses to load explicitly and says why. Being explicit is the point:
+/// letting it load and then crashing on the first slot that exists on one side only
+/// cannot be traced.
 #[repr(C)]
 pub struct PierModVTable {
-    /// `size_of::<PierModVTable>()`，由模组按自己编译出的表填写。
+    /// `size_of::<PierModVTable>()`, filled in by the mod from the table it compiled.
     pub struct_size: u32,
-    /// 模组编译时的 `PIER_ABI_VERSION`。
+    /// The `PIER_ABI_VERSION` the mod was compiled against.
     pub abi_version: u32,
-    /// `PIER_FLAG_*` 的按位或。bit 0 = 这是客户端模组。
+    /// The bitwise or of the `PIER_FLAG_*` values. Bit 0 means this is a client mod.
     pub mod_flags: u32,
-    /// 保留，恒为 0。凑齐 16 字节头，也给未来的头部标量留位。
+    /// Reserved and always 0. It completes a 16-byte header and leaves room for a future
+    /// header scalar.
     pub _reserved0: u32,
-    /// 模组自己的状态指针。宿主原样回传给三个回调，不解释。
+    /// The mod's own state pointer. The host passes it back to the three callbacks
+    /// unchanged and does not interpret it.
     pub instance: *mut c_void,
     pub on_enable: Option<unsafe extern "C" fn(instance: *mut c_void) -> bool>,
     pub on_disable: Option<unsafe extern "C" fn(instance: *mut c_void) -> bool>,
     pub on_unload: Option<unsafe extern "C" fn(instance: *mut c_void) -> bool>,
 }
 
-/// 模组必须导出的唯一入口。宿主只找 `pier_main` 这一个名字，找不到就明确
-/// 拒绝装载、不做任何回退（契约 §2.4）。
+/// The single entry point a mod must export. The host looks for the name `pier_main` and
+/// nothing else, and refuses to load explicitly with no fallback when it is absent
+/// (contract §2.4).
 pub type PierMainFn = unsafe extern "C" fn(
     api: *const PierApi,
     self_: PierModHandle,

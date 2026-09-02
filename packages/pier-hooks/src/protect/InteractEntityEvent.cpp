@@ -1,18 +1,18 @@
-/**
- * hooks/protect/InteractEntityEvent.cpp —— 合成事件 "PlayerInteractEntityEvent"，
- * 可取消。
- *
- * PlayerUseItemOnEvent 只覆盖「物品用在方块上」，实体侧没有对应事件，于是右键
- * 生物能做的事全无保护：剪羊毛、染色、挤奶、拴绳、命名牌、装鞍、开马驼背包、
- * 村民交易、喂食繁殖。钩点是 Player::interact(Actor&, Vec3 const&)，位于 Actor::interactPreventDefault
- * 之上，所以也抓得到完全在生物组件代码里处理掉的交互（剪羊毛就住在那里）。
- * 取消返回 InteractionResult{false, true}：交互不成功但手臂仍挥动，因为连动画
- * 都被吃掉的拒绝在玩家看来是丢包，他会一直点。
- *
- * 载荷 {eventId, x, y, z, dim, target, targetIsPlayer, item, _player:{…}}。
- * x/y/z 取目标实体位置（同 RideEvent），item 是手持物品类型名，让订阅方把剪刀、
- * 拴绳、染料、食物拆成不同动作。
- */
+/** hooks/protect/InteractEntityEvent.cpp: the synthetic, cancellable
+ * "PlayerInteractEntityEvent".
+ * PlayerUseItemOnEvent covers only using an item on a block and there is no counterpart
+ * on the actor side, so everything right-clicking a mob can do is unprotected: shearing,
+ * dyeing, milking, leashing, name tags, saddling, opening a horse or llama inventory,
+ * villager trading, feeding and breeding. The hook point is
+ * Player::interact(Actor&, Vec3 const&), which sits above
+ * Actor::interactPreventDefault and therefore also catches interactions handled entirely
+ * inside mob component code, where shearing lives. Cancelling returns
+ * InteractionResult{false, true}: the interaction did not succeed while the arm still
+ * swings, because a refusal that eats the animation too looks like packet loss to a
+ * player and they keep clicking.
+ * Payload {eventId, x, y, z, dim, target, targetIsPlayer, item, _player:{...}}. x, y and
+ * z are the target actor's position, as in RideEvent, and item is the held item type name
+ * so a subscriber can separate shears, a lead, dye and food into different actions. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -31,7 +31,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& interactEntityDef(); // 前向
+        HookEventDef& interactEntityDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             PlayerInteractEntityHook,
@@ -48,8 +48,9 @@ namespace pier::hooks
                 return origin(actor, location);
             }
 
-            // 这两个取名调用在实体正在销毁时会抛，异常穿过 detour 等于整服崩，
-            // 所以就地吞掉。
+            // These two name lookups throw while an actor is being destroyed, and an
+            // exception crossing a detour takes the whole server down, so they are caught
+            // here.
             std::string targetName;
             bool targetIsPlayer = false;
             std::string itemName;
@@ -62,7 +63,8 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // 部分失败也按「读不出来」处理：订阅方看到空串会退回粗动作。
+                // A partial failure also counts as unreadable: a subscriber seeing an
+                // empty string falls back to a coarser action.
             }
 
             auto const& pos = actor.getPosition();
@@ -80,7 +82,7 @@ namespace pier::hooks
             {
                 ::InteractionResult refused{};
                 refused.mSuccess = false;
-                refused.mSwing = true; // 保留挥手动画，见文件头
+                refused.mSwing = true; // Keep the swing animation, see the file header
                 return refused;
             }
             return origin(actor, location);

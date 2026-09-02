@@ -21,13 +21,15 @@ namespace pier::dimensions::CustomDimensionConfig
     Config& getConfig();
 
     /**
-     * 定位配置文件：`worlds/<levelName>/dimension_config.json`。
+     * Locates the config file at `worlds/<levelName>/dimension_config.json`.
      *
-     * 跟着存档走，不在 `configs/` 下面。 维度 id 是引擎按存档分配、写进
-     * 存档 NameIdStore 的，把台账放到全局配置目录会让「换一个存档」变成
-     * 「台账和引擎立刻漂移」。
+     * It follows the save and does not live under `configs/`. A dimension id is
+     * allocated by the engine per save and written into the save NameIdStore, so
+     * putting the ledger in a global config directory would make switching saves mean
+     * the ledger and the engine drift apart immediately.
      *
-     * 必须在 Level 就绪之后调（要读 levelName），未就绪时抛。
+     * Must be called once Level is ready, since it reads levelName, and throws
+     * otherwise.
      */
     void setDimensionConfigPath();
     bool loadConfigFile();

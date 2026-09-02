@@ -1,12 +1,13 @@
-/** world/PistonPushEvent.cpp —— 活塞要推或拉一组方块。
- *
- * 活塞是跨地皮破坏的经典手段：机器建在自己地里，臂伸进邻居家把方块推走。
- * pier-dimensions 的 PISTON_CROSS_PLOT 规则用网格判同区，这个事件把决定权交给模
- * 组，因为地皮的实际归属（谁是主人、谁被授权）只有模组知道。
- *
- * 载荷带活塞坐标、朝向和这次挂到的方块列表（最多 12 个，原版上限）。取消即这次
- * 推拉不发生；_checkAttachedBlocks 返回 false 是引擎自己的「推不动」路径，安全。
- */
+/** world/PistonPushEvent.cpp: a piston is about to push or pull a set of blocks.
+ * A piston is the classic cross-plot griefing tool: the machine is built on the owner's own
+ * ground and the arm reaches into a neighbor's to move their blocks away. The
+ * PISTON_CROSS_PLOT rule in pier-dimensions decides sameness of area from the grid, and
+ * this event hands the decision to the mod, because who actually owns a plot and who is
+ * authorized on it is known only there.
+ * The payload carries the piston position, its facing and the list of blocks attached
+ * this time, at most 12, which is the vanilla cap. Cancelling means the push or pull does
+ * not happen, and _checkAttachedBlocks returning false is the engine's own cannot-move
+ * path, so it is safe. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -27,11 +28,11 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& pistonDef(); // 前向
+        HookEventDef& pistonDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             PistonCheckAttachedHook,
-            ll::memory::HookPriority::High, // 比维度规则更外层
+            ll::memory::HookPriority::High, // Outside the dimension rules
             PistonBlockActor,
             &PistonBlockActor::_checkAttachedBlocks,
             bool,
@@ -40,8 +41,8 @@ namespace pier::hooks
             auto& def = pistonDef();
             if (!def.live()) return origin(region);
 
-            // 先让引擎算出这次挂了哪些方块：不调 origin 时 mAttachedBlocks 还是
-            // 上一次的。算完再问模组要不要放行。
+            // The engine computes which blocks are attached first: without calling origin
+            // mAttachedBlocks still holds the previous set. The mod is asked afterwards.
             if (!origin(region)) return false;
 
             int dim = -1;
@@ -69,8 +70,9 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // 读不出附着表即「不知道推了什么」。这里只上报，拒绝与否由模组按
-                // 坐标决定，它至少拿到了活塞位置。
+                // An unreadable attachment list means the pushed set is unknown. This only
+                // reports, and the mod decides from the coordinates, having at least the
+                // piston position.
             }
             blocks += "]";
 
@@ -94,8 +96,9 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[PistonPushEvent] PistonBlockActor::_checkAttachedBlocks 的 detour 安装失败"
-                        "（code={}）—— 跨地皮活塞推拉不受保护。", r);
+                        "[hooks/PistonPushEvent] the PistonBlockActor::_checkAttachedBlocks "
+                        "detour failed to install with code={}, so cross-plot piston pushes "
+                        "and pulls are unprotected", r);
                 }
                 return r == 0;
             }

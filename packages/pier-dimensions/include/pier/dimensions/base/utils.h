@@ -14,15 +14,17 @@ namespace pier::dimensions::utils
 namespace pier::dimensions
 {
     /**
-     * 核对（并在必要时纠正）一个维度对象自己的竖直范围。
+     * Verifies, and corrects when needed, the vertical range a dimension object holds.
      *
-     * 客户端通过 DimensionDataPacket 里的 DimensionDefinition 知道维度多高，而服务
-     * 端判一个子区块请求越不越界走的是 Dimension::isSubChunkHeightWithinRange，读的
-     * 是 Dimension::mHeightRange。这是两份独立的数据，对不上时客户端按它拿到的高度
-     * 请求子区块、服务端按自己那份判定，全部回 IndexOutOfBounds，方块数据一块都过不
-     * 去，症状是「区块全是空的，但单个方块更新能显示」。
+     * The client learns the height of a dimension from the DimensionDefinition inside
+     * DimensionDataPacket, while the server decides whether a subchunk request is out of range
+     * through Dimension::isSubChunkHeightWithinRange, which reads Dimension::mHeightRange. These
+     * are two independent values, and when they disagree the client requests subchunks at the
+     * height it was given, the server judges them against its own, and every request comes back
+     * IndexOutOfBounds so no block data gets through. The symptom is empty chunks where individual
+     * block updates still display.
      *
-     * 传进来的 expectedMin/Max 必须就是注册时写进 DimensionDefinition 的那一份。
-     */
+     * expectedMin and expectedMax must be exactly the pair written into the DimensionDefinition at
+     * registration. / */
     void verifyHeightRange(::Dimension& dim, int expectedMin, int expectedMax, char const* who);
 } // namespace pier::dimensions

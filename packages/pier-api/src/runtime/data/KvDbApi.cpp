@@ -1,9 +1,11 @@
-/** runtime/data/KvDbApi.cpp —— 键值数据库。
+/** runtime/data/KvDbApi.cpp: the key-value database.
  *
- * ABI 里唯一的资源型句柄，所以所有权规则写明白：宿主把每个 KeyValueDB
- * new 进按模组记账的注册表；kvdb_close（或 SDK 侧的 Drop）关闭它；卸载
- * 时强制关掉剩下的并告警。整族操作共一把互斥锁，按契约整体线程安全 ——
- * 模组可能从后台任务里打自己的库。路径被圈禁在模组自己的数据目录里。 */
+ * The only resource handle in the ABI, so the ownership rules are stated explicitly.
+ * The host allocates each KeyValueDB into a registry accounted per mod, kvdb_close or
+ * a Drop on the SDK side closes it, and unload force-closes whatever is left and
+ * warns. The whole family shares one mutex and is thread safe as a whole per the
+ * contract, since a mod may open its database from a background task. Paths are
+ * confined to the mod's own data directory. */
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -45,21 +47,25 @@ namespace pier::api_impl
             return it == gKvDbs.end() ? nullptr : &it->second;
         }
 
-        /** 把 `rel` 圈在模组数据目录里；逃逸企图一律给空。 */
+        /** Confines `rel` to the mod data directory. An escape attempt yields an
+         *  empty path. */
         std::filesystem::path confinedPath(HostedMod* mod, std::string_view rel)
         {
             if (rel.empty()) return {};
             std::filesystem::path p{std::u8string{rel.begin(), rel.end()}};
-            // 只拒 is_absolute() 在 Windows 上不够 —— `\evil`（有根目录无
-            // 盘符）和 `D:evil`（有盘符无根目录）都不算绝对路径，而 operator/
-            // 对前者丢弃左侧根目录之后的一切、对后者整体替换：dataDir / "\\evil"
-            // 得到 C:\evil。任何带根名或根目录的相对路径一律拒绝。
+            // Refusing only is_absolute() is not enough on Windows. Both `\evil`,
+            // which has a root directory but no drive, and `D:evil`, which has a drive
+            // but no root directory, count as relative, while operator/ discards
+            // everything after the left root for the first and replaces the path
+            // entirely for the second, so dataDir / "\\evil" yields C:\evil. Any
+            // relative path carrying a root name or a root directory is refused.
             if (p.is_absolute() || p.has_root_name() || p.has_root_directory()) return {};
             for (auto const& part : p)
             {
                 if (part == "..") return {};
             }
-            // 再做一次前缀校验兜底：规范化后必须仍在数据目录之内。
+            // A prefix check as a backstop. After normalization it must still lie
+            // inside the data directory.
             auto const base = mod->getDataDir().lexically_normal();
             auto const full = (mod->getDataDir() / p).lexically_normal();
             auto const baseStr = base.generic_u8string();
@@ -80,15 +86,15 @@ namespace pier::api_impl
                 auto full = confinedPath(mod, sv(path));
                 if (full.empty())
                 {
-                    mod->getLogger().error("kvdb_open：路径必须是相对路径，且不许逃出模组数据目录");
+                    mod->getLogger().error("[kvdb] open refused, the path must be relative and stay inside the mod data directory");
                     return nullptr;
                 }
                 try
                 {
                     std::error_code ec;
                     std::filesystem::create_directories(full.parent_path(), ec);
-                    // 四参构造：(path, createIfMiss, fixIfError, bloomFilterBit)；
-                    // 0 = 不建布隆过滤器。
+                    // Four-argument constructor: (path, createIfMiss, fixIfError,
+                    // bloomFilterBit), where 0 builds no bloom filter.
                     auto db = std::make_unique<ll::data::KeyValueDB>(full, createIfMissing, false, 0);
                     std::lock_guard lock(gKvMutex);
                     uint64_t id = gNextKvId++;
@@ -97,7 +103,7 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    mod->getLogger().error("kvdb_open：打不开 '{}'", sv(path));
+                    mod->getLogger().error("[kvdb] open failed for '{}'", sv(path));
                     ll::error_utils::printCurrentException(hostLogger());
                     return nullptr;
                 }
@@ -107,7 +113,8 @@ namespace pier::api_impl
         void api_kvdb_close(PierKvDbHandle h)
         {
             PIER_API_GUARD_BEGIN
-                // 把库对象挪到锁外销毁：LevelDB 关闭可能耗时，不该拿着注册表锁。
+                // The database object is destroyed outside the lock. Closing LevelDB
+                // can take time and must not hold the registry lock.
                 std::unique_ptr<ll::data::KeyValueDB> dying;
                 {
                     std::lock_guard lock(gKvMutex);
@@ -123,8 +130,9 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!sink) return false;
-                // 先在锁内把值拷出来，锁放掉再调 sink —— sink 是模组代码，
-                // 它完全可能再调任何 kvdb_*（非递归 mutex 会当场自死锁）。
+                // The value is copied out under the lock and the sink is called after
+                // it is released. The sink is mod code and may call any kvdb_* again,
+                // which would self-deadlock a non-recursive mutex.
                 std::optional<std::string> value;
                 {
                     std::lock_guard lock(gKvMutex);
@@ -182,8 +190,9 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 if (!sink) return;
-                // 先快照再回调（理由同 kvdb_get）。快照的代价是一次全库拷贝
-                // —— 这是「遍历并清理过期键」这类模组代码能安全存在的前提。
+                // Snapshot first, then call back, for the reason kvdb_get gives. The
+                // snapshot costs one full copy of the database, which is what lets mod
+                // code such as iterating and clearing expired keys exist safely.
                 std::vector<std::pair<std::string, std::string>> snapshot;
                 {
                     std::lock_guard lock(gKvMutex);
@@ -201,7 +210,8 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
-        /** 拆除（stage 70）：强制关掉该模组名下没关的库并告警。 */
+        /** Teardown at stage 70. Force-closes the databases this mod left open and
+         *  warns. */
         void teardown(HostedMod* mod)
         {
             std::lock_guard lock(gKvMutex);
@@ -220,7 +230,7 @@ namespace pier::api_impl
             }
             if (leaked > 0)
             {
-                mod->getLogger().warn("kvdb：卸载时强制关闭了 {} 个仍开着的数据库", leaked);
+                mod->getLogger().warn("[kvdb] force-closed {} database(s) still open at unload", leaked);
             }
         }
 

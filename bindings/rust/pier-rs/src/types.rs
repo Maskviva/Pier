@@ -1,20 +1,21 @@
-//! 各个域共用的值类型。
+//! The value types every domain shares.
 //!
-//! 这里只放**没有行为**的东西：坐标、枚举、位标志。它们不碰 `PierApi`，
-//! 所以域模块之间可以共享它们而不互相依赖。
+//! Only things without behavior belong here: coordinates, enums and bit flags. They touch
+//! no `PierApi`, so domain modules can share them without depending on one another.
 //!
-//! # 枚举带 `from_i32`，且返回 `Option`
+//! # Enums carry `from_i32` and return an `Option`
 //!
-//! 宿主可能比模组新，报回一个这一侧还不认识的值（契约 §2.2）。`from_i32`
-//! 返回 `None` 表示「宿主报了我不认识的值」，和「值是 0」分得开（§5.2）。
-//! 反过来往宿主传的时候用 `as_i32`，那一侧不会有未知值。
+//! The host may be newer than the mod and report a value this side does not recognize
+//! (contract §2.2). A `None` from `from_i32` means the host reported an unrecognized
+//! value and stays apart from the value being 0 (§5.2). The other direction uses `as_i32`,
+//! where no unknown value can arise.
 
-/// 方块坐标。
+/// A block coordinate.
 pub type PositionI32 = (i32, i32, i32);
-/// 实体/精确坐标。
+/// An actor or exact coordinate.
 pub type PositionF64 = (f64, f64, f64);
 
-/// 一个闭区间盒子，两角都含。
+/// A closed box, with both corners included.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Bounds {
     pub min: PositionI32,
@@ -22,7 +23,8 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    /// 从任意两角建盒子，逐轴取小/大 —— 调用方不必先排序。
+    /// Builds a box from any two corners, taking the smaller and larger per axis, so a caller
+    /// need not sort them first.
     pub fn new(a: PositionI32, b: PositionI32) -> Bounds {
         Bounds {
             min: (a.0.min(b.0), a.1.min(b.1), a.2.min(b.2)),
@@ -30,7 +32,7 @@ impl Bounds {
         }
     }
 
-    /// 各轴的格数（闭区间，所以是 max - min + 1）。
+    /// The cell count per axis. The interval is closed, so it is max - min + 1.
     pub fn size(&self) -> (u64, u64, u64) {
         let d = |lo: i32, hi: i32| (hi as i64 - lo as i64 + 1).max(0) as u64;
         (
@@ -40,7 +42,8 @@ impl Bounds {
         )
     }
 
-    /// 总格数。用 `u64` 是因为一个跨维度的选区能轻松溢出 `u32`。
+    /// The total cell count. A `u64` is used because a selection spanning a dimension easily
+    /// overflows a `u32`.
     pub fn volume(&self) -> u64 {
         let (x, y, z) = self.size();
         x.saturating_mul(y).saturating_mul(z)
@@ -56,10 +59,11 @@ impl Bounds {
     }
 }
 
-/// 游戏模式。数值是 ABI 的一部分（`player_set_gamemode`）。
+/// The game mode. The values are part of the ABI, through `player_set_gamemode`.
 ///
-/// 注意 `Spectator` 是 6 不是 3 —— 中间那几个值在引擎里另有含义，
-/// 顺序猜一个会把玩家设成别的模式而不报错。
+/// Note that `Spectator` is 6 and not 3: the values in between mean other things in the
+/// engine, and guessing one from the order sets the player to a different mode without an
+/// error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameMode {
     Survival = 0,
@@ -84,13 +88,14 @@ impl GameMode {
     }
 }
 
-/// 玩家权限等级（`PIER_PACT_SET_PERMISSION_LEVEL` 与 `PIER_PPROP_PERMISSION_LEVEL`）。
+/// The player permission level, through `PIER_PACT_SET_PERMISSION_LEVEL` and
+/// `PIER_PPROP_PERMISSION_LEVEL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerPermission {
     Visitor = 0,
     Member = 1,
     Operator = 2,
-    /// 引擎里表示「逐项自定义」，不是比 Operator 更高的一级。
+    /// In the engine this means customized per item and is not a level above Operator.
     Custom = 3,
 }
 
@@ -110,7 +115,7 @@ impl PlayerPermission {
     }
 }
 
-/// 天气。`set_weather` 的三态。
+/// The weather. The three states of `set_weather`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Weather {
     Clear = 0,
@@ -133,7 +138,7 @@ impl Weather {
     }
 }
 
-/// 难度。
+/// The difficulty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Difficulty {
     Peaceful = 0,
@@ -158,10 +163,11 @@ impl Difficulty {
     }
 }
 
-/// `player_send_message_typed` 的 `TextPacketType`。
+/// The `TextPacketType` of `player_send_message_typed`.
 ///
-/// 越界值宿主会退到 `Raw`，所以这里不需要兜底分支。带作者/参数的那几种
-/// （Chat / Whisper / Translate）在 ABI 上只收单串正文，作者字段到客户端是空的。
+/// The host falls back to `Raw` on an out-of-range value, so no fallback branch is needed
+/// here. The variants carrying an author or parameters, Chat, Whisper and Translate, take
+/// a single body string on the ABI, and the author field reaches the client empty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
     Raw = 0,
@@ -184,10 +190,10 @@ impl MessageType {
     }
 }
 
-/// `player_send_title` 的 `SetTitlePacketPayload::TitleType`。
+/// The `SetTitlePacketPayload::TitleType` of `player_send_title`.
 ///
-/// 6..8 那三种 TextObject 变体需要 `ResolvedTextObject`，宿主明确拒绝，
-/// 所以这里根本不提供。
+/// The three TextObject variants at 6 through 8 need a `ResolvedTextObject`, which the
+/// host refuses explicitly, so they are not offered here at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TitleKind {
     Clear = 0,
@@ -203,7 +209,7 @@ impl TitleKind {
         self as i32
     }
 
-    /// Clear / Reset / Times 三种的 `text` 参数宿主不读。
+    /// The host does not read the `text` argument of Clear, Reset and Times.
     pub fn uses_text(self) -> bool {
         matches!(
             self,
@@ -212,10 +218,11 @@ impl TitleKind {
     }
 }
 
-/// 标题的三段时长，单位是 **tick**。
+/// The three title durations, in ticks.
 ///
-/// 三个值必须同时给或同时不给：宿主对「一半指定」的组合直接拒绝，
-/// 而不是替调用方猜另一半（半套时长没有合理的默认）。
+/// All three are given together or not at all: the host refuses a half-specified
+/// combination rather than guessing the rest for the caller, since half a set of durations
+/// has no sensible default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TitleTimes {
     pub fade_in: i32,
@@ -234,27 +241,29 @@ impl TitleTimes {
 }
 
 impl Default for TitleTimes {
-    /// 与原版 `/title` 的默认一致：0.5 秒淡入、3 秒停留、0.5 秒淡出。
+    /// Matching the vanilla `/title` defaults: half a second in, three seconds held, half a
+    /// second out.
     fn default() -> TitleTimes {
         TitleTimes::new(10, 60, 10)
     }
 }
 
-/// 写方块时告诉引擎要做哪些后续工作。
+/// Tells the engine which follow-up work a block write needs.
 ///
-/// `NONE` 最快，但客户端不会知道方块变了 —— 批量填充结束后必须自己重同步，
-/// 否则玩家看到的还是旧世界，直到那块区块被重发。
+/// `NONE` is fastest and leaves the client unaware that the block changed, so a bulk fill
+/// has to resynchronize afterwards, otherwise the player keeps seeing the old world until
+/// that chunk is resent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockUpdate(pub i32);
 
 impl BlockUpdate {
-    /// 通知邻居（红石、水流、方块更新）。
+    /// Notify the neighbors, meaning redstone, liquid flow and block updates.
     pub const NEIGHBORS: BlockUpdate = BlockUpdate(1);
-    /// 同步给客户端。
+    /// Synchronize to the client.
     pub const NETWORK: BlockUpdate = BlockUpdate(2);
-    /// 两者都做，等价于 `/setblock`。
+    /// Both, equivalent to `/setblock`.
     pub const DEFAULT: BlockUpdate = BlockUpdate(3);
-    /// 都不做。批量填充用，之后自己重同步。
+    /// Neither. For a bulk fill, resynchronizing afterwards.
     pub const NONE: BlockUpdate = BlockUpdate(0);
 
     pub fn bits(self) -> i32 {
@@ -268,7 +277,8 @@ impl Default for BlockUpdate {
     }
 }
 
-/// 装备槽位。`actor_get_equipped_item` / `player_get_equipment` 用的编号。
+/// An equipment slot. The numbering `actor_get_equipped_item` and `player_get_equipment`
+/// use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EquipSlot {
     MainHand = 0,
@@ -297,11 +307,13 @@ impl EquipSlot {
     }
 }
 
-/// 玩家能力位。`PIER_PACT_SET_ABILITY` / `PIER_PACT_CAN_USE_ABILITY` 的下标。
+/// A player ability bit. The index of `PIER_PACT_SET_ABILITY` and
+/// `PIER_PACT_CAN_USE_ABILITY`.
 ///
-/// 三个带 `Speed` 的是**浮点**能力，其余是布尔。传错类型不会报错，只会
-/// 让能力值被当成另一种解释 —— 所以 [`Ability::is_float`] 存在，
-/// [`crate::player::Player::set_ability`] 会据它检查。
+/// The three carrying `Speed` are floating-point abilities and the rest are boolean.
+/// Passing the wrong type raises no error and only has the value interpreted differently,
+/// which is why [`Ability::is_float`] exists and
+/// [`crate::player::Player::set_ability`] checks against it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ability {
     Build = 0,
@@ -339,7 +351,8 @@ impl Ability {
     }
 }
 
-/// 能给一个能力位的值。布尔和浮点各一族，[`Ability::is_float`] 决定该用哪族。
+/// The value an ability bit can take. There is a boolean family and a floating-point
+/// family, and [`Ability::is_float`] decides which applies.
 pub trait AbilityValue: Copy {
     const IS_BOOL: bool;
     fn as_f64(self) -> f64;
@@ -369,19 +382,20 @@ macro_rules! impl_numeric_ability_value {
 
 impl_numeric_ability_value!(f32, f64, i8, i16, i32, i64, u8, u16, u32, u64);
 
-/// 一次射线检测的结果（`actor_trace_ray` / `edit_trace_ray`）。
+/// The result of one ray trace, from `actor_trace_ray` or `edit_trace_ray`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RayHit {
-    /// 打到实体。
+    /// It hit an actor.
     Entity { id: i64, pos: PositionF64 },
-    /// 打到方块。`facing` 是命中面，`block` 是方块格坐标。
+    /// It hit a block. `facing` is the face hit and `block` is the block cell coordinate.
     Block {
         block: PositionI32,
         facing: i32,
         name: String,
         pos: PositionF64,
     },
-    /// 射程内什么都没有。**不是错误** —— 和「问不出来」分开（契约 §5.2）。
+    /// Nothing was within range. This is not an error and stays apart from the question being
+    /// unanswerable (contract §5.2).
     None,
 }
 
@@ -405,7 +419,7 @@ impl RayHit {
     }
 }
 
-/// 本地时间（`PIER_SYS_LOCAL_TIME`）。
+/// The local time, from `PIER_SYS_LOCAL_TIME`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LocalTime {
     pub year: i32,

@@ -11,8 +11,10 @@
 
 namespace pier::spi
 {
-    // 注册表全部是 Meyers 单例：注册发生在各包文件级静态对象的构造里，
-    // 跨 TU 的静态初始化顺序未定义 —— 函数内静态是唯一不赌顺序的写法。
+    // Every registry is a Meyers singleton. Registration happens in the constructors
+    // of file-level static objects, and static initialization order across translation
+    // units is undefined, so a function-local static is the only form that does not
+    // gamble on that order.
     namespace
     {
         std::vector<SlotPack>& slotPacks()
@@ -66,8 +68,9 @@ namespace pier::spi
             if (!names.empty()) names += ", ";
             names += p.name;
         }
-        // 这行 debug 是排查「某能力缺席」的第一站：包没列在这里 = 没编进来。
-        log.debug("PierApi：{} 字节，槽位包 [{}]", sizeof(PierApi), names);
+        // First stop when diagnosing a missing capability. A package that is not
+        // listed here was not compiled in.
+        log.debug("[spi] api table {} bytes, slot packs [{}]", sizeof(PierApi), names);
     }
 
     void runBootstrap(ll::io::Logger& log)
@@ -77,7 +80,7 @@ namespace pier::spi
             steps.begin(), steps.end(), [](auto const& a, auto const& b) { return a.stage < b.stage; });
         for (auto const& s : steps)
         {
-            log.debug("引导：{}（stage {}）", s.name, s.stage);
+            log.debug("[spi] bootstrap step '{}' at stage {}", s.name, s.stage);
             s.run();
         }
     }
@@ -121,15 +124,17 @@ namespace pier::spi
         if (wanted == canonical) return true;
         if (wanted.size() <= canonical.size()) return false;
         if (!wanted.ends_with(canonical)) return false;
-        // 后缀成立还不够 —— 前一个字符必须是命名空间分隔符，否则
-        // "MyPlayerChatEvent" 会匹配上 "PlayerChatEvent"（那就是子串匹配）。
+        // A matching suffix is not enough. The preceding character must be a
+        // namespace separator, otherwise "MyPlayerChatEvent" would match
+        // "PlayerChatEvent", which is a substring match.
         char const before = wanted[wanted.size() - canonical.size() - 1];
         return before == ':' || before == '.';
     }
 
     std::uint64_t nextListenerId() noexcept
     {
-        // 从 1 起：0 留给「无效句柄」。relaxed 足够 —— 只要求唯一，不排序。
+        // Starts at 1, because 0 is reserved for the invalid handle. relaxed is
+        // enough here, since only uniqueness is required and not ordering.
         static std::atomic<std::uint64_t> next{1};
         return next.fetch_add(1, std::memory_order_relaxed);
     }

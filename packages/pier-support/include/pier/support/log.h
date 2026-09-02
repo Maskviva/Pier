@@ -1,7 +1,8 @@
 #pragma once
-// 宿主自己的 Logger（不是某个被托管模组的）。
-// 单独成包级入口的原因：guard.h 和所有能力包都要打日志，而它们都
-// 不许 include pier-host（契约 §一）—— 日志必须住在比 host 更低的层。
+// The host's own Logger, not that of any hosted mod.
+// It is a package-level entry point because guard.h and every capability package
+// need to log, and none of them may include pier-host (contract §1). Logging must
+// therefore live in a layer below the host.
 #include "ll/api/io/Logger.h"
 
 namespace pier

@@ -1,0 +1,74 @@
+name: Build
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  host:
+    name: Build the host
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+
+      - run: xmake repo -u
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/AppData/Local/.xmake/packages
+          key: xmake-v1-${{ runner.os }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+
+      # The modpacker reads git for a version number at the packaging stage, so a
+      # checkout without tags packages as a bare commit hash.
+      - run: git fetch --tags --force
+
+      - run: xmake f -a x64 -m release -p windows --target_type=server -v -y --policies=package.precompiled:n
+
+      - run: xmake -v -y
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pier-${{ github.sha }}-windows-x64
+          path: bin/
+
+  contract:
+    name: Contract checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The machine checks of contract §9. They find what neither the compiler nor
+      # clippy can: a slot order that drifted from the ABI, a package that dropped a
+      # self-registering TU, a comment that lies about the code. Each states what it
+      # covers and what it cannot see.
+      - run: python3 tools/run-checks.py
+
+      # The ledger of MIGRATION.md, counted from the table body rather than trusted.
+      - run: python3 tools/ledger-count.py
+
+  bindings:
+    name: Build and test the Rust bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all -- --check
+
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - run: cargo build --workspace --verbose
+
+      - run: cargo test --workspace --verbose

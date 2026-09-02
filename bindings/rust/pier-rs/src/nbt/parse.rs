@@ -1,23 +1,25 @@
-//! SNBT 解析。
+//! SNBT parsing.
 //!
-//! 宿主发过来的每一段结构化数据都是 `CompoundTag::toSnbt(Minimize)` 的产物，
-//! 这里负责把它读回来。语法比 JSON 多两样东西，也正是这两样让「拿 JSON 解析器
-//! 凑合」行不通：
+//! Every piece of structured data the host sends comes from
+//! `CompoundTag::toSnbt(Minimize)` and this reads it back. The grammar has two things
+//! JSON does not, and those two are what make a JSON parser unusable here:
 //!
-//! * **类型后缀**：`1b`（byte）、`2s`（short）、`3L`（long）、`4.5f`（float）、
-//!   `6.7d`（double）。没后缀的整数是 int、没后缀的小数是 double。
-//! * **裸键与裸字符串**：`{name:stone}` 里的 `name` 和 `stone` 都不带引号。
+//! * type suffixes: `1b` for byte, `2s` for short, `3L` for long, `4.5f` for float and
+//!   `6.7d` for double. An integer without a suffix is an int and a decimal without one is
+//!   a double.
+//! * bare keys and bare strings: neither `name` nor `stone` in `{name:stone}` is quoted.
 //!
-//! 另外还有类型化数组 `[B; 1b,2b]` / `[I; 1,2]` / `[L; 1L,2L]`。
+//! There are also typed arrays: `[B; 1b,2b]`, `[I; 1,2]` and `[L; 1L,2L]`.
 //!
-//! 错误里带**字节偏移**：SNBT 一行动辄几百字符，只说「解析失败」等于没说。
+//! An error carries a byte offset: one line of SNBT easily runs to hundreds of characters,
+//! and saying only that parsing failed says nothing.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
 use super::NbtValue;
 
-/// 解析失败。`at` 是出错处的字节偏移。
+/// A parse failure. `at` is the byte offset of the fault.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
     pub at: usize,
@@ -26,7 +28,7 @@ pub struct ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SNBT 第 {} 字节处：{}", self.at, self.what)
+        write!(f, "SNBT at byte {}: {}", self.at, self.what)
     }
 }
 
@@ -47,7 +49,7 @@ pub(super) fn parse(text: &str) -> Result<NbtValue, ParseError> {
     let v = p.value()?;
     p.ws();
     if p.i != p.s.len() {
-        return Err(p.err("解析完之后还有多余的字符"));
+        return Err(p.err("there are leftover characters after the parse"));
     }
     Ok(v)
 }
@@ -88,14 +90,14 @@ impl<'a> Parser<'a> {
         if self.eat(c) {
             Ok(())
         } else {
-            Err(self.err(format!("这里应该是 `{}`", c as char)))
+            Err(self.err(format!("a `{}` was expected here", c as char)))
         }
     }
 
     fn value(&mut self) -> Result<NbtValue, ParseError> {
         self.ws();
         match self.peek() {
-            None => Err(self.err("值没写完就到头了")),
+            None => Err(self.err("the input ended in the middle of a value")),
             Some(b'{') => self.compound(),
             Some(b'[') => self.array_or_list(),
             Some(b'"') | Some(b'\'') => Ok(NbtValue::String(self.quoted()?)),
@@ -124,11 +126,11 @@ impl<'a> Parser<'a> {
             if self.eat(b'}') {
                 return Ok(NbtValue::Compound(map));
             }
-            return Err(self.err("复合标签里应该是 `,` 或 `}`"));
+            return Err(self.err("a `,` or a `}` was expected inside the compound tag"));
         }
     }
 
-    /// 键可以带引号，也可以是裸的。
+    /// A key may be quoted or bare.
     fn key(&mut self) -> Result<String, ParseError> {
         self.ws();
         match self.peek() {
@@ -136,14 +138,13 @@ impl<'a> Parser<'a> {
             Some(_) => {
                 let start = self.i;
                 while let Some(c) = self.peek() {
-                    // 不含 `:` —— 冒号是键值分隔符。放进来的话
-                    // `{layout:{…}}` 的键会被读成 `layout:`，报错落在下一个
-                    // 字符上（「第 8 字节应该是 `:`」，指着那个 `{`）；
-                    // `{generatorType:Void,…}` 更隐蔽，键读成
-                    // `generatorType:Void`，错误落在逗号上。两条报错的位置都
-                    // 对，指的都不是出问题的地方。
-                    //
-                    // 带冒号的键（`minecraft:stone`）在 SNBT 里必须加引号。
+                    // It excludes `:`, the key-value separator. Including it reads the key of
+                    // `{layout:{...}}` as `layout:` and puts the error on the next character,
+                    // saying a `:` was expected at byte 8 while pointing at the `{`. The
+                    // shape `{generatorType:Void,...}` is subtler, reading the key as
+                    // `generatorType:Void` and putting the error on the comma. Both errors
+                    // point at a correct position and neither points at the problem. A key
+                    // containing a colon, such as `minecraft:stone`, has to be quoted in SNBT.
                     if c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b'+') {
                         self.i += 1;
                     } else {
@@ -151,28 +152,28 @@ impl<'a> Parser<'a> {
                     }
                 }
                 if self.i == start {
-                    return Err(self.err("这里应该是一个键名"));
+                    return Err(self.err("a key name was expected here"));
                 }
                 Ok(String::from_utf8_lossy(&self.s[start..self.i]).into_owned())
             }
-            None => Err(self.err("键名没写完就到头了")),
+            None => Err(self.err("the input ended in the middle of a key name")),
         }
     }
 
     fn quoted(&mut self) -> Result<String, ParseError> {
-        let quote = self.peek().ok_or_else(|| self.err("字符串没开始"))?;
+        let quote = self.peek().ok_or_else(|| self.err("the string never begins"))?;
         self.i += 1;
         let mut out = String::new();
         loop {
             let Some(c) = self.peek() else {
-                return Err(self.err("字符串没有收尾的引号"));
+                return Err(self.err("the string has no closing quote"));
             };
             self.i += 1;
             match c {
                 c if c == quote => return Ok(out),
                 b'\\' => {
                     let Some(e) = self.peek() else {
-                        return Err(self.err("反斜杠后面没东西了"));
+                        return Err(self.err("there is nothing after the backslash"));
                     };
                     self.i += 1;
                     match e {
@@ -183,21 +184,23 @@ impl<'a> Parser<'a> {
                         b'f' => out.push('\u{c}'),
                         b'0' => out.push('\0'),
                         b'u' => {
-                            // \uXXXX —— 宿主的 snbtEscape 会用它写控制字符。
+                            // \uXXXX, which the snbtEscape of the host uses to write a control
+                            // character.
                             if self.i + 4 > self.s.len() {
-                                return Err(self.err("\\u 后面不足四位"));
+                                return Err(self.err("there are fewer than four digits after \\u"));
                             }
                             let hex = std::str::from_utf8(&self.s[self.i..self.i + 4])
-                                .map_err(|_| self.err("\\u 后面不是合法十六进制"))?;
+                                .map_err(|_| self.err("what follows \\u is not valid hexadecimal"))?;
                             let cp = u32::from_str_radix(hex, 16)
-                                .map_err(|_| self.err("\\u 后面不是合法十六进制"))?;
+                                .map_err(|_| self.err("what follows \\u is not valid hexadecimal"))?;
                             self.i += 4;
                             out.push(char::from_u32(cp).unwrap_or('\u{fffd}'));
                         }
                         other => out.push(other as char),
                     }
                 }
-                // 多字节 UTF-8 原样搬运：这里按字节走，不能用 `as char`。
+                // Multi-byte UTF-8 is carried through unchanged: this walks bytes and cannot use
+                // `as char`.
                 c if c >= 0x80 => {
                     let start = self.i - 1;
                     let len = utf8_len(c);
@@ -210,10 +213,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// `[B;…]` / `[I;…]` / `[L;…]` 是类型化数组，其余是普通列表。
+    /// `[B;...]`, `[I;...]` and `[L;...]` are typed arrays and everything else is an ordinary
+    /// list.
     fn array_or_list(&mut self) -> Result<NbtValue, ParseError> {
         self.expect(b'[')?;
-        // 前瞻两个字符判断是不是类型化数组
+        // Two characters of lookahead decide whether it is a typed array
         if self.s.len() >= self.i + 2 && self.s[self.i + 1] == b';' {
             let kind = self.s[self.i];
             if matches!(kind, b'B' | b'I' | b'L') {
@@ -235,7 +239,7 @@ impl<'a> Parser<'a> {
             if self.eat(b']') {
                 return Ok(NbtValue::List(items));
             }
-            return Err(self.err("列表里应该是 `,` 或 `]`"));
+            return Err(self.err("a `,` or a `]` was expected inside the list"));
         }
     }
 
@@ -249,7 +253,7 @@ impl<'a> Parser<'a> {
             let v = self.value()?;
             let n = v
                 .as_i64()
-                .ok_or_else(|| self.err("类型化数组里只能放整数"))?;
+                .ok_or_else(|| self.err("a typed array holds integers only"))?;
             raw.push(n);
             self.ws();
             if self.eat(b',') {
@@ -258,7 +262,7 @@ impl<'a> Parser<'a> {
             if self.eat(b']') {
                 break;
             }
-            return Err(self.err("类型化数组里应该是 `,` 或 `]`"));
+            return Err(self.err("a `,` or a `]` was expected inside the typed array"));
         }
         Ok(match kind {
             b'B' => NbtValue::ByteArray(raw.into_iter().map(|v| v as i8).collect()),
@@ -267,7 +271,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// 裸标量：数字（可带类型后缀）、`true`/`false`、或裸字符串。
+    /// A bare scalar: a number, optionally with a type suffix, `true` or `false`, or a bare
+    /// string.
     fn scalar(&mut self) -> Result<NbtValue, ParseError> {
         let start = self.i;
         while let Some(c) = self.peek() {
@@ -278,12 +283,12 @@ impl<'a> Parser<'a> {
             }
         }
         if self.i == start {
-            return Err(self.err("这里应该是一个值"));
+            return Err(self.err("a value was expected here"));
         }
         let raw = std::str::from_utf8(&self.s[start..self.i])
             .map_err(|_| ParseError {
                 at: start,
-                what: "标量不是合法 UTF-8".to_owned(),
+                what: "the scalar is not valid UTF-8".to_owned(),
             })?
             .to_owned();
 
@@ -293,7 +298,8 @@ impl<'a> Parser<'a> {
             _ => {}
         }
 
-        // 类型后缀。注意 `L` 只在整数上有意义，`f`/`d` 两种都行。
+        // The type suffix. Note that `L` means something only on an integer while both `f` and
+        // `d` apply.
         let (body, suffix) = match raw.as_bytes().last() {
             Some(&s)
                 if matches!(
@@ -339,7 +345,9 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    // 无后缀：整数是 int（放不下就升 long），小数是 double。
+                    // Without a suffix an integer is an int, promoted to long when it does not fit,
+                    // and a
+                    // decimal is a double.
                     if let Ok(v) = raw.parse::<i32>() {
                         return Ok(NbtValue::Int(v));
                     }
@@ -353,7 +361,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // 都不是 → 裸字符串（`{name:stone}` 这种）。
+        // Neither one makes it a bare string, as in `{name:stone}`.
         Ok(NbtValue::String(raw))
     }
 }

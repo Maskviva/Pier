@@ -1,9 +1,11 @@
-/** world/GapFill.cpp —— 追加补漏槽（struct_size 把门）。
+/** world/GapFill.cpp: appended gap-fill slots, gated by struct_size.
  *
- * 三十多个专用函数以追加字段的形式挂进 PierApi。没有实现的话这些槽位就是
- * NULL（值初始化），另一侧一调用就崩。这里的桩返回 false / -1 / 0 ——
- * SDK 安全层把它翻成 Err("unsupported")。MC/LL 侧直白的就地实现；其余保持
- * 桩，等相应的 BDS API 得到确认再补。
+ * Some thirty specialized functions hang off PierApi as appended fields. Without an
+ * implementation those slots are NULL by value initialization and the other side
+ * crashes on the first call. The stubs here return false, -1 or 0, which the SDK
+ * safety layer turns into Err("unsupported"). Whatever MC and LL express directly is
+ * implemented in place; the rest stays a stub until the matching BDS API is
+ * confirmed.
  */
 #ifndef PIER_BUILD_CLIENT
 
@@ -49,7 +51,7 @@ namespace pier::api_impl
 {
     namespace
     {
-        /*  玩家：装备、冷却、网络  */
+        /*  Player: equipment, cooldowns, network  */
 
         bool api_player_get_carried_item(PierPlayerSel sel, void* ctx, PierStrSink sink)
         {
@@ -92,9 +94,10 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Player* p = bridge::resolvePlayer(sel);
                 if (!p || !sink) return false;
-                // slot：0=主手 1=副手 2=头 3=胸 4=腿 5=脚。
-                // Actor::getEquippedSlot(EquipmentSlot) 是六个槽位的统一读法；
-                // 返回 ItemStack const&（槽空时是空物品，itemToSnbt 给 "{}"）。
+                // slot is 0 main hand, 1 offhand, 2 head, 3 chest, 4 legs, 5 feet.
+                // Actor::getEquippedSlot(EquipmentSlot) reads all six uniformly and
+                // returns an ItemStack const&, an empty item for an empty slot, which
+                // itemToSnbt renders as "{}".
                 namespace Equip = ::SharedTypes::Legacy;
                 std::string out = "[";
                 out += "{\"slot\":0,\"item\":"
@@ -120,10 +123,11 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Player* p = bridge::resolvePlayer(sel);
                 if (!p) return -1;
-                // getItemCooldownLeft 吃 HashedString 类别。返回剩余 tick 数
-                //（0 = 不在冷却中）。
+                // getItemCooldownLeft takes a HashedString category and returns the
+                // remaining ticks, where 0 means not on cooldown.
                 return p->getItemCooldownLeft(HashedString{toString(item_name)});
-                // -1 是这一族约定的失败值；0 会被当成真实答案。
+                // -1 is the agreed failure value of this family. 0 would be read
+                // as a real answer.
             PIER_API_GUARD_END_VAL(-1)
         }
 
@@ -143,9 +147,10 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Player* p = bridge::resolvePlayer(sel);
                 if (!p || !sink) return false;
-                // getNetworkStatus() 返回 optional<NetworkPeer::NetworkStatus>；
-                // 缺值意味着对端已消失（正在断开）。mCurrentPing/mAveragePing
-                // 是包了一层的 chrono::milliseconds → 用 ->count()。
+                // getNetworkStatus() returns optional<NetworkPeer::NetworkStatus>, and
+                // an empty value means the peer is gone and disconnecting.
+                // mCurrentPing and mAveragePing wrap chrono::milliseconds, so ->count()
+                // is used.
                 auto opt = p->getNetworkStatus();
                 if (!opt) return false;
                 auto const& ns = *opt;
@@ -159,7 +164,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /*  实体：关系、装备、效果、几何  */
+        /*  Actors: relations, equipment, effects, geometry  */
 
         bool api_actor_get_vehicle(PierActorId id, PierActorId* out)
         {
@@ -178,8 +183,8 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !out) return false;
-                // Actor 没有 getPassengers()；getFirstPassenger() 直接给队首乘客
-                //（没人骑时 nullptr）。
+                // Actor has no getPassengers(). getFirstPassenger() yields the first
+                // rider directly, or nullptr when nobody is riding.
                 Actor* p = a->getFirstPassenger();
                 if (!p) return false;
                 *out = p->getOrCreateUniqueID().rawID;
@@ -216,8 +221,8 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !sink || slot < 0 || slot > 5) return false;
-                // slot：0=主手 1=副手 2=头 3=胸 4=腿 5=脚。
-                // Actor::getEquippedSlot 经 EquipmentSlot 覆盖全部六个。
+                // slot is 0 main hand, 1 offhand, 2 head, 3 chest, 4 legs, 5 feet.
+                // Actor::getEquippedSlot covers all six through EquipmentSlot.
                 namespace Equip = ::SharedTypes::Legacy;
                 auto es = static_cast<Equip::EquipmentSlot>(slot);
                 sink(ctx, ps(bridge::itemToSnbt(a->getEquippedSlot(es))));
@@ -244,9 +249,10 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !sink) return false;
-                // getAllEffects() 返回 vector<MobEffectInstance> const&。每个实
-                // 例有 getId()、getAmplifier()、getDuration().getValue()
-                //（optional —— 无限时长时为空）。
+                // getAllEffects() returns vector<MobEffectInstance> const&. Each
+                // instance offers getId(), getAmplifier() and
+                // getDuration().getValue(), an optional that is empty for an infinite
+                // duration.
                 std::string out = "[";
                 bool first = true;
                 for (auto const& e : a->getAllEffects())
@@ -270,7 +276,8 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a) return false;
-                // 越界下标会让引擎的位集读写落到别的数据项上。
+                // An out-of-range index makes the engine's bitset read or write land
+                // on a different data item.
                 if (flag_index < 0 || flag_index >= static_cast<int32_t>(ActorFlags::Count)) return false;
                 return a->getStatusFlag(static_cast<ActorFlags>(flag_index));
             PIER_API_GUARD_END
@@ -294,11 +301,12 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !sink) return false;
-                // Actor::traceRay(tMax, includeActor, includeBlock, blockCheckFn)。
-                // 返回 HitResult：mType（Tile/Entity/NoHit）、mPos、mEntity。
-                // 只发 mPos 是这个老槽位的既有形状；带方块坐标与朝向的版本见
-                // edit_trace_ray（Edit.cpp），那边的注释解释了为什么 floor(mPos)
-                // 会选错格。
+                // Actor::traceRay(tMax, includeActor, includeBlock, blockCheckFn)
+                // returns a HitResult carrying mType, one of Tile, Entity or NoHit,
+                // plus mPos and mEntity. Emitting only mPos is the established shape of
+                // this slot. The version carrying block coordinates and a face is
+                // edit_trace_ray in Edit.cpp, where a comment explains why floor(mPos)
+                // picks the wrong cell.
                 auto hr = a->traceRay(max_dist, include_actors, include_blocks);
                 std::string out = "{type:" + snbtNum(static_cast<int>(hr.mType));
                 out += ",pos:[" + snbtDouble(hr.mPos.x) + "," + snbtDouble(hr.mPos.y)
@@ -342,12 +350,14 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !out) return false;
-                // 与 player_teleport 同一道闸 —— 目标维度必须能经维度桥建出
-                // 且 id 一致，否则引擎会在区块线程抛未捕获异常直接 fastfail。
+                // The same gate player_teleport uses. The target dimension must be
+                // buildable through the dimension bridge with a matching id, otherwise
+                // the engine throws an uncaught exception on a chunk thread and
+                // fastfails.
                 if (!bridge::blockSourceOf(dim)) return false;
-                // Actor::clone(Vec3 const& pos, optional<DimensionType>) 返回
-                // optional_ref<Actor>。克隆体继承 NBT 状态（血量、装备、名字
-                // 等）；落点由调用方定。
+                // Actor::clone(Vec3 const& pos, optional<DimensionType>) returns
+                // optional_ref<Actor>. The clone inherits NBT state such as health,
+                // equipment and name, and the caller chooses where it lands.
                 auto opt = a->clone(Vec3{(float)x, (float)y, (float)z}, DimensionType{dim});
                 if (!opt) return false;
                 *out = opt->getOrCreateUniqueID().rawID;
@@ -355,7 +365,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /*  方块：状态读写、碰撞形状  */
+        /*  Blocks: state reads and writes, collision shape  */
 
         bool api_block_get_state(
             int32_t dim, int32_t x, int32_t y, int32_t z, PierStr state_name,
@@ -365,9 +375,11 @@ namespace pier::api_impl
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!bs || !sink) return false;
                 auto const& block = bs->getBlock(BlockPos{x, y, z});
-                // 经 BlockType 按名字查 BlockState，再读它的值。getState<T> 按
-                // 值类型做模板；这里用 int 当公分母 —— BDS 的状态模型里状态值
-                // 都是整数（布尔、枚举、整数全坍缩到 int）。
+                // Looks up the BlockState by name through BlockType and reads its
+                // value. getState<T> is templated on the value type, and int is the
+                // common denominator here, because every state value in the BDS state
+                // model is an integer, with booleans, enums and integers all collapsing
+                // to int.
                 auto const* state =
                     block.getBlockType().getBlockState(HashedString{toString(state_name)});
                 if (!state) return false;
@@ -385,9 +397,9 @@ namespace pier::api_impl
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!bs) return false;
                 auto const& block = bs->getBlock(BlockPos{x, y, z});
-                // setState 返回 optional_ref<Block const> —— 新的 permutation
-                //（状态/值不合法时为空）。必须由调用侧经 BlockSource::setBlock
-                // 写回世界。
+                // setState returns optional_ref<Block const>, the new permutation, and
+                // is empty when the state or value is invalid. The caller must write it
+                // back to the world through BlockSource::setBlock.
                 auto const* state =
                     block.getBlockType().getBlockState(HashedString{toString(state_name)});
                 if (!state) return false;
@@ -402,11 +414,12 @@ namespace pier::api_impl
                 }
                 auto opt = block.setState(*state, v);
                 if (!opt) return false;
-                // 这里以前是个假成功：算完新的 permutation 直接 return true，理由
-                // 写的是「BlockSource 没有公开的 setBlock(Block) 重载」。它有 ——
-                // setBlock(pos, block, updateFlags, syncMsg, changeContext) 是公开虚
-                // 函数。后果不是少一个功能，是报告成功但世界没变：调用方看到 Ok，
-                // 方块纹丝不动，且没有任何日志。
+                // The new permutation has to be written back here.
+                // setBlock(pos, block, updateFlags, syncMsg, changeContext) is a public
+                // virtual on BlockSource. Computing the permutation and returning true
+                // without writing it does not lose a feature, it reports success while
+                // the world is unchanged: the caller sees Ok, the block does not move
+                // and nothing is logged.
                 return bs->setBlock(
                     BlockPos{x, y, z}, *opt, 3, nullptr, BlockChangeContext::commandsChange());
             PIER_API_GUARD_END
@@ -420,9 +433,11 @@ namespace pier::api_impl
                 if (!bs || !sink) return false;
                 BlockPos pos{x, y, z};
                 auto const& block = bs->getBlock(pos);
-                // Block::getCollisionShape 往出参填一个 AABB，方块有碰撞箱时返回
-                // true。多盒形状要走 BlockSource::fetchCollisionShapes；这个补漏
-                // 槽只报主形状（对多数「这里能不能走」的问题够用）。
+                // Block::getCollisionShape fills an AABB out parameter and returns true
+                // when the block has a collision box. A multi-box shape needs
+                // BlockSource::fetchCollisionShapes. This gap-fill slot reports the
+                // primary shape only, which answers most questions about whether
+                // something can pass.
                 AABB aabb;
                 bool has = block.getCollisionShape(aabb, *bs, pos, nullptr);
                 if (!has)
@@ -438,15 +453,16 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /*  物品：附魔、匹配、NBT  */
+        /*  Items: enchantments, matching, NBT  */
 
         bool api_item_get_enchants(PierStr item_snbt, void* ctx, PierStrSink sink)
         {
             PIER_API_GUARD_BEGIN
                 auto opt = bridge::itemFromSnbt(sv(item_snbt));
                 if (!opt || !sink) return false;
-                // constructItemEnchantsFromUserData() 从物品存下的 NBT 建一个
-                // ItemEnchants；getAllEnchants() 把三个激活类型向量摊平成一个。
+                // constructItemEnchantsFromUserData() builds an ItemEnchants from the
+                // NBT stored on the item, and getAllEnchants() flattens the three
+                // activation-type vectors into one.
                 auto enchants = opt->constructItemEnchantsFromUserData();
                 auto list = enchants.getAllEnchants();
                 std::string out = "[";
@@ -455,7 +471,7 @@ namespace pier::api_impl
                 {
                     if (!first) out += ",";
                     first = false;
-                    // mEnchantType 是 Enchant::Type（uchar 枚举）；mLevel 是 int。
+                    // mEnchantType is Enchant::Type, a uchar enum, and mLevel is int.
                     out += "{type:" + snbtNum(static_cast<int>(static_cast<uchar>(e.mEnchantType)));
                     out += ",level:" + snbtNum(e.mLevel) + "}";
                 }
@@ -470,12 +486,13 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto opt = bridge::itemFromSnbt(sv(item_snbt));
                 if (!opt || !out) return false;
-                // 从零散的 {type,level} 对拼一个 ItemEnchants 需要：要么 (a) 一
-                // 个恰好符合构造函数期望的 NBT 格式的 ListTag（id+lvl 对作为复
-                // 合条目），要么 (b) EnchantUtils::applyEnchant 那条路 —— 从公
-                // 开 API 的角度都不直白。眼下报「不支持」，别冒损坏物品
-                // user-data 的险。上面的 get_enchants 只读、安全；写入等附魔管
-                // 线接好再开。
+                // Assembling an ItemEnchants from loose {type,level} pairs needs either
+                // a ListTag in exactly the NBT format the constructor expects, with
+                // id and lvl pairs as compound entries, or the
+                // EnchantUtils::applyEnchant route. Neither is straightforward through
+                // the public API, so this reports unsupported rather than risking
+                // corrupted item user-data. get_enchants above is read-only and safe;
+                // writing waits until the enchantment pipeline is in place.
                 (void)enchants_snbt;
                 return false;
             PIER_API_GUARD_END
@@ -507,7 +524,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /*  Level：群系、出生点、存档、天气、寻路、睡眠  */
+        /*  Level: biomes, spawn point, save data, weather, pathfinding, sleep  */
 
         bool api_level_get_biome(
             int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink)
@@ -515,15 +532,18 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!bs || !sink) return false;
-                // tryGetBiome 返回 Biome const*（可空）；getBiome 返回的引用在
-                // 良构区块里永不为空。用可空的那个，让未加载的区块报失败而不是
-                // 解引用垃圾。
+                // tryGetBiome returns a nullable Biome const*, while the reference from
+                // getBiome is never null in a well-formed chunk. The nullable one is
+                // used so an unloaded chunk reports failure instead of dereferencing
+                // garbage.
                 auto const* biome = bs->tryGetBiome(BlockPos{x, y, z});
                 if (!biome) return false;
-                // Biome 没有 getName()；id 字符串住在公开成员 mHash 里
-                //（TypedStorage<HashedString>）。先绑到 HashedString const&，再
-                // 调 getString()（TypedStorage → HashedString → string →
-                // string_view 要显式中转一跳；两次隐式 UDC 不被允许）。
+                // Biome has no getName(). The id string lives in the public member
+                // mHash, a TypedStorage<HashedString>. It is bound to a
+                // HashedString const& first and then getString() is called, because
+                // going from TypedStorage to HashedString to string to string_view
+                // needs an explicit hop: two implicit user-defined conversions are not
+                // allowed.
                 ::HashedString const& hash = biome->mHash;
                 sink(ctx, ps(hash.getString()));
                 return true;
@@ -564,11 +584,12 @@ namespace pier::api_impl
         }
 
         /**
-         * 拼一个区块的键前缀。
+         * Builds the key prefix of one chunk.
          *
-         * `<chunkX:i32 LE><chunkZ:i32 LE>`，非主世界再跟 `<dimension:i32 LE>`。
-         * 主世界（dim 0）没有那第三段 —— 加上的话前缀匹配不到任何键，
-         * 调用方会以为「这个区块本来就是空的」。
+         * `<chunkX:i32 LE><chunkZ:i32 LE>`, followed by `<dimension:i32 LE>` outside
+         * the overworld. The overworld, dim 0, has no third field. Adding it there
+         * makes the prefix match no key at all and the caller concludes the chunk was
+         * empty to begin with.
          */
         std::string chunkKeyPrefix(int32_t dim, int32_t chunk_x, int32_t chunk_z)
         {
@@ -588,42 +609,47 @@ namespace pier::api_impl
         }
 
         /**
-         * ⚠ 退役。 一律返回 -1。
+         * Retired. Always returns -1.
          *
-         * 这一格原来是「列出这个区块的键并全删」一步做完，而它**在真机上把服
-         * 务器打崩了** —— 崩在 C++ 侧那个 `std::vector<std::string>` 销毁的时
-         * 候。
+         * This slot listed the keys of a chunk and deleted them in one step, and it
+         * crashed the server on real hardware, in the destructor of the C++-side
+         * `std::vector<std::string>`.
          *
-         * 槽位不能删（ABI 只能追加，删了后面每一格都会错位），所以它留在这儿
-         * 明确失效，功能搬到 level_chunk_keys + level_delete_key。
+         * The slot cannot be removed, because the ABI is append-only and removing one
+         * shifts every slot after it, so it stays here explicitly disabled and the
+         * functionality lives in level_chunk_keys plus level_delete_key.
          *
-         * 返回 -1 而不是 0：0 是「这个区块本来就是空的」，会让调用方以为抹成
-         * 功了。
+         * It returns -1 and not 0, because 0 means the chunk was empty to begin with
+         * and would let a caller believe the erase succeeded.
          */
         int32_t api_level_delete_chunk_keys(int32_t, int32_t, int32_t) { return -1; }
 
         /**
-         * 列出一个区块的全部存档键，一个键一次回调。
+         * Lists every save key of one chunk, one callback per key.
          *
-         * 这里什么都不攒。在 C++ 侧把键收进 std::vector<std::string> 再逐个删会在函
-         * 数返回、销毁那个 vector 时崩，寄存器里看得到字符串的内联缓冲被当成了堆指
-         * 针。根因未定位（跨 DLL 的 std::string 生命周期，没有调试器查不出来），但
-         * 那一类问题的来源是「在 C++ 侧攒一个字符串容器、跨一次虚调用、再在自己的
-         * 栈上销毁它」，所以拿到一个就交出去，容器活在另一侧。
+         * Nothing is accumulated here. Collecting the keys into a
+         * std::vector<std::string> and deleting them afterwards crashes when that
+         * vector is destroyed on return, with the inline buffer of a string treated as
+         * a heap pointer in the registers. The root cause concerns std::string
+         * lifetime across a DLL boundary, and the shape producing it is accumulating a
+         * string container here, crossing a virtual call and destroying it on this
+         * stack, so each key is handed over as found and the container lives elsewhere.
          *
-         * 键是二进制的，含 0 字节。PierStr 是 {ptr,len}，ps(k) 只包指针和长度，不拷
-         * 贝也不看 0 结尾；这条流水线上没有任何字符串在 C++ 侧被拥有。它只在这次回
-         * 调里有效，另一侧负责拷走。
-         */
+         * Keys are binary and contain zero bytes. PierStr is {ptr,len} and ps(k) wraps
+         * only the pointer and the length, without copying and without looking for a
+         * terminator, so no string here is owned on the C++ side. */
         /**
-         * 区块键的布局是
+         * The layout of a chunk key is
          *   `<x:i32 LE><z:i32 LE>[<dim:i32 LE>]<tag:u8>[<subY:u8>]`
-         * 主世界没有 dim 段（长 9 或 10），其余维度有（长 13 或 14）。
+         * The overworld has no dim field and is 9 or 10 bytes; every other dimension
+         * has one and is 13 or 14.
          *
-         * 这直接决定了前缀匹配的陷阱：主世界 (x,z) 的 8 字节前缀是所有维度
-         * 同坐标区块键的公共前缀 —— 只按前缀列出再逐键删，会把下界/末地/自定义
-         * 维度同坐标的区块一起抹掉。所以列表结果必须按长度 + 维度段过滤，删除
-         * 也只接受符合布局的键。
+         * That is the prefix-matching trap. The 8-byte overworld prefix for (x,z) is
+         * also the common prefix of the chunk keys at the same coordinates in every
+         * dimension, so listing by prefix alone and deleting key by key erases the
+         * matching chunks in the nether, the end and any custom dimension too. Listing
+         * therefore filters by length and dim field, and deletion accepts only keys
+         * matching the layout.
          */
         bool isChunkKeyFor(std::string_view key, int32_t dim, std::string_view prefix)
         {
@@ -632,7 +658,8 @@ namespace pier::api_impl
             return key.size() == expectMin || key.size() == expectMin + 1;
         }
 
-        /** 只看布局（不解释内容）：长度 9/10 或 13/14 才可能是区块键。 */
+        /** Layout only, with no interpretation of the content. Only a length of 9,
+         *  10, 13 or 14 can be a chunk key. */
         bool looksLikeChunkKey(std::string_view key)
         {
             return key.size() == 9 || key.size() == 10 || key.size() == 13 || key.size() == 14;
@@ -652,60 +679,66 @@ namespace pier::api_impl
                     prefix, ::DBHelpers::Category::Chunk,
                     [ctx, sink, &n, dim, &prefix](std::string_view k, std::string_view)
                     {
-                        // 过滤掉同前缀但属于其他维度（或 tag 字节恰好撞上维度号）的键。
+                        // Filters out keys sharing the prefix that belong to another
+                        // dimension, or whose tag byte happens to collide with a
+                        // dimension number.
                         if (!isChunkKeyFor(k, dim, prefix)) return;
                         sink(ctx, ps(k));
                         ++n;
                     }
                 );
                 return n;
-                // -1 是这一族约定的失败值；0 会被当成真实答案。
+                // -1 is the agreed failure value of this family. 0 would be read
+                // as a real answer.
             PIER_API_GUARD_END_VAL(-1)
         }
 
         /**
-         * 原样删掉一个区块类别的键。
+         * Deletes one key of the chunk category as given.
          *
-         * 不解释键的内容 —— 传什么删什么，这正是抹整块之所以安全的原因：
-         * 不需要懂子区块的调色板和位打包格式。
+         * The content of the key is not interpreted. That is what makes erasing a whole
+         * chunk safe: it requires no understanding of the subchunk palette or the bit
+         * packing format.
          */
         bool api_level_delete_key(PierStr key)
         {
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level || !level->hasLevelStorage() || key.len == 0) return false;
-                // 这个槽以前「传什么删什么」—— 存档里任何键（player_*、
-                // scoreboard、portals、LevelChunkMetaDataDictionary…）都能被一次
-                // 误调用抹掉。只接受符合区块键布局的键。
+                // Only keys matching the chunk key layout are accepted. Accepting any
+                // key would let a single mistaken call erase anything in the save,
+                // including player_*, scoreboard, portals and
+                // LevelChunkMetaDataDictionary.
                 if (!looksLikeChunkKey(sv(key)))
                 {
                     hostLogger().error(
-                        "level_delete_key：键长 {} 不符合区块键布局（9/10/13/14 字节），拒绝删除",
+                        "[api] level_delete_key refused, key length {} does not match the "
+                        "chunk key layout of 9, 10, 13 or 14 bytes",
                         key.len);
                     return false;
                 }
-                // `deleteData` 收 `std::string const&`。这个临时对象活到本语句
-                // 结束，而删除是同步提交进写批的 —— 上一版的问题不在这里，在那
-                // 个 vector。
+                // `deleteData` takes a `std::string const&`. The temporary lives to the
+                // end of this statement and the deletion is committed synchronously
+                // into the write batch.
                 level->getLevelStorage().deleteData(toString(key), ::DBHelpers::Category::Chunk);
                 return true;
             PIER_API_GUARD_END
         }
 
         /**
-         * 这一片的区块加载着吗。
+         * Whether the chunks covering this area are loaded.
          *
-         * 签名是「中心 + 半径」而不是两个角：BlockSource::hasChunksAt 这个版本只有
-         * (BlockPos const&, int, bool) 一个重载，传两个 BlockPos 编译不过，所以把调
-         * 用方给的方框换算成中心点加半径。
+         * The signature is a center plus a radius and not two corners, because this
+         * version of BlockSource::hasChunksAt has only the
+         * (BlockPos const&, int, bool) overload, so the caller's box is converted.
          *
-         * 半径要往里缩一格。区块整块加载，方框内部任何一点都能代表整块的答案；按原
-         * 样的半径查时，一个 16 宽的方框会正好碰到相邻区块的第一格，于是「邻居加载
-         * 着」被读成「我这块加载着」，抹除永远等不到时机。
+         * The radius is shrunk by one. A chunk loads as a whole, so any point inside
+         * answers for the whole chunk. At the full radius a 16-wide box exactly touches
+         * the first cell of the neighboring chunk, so a loaded neighbor reads as a
+         * loaded chunk here and the erase never finds its moment.
          *
-         * 第三个参数 ignoreClientChunk 传 true：问的是服务端有没有这块地的数据，客
-         * 户端缓存与「卸载时会不会把键写回去」无关。
-         */
+         * The third argument, ignoreClientChunk, is true: the question is whether the
+         * server holds data here, and a client cache says nothing about it. */
         int32_t api_level_chunks_loaded(
             int32_t dim, int32_t min_x, int32_t min_z, int32_t max_x, int32_t max_z)
         {
@@ -717,22 +750,25 @@ namespace pier::api_impl
                 int32_t half_x = (max_x - min_x) / 2;
                 int32_t half_z = (max_z - min_z) / 2;
                 int32_t r = half_x < half_z ? half_x : half_z;
-                if (r > 0) --r; // 往里缩一格，别碰到邻居
+                if (r > 0) --r; // Shrink by one so the neighbor is not touched
                 if (r < 0) r = 0;
-                // y 取地面高度：区块是整列加载的，y 取多少不影响答案，但一个越
-                // 界的 y 会让某些版本直接返回 false。
+                // y is taken at ground level. A chunk loads as a full column so the
+                // value of y does not change the answer, but an out-of-range y makes
+                // some versions return false outright.
                 BlockPos at{cx, 0, cz};
                 return bs->hasChunksAt(at, r, true) ? 1 : 0;
-                // -1 是这一族约定的失败值；0 会被当成真实答案。
+                // -1 is the agreed failure value of this family. 0 would be read
+                // as a real answer.
             PIER_API_GUARD_END_VAL(-1)
         }
 
         /**
-         * 玩家的连接号。
+         * The connection id of a player.
          *
-         * 必须和 PacketHooks 里 `connId = id.getHash()` 算的是同一个数 ——
-         * 那边是拦包回调看到的号，这边是按名字问出来的号，对不上的话
-         * 「改写这个人的包」会安静地一个包都改不到。
+         * It must be the same number `connId = id.getHash()` produces in PacketHooks.
+         * That one is what a packet interception callback sees and this one is what a
+         * lookup by name returns. If they disagree, rewriting the packets of one
+         * player quietly rewrites nothing.
          */
         uint64_t api_player_conn_id(PierPlayerSel who)
         {
@@ -748,9 +784,9 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level || !sink) return false;
-                // PlayerSleepStatus 的字段：mSleepingPlayerCount、
-                // mRequiredSleepingPlayerCount、mAbleToSleep（全是标量 ——
-                // TypedStorage 坍缩成裸 int/int/bool）。
+                // The fields of PlayerSleepStatus are mSleepingPlayerCount,
+                // mRequiredSleepingPlayerCount and mAbleToSleep, all scalars, so
+                // TypedStorage collapses them to a bare int, int and bool.
                 auto ss = level->getSleepStatus();
                 std::string snbt = "{sleeping:" + snbtNum(ss.mSleepingPlayerCount);
                 snbt += ",required:" + snbtNum(ss.mRequiredSleepingPlayerCount);
@@ -781,7 +817,7 @@ namespace pier::api_impl
                 (void)z;
                 (void)ctx;
                 (void)sink;
-                return false; // 桩：等 PathFinder 管线接好
+                return false; // Stub until the PathFinder pipeline is in place
             PIER_API_GUARD_END
         }
 

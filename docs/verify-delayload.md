@@ -1,20 +1,21 @@
-# 验证 LegacyMoney 真的变成可选了
+# Verifying that LegacyMoney really became optional
 
-改完 `xmake.lua` 之后 **不要只看构建有没有成功** —— `/DELAYLOAD` 写错通道时
-构建照常成功，产物照样带硬性依赖，症状和没改一模一样。这份文档给的是能直接
-看到答案的验证方式，按可靠性从高到低排。
+After editing `xmake.lua`, do not stop at the build succeeding. With `/DELAYLOAD` written
+into the wrong channel the build succeeds as usual, the artifact still carries a hard
+dependency, and the symptom is identical to not having changed anything. This document
+gives the ways to see the answer directly, ordered from most to least reliable.
 
 ---
 
-## 一、看导入表（最直接，一条命令）
+## 1. Read the import table (the most direct, one command)
 
-在 VS 开发者命令提示符里：
+In a VS developer command prompt:
 
 ```
 dumpbin /imports pier.dll | findstr /i legacymoney
 ```
 
-**改对了**会看到 `LegacyMoney.dll` 出现在 *delay load imports* 那一节：
+Done right, `LegacyMoney.dll` appears in the *delay load imports* section:
 
 ```
     Section contains the following delay load imports:
@@ -24,71 +25,74 @@ dumpbin /imports pier.dll | findstr /i legacymoney
                 ...
 ```
 
-**没改对**它出现在普通的 imports 一节里（前面没有 "delay load" 字样）。
+Done wrong, it appears in the ordinary imports section, with no "delay load" before it.
 
-只想要一个是非答案：
+For a yes-or-no answer only:
 
 ```
 dumpbin /dependents pier.dll | findstr /i legacymoney
 ```
 
-改对之后这条命令 **不该有输出** —— `/dependents` 只列硬性依赖。有输出就说明
-标志没生效。
+Done right, this command should print nothing, since `/dependents` lists hard dependencies
+only. Any output means the flag did not take effect.
 
 ---
 
-## 二、看链接命令行（确认 xmake 真的把标志传下去了）
+## 2. Read the link command line (confirming xmake really passed the flag down)
 
 ```
 xmake f -c -y
 xmake -v 2>&1 | findstr /i DELAYLOAD
 ```
 
-`-v` 会打印真实的 link.exe 命令行。**看不到 `/DELAYLOAD:LegacyMoney.dll` 就说明
-这一行没被 xmake 采纳**，那时问题在构建脚本，不在链接器。
+`-v` prints the real link.exe command line. Not seeing `/DELAYLOAD:LegacyMoney.dll` means
+xmake did not take that line, and the problem is then in the build script and not in the
+linker.
 
-这一步能把「标志没传下去」和「传下去了但不管用」分开 —— 上一轮我把它们混
-在一起猜，猜错了。
-
----
-
-## 三、最终验收（把 LegacyMoney 挪走再启动）
-
-1. 把 `plugins/LegacyMoney/` 整个目录移到别处
-2. 启动 BDS
-
-**期望**：pier 正常加载，启动日志里有一条
-
-```
-[Pier] 模组列表里没有已启用的 LegacyMoney —— 经济功能不可用：
-       读取返回 0、写入返回失败。请检查是否安装并启用了 LegacyMoney
-```
-
-之后每个经济入口返回失败值（`get_money` 返回 -1，写入返回 false），rsw 那边
-依赖经济的功能入口自然关闭，其余功能不受影响。
-
-**不该出现**：`0x7E The specified module could not be found`。
+This step separates the flag not being passed down from the flag being passed down and not
+working. Treating those two as one leads to guessing between them.
 
 ---
 
-## 如果第一步就不对，接下来查什么
+## 3. Final acceptance (move LegacyMoney away and start)
 
-按可能性排序：
+1. Move the whole `plugins/LegacyMoney/` directory elsewhere
+2. Start BDS
 
-1. **`xmake f -c` 没重跑。** xmake 会缓存配置，只 `xmake` 不会重新生成链接
-   命令行。先 `xmake f -c -y` 再 `xmake`。
+Expected: pier loads normally and the startup log carries a line saying that no usable
+LLMoney backend was found, that every money entry point is inert for this session with
+reads returning 0 and writes failing, and asking whether LegacyMoney is installed and
+enabled.
 
-2. **`@levibuildscript/linkrule` 覆盖了 flags。** 这条规则接管了链接过程，
-   有可能它自己拼命令行而不读 target 的 shflags。验证方式是第二步的 `-v`：
-   如果 shflags 里有而命令行里没有，就是它吃掉了。那时的解法是把标志加进
-   规则认的那个入口，或者在 `after_link` 里改。
+Afterwards every economy entry point returns its failure value, with `get_money` returning
+-1 and a write returning false, so the features of a consumer that depend on the economy
+close themselves and everything else is unaffected.
 
-3. **依赖是从别的 target 传进来的。** `pier-api` 也 `add_packages("legacymoney")`。
-   它是 `object` kind，本身不链接，但如果 levibuildscript 把子 target 的包
-   依赖汇总到最终链接，标志要加在汇总的那一层。
+What must not appear: `0x7E The specified module could not be found`.
 
-4. **`delayimp` 没链上。** 那时链接器会报 `__delayLoadHelper2` 未定义 ——
-   这是显式错误，不会静默，所以如果构建成功了就不是这条。
+---
 
-第 2 条是我最怀疑的一条，而我在这边没有 xmake 和 levibuildscript，验证不了。
-第二步那条 `xmake -v` 能一次性把它排除掉。
+## What to check if step 1 already looks wrong
+
+In order of likelihood:
+
+1. `xmake f -c` was not run again. xmake caches its configuration and a bare `xmake` does
+   not regenerate the link command line. Run `xmake f -c -y` and then `xmake`.
+
+2. `@levibuildscript/linkrule` overrode the flags. That rule takes over the link, and it
+   may assemble the command line itself rather than reading the shflags of the target. The
+   `-v` of step 2 shows this: present in shflags and absent from the command line means the
+   rule consumed it. The fix is then adding the flag at the entry point the rule reads, or
+   editing it inside `after_link`.
+
+3. The dependency came in from another target. `pier-api` also carries
+   `add_packages("legacymoney")`. It is of object kind and does not link itself, but if
+   levibuildscript aggregates the package dependencies of subtargets into the final link,
+   the flag belongs at that aggregating layer.
+
+4. `delayimp` was not linked. The linker then reports `__delayLoadHelper2` as undefined,
+   which is an explicit error rather than a silent one, so a successful build rules this
+   out.
+
+Item 2 is the most likely one, and verifying it needs xmake and levibuildscript. The
+`xmake -v` of step 2 rules it in or out in one run.

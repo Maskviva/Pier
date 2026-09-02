@@ -1,17 +1,18 @@
-/** core/Services.cpp —— 跨模组服务注册表，问答式调用。
- *
- * 与 Bus.cpp 的单向广播在每个轴上都相反：同名提供方恰好一个而不是任意多个；没人
- * 注册是调用方必须处理的错误而不是正常；返回值是全部意义所在。两个提供方都应答
- * plot:can 不是「都跑一遍」，是一个调用方没法选的歧义答案，所以注册独占，同名的
- * 第二个注册者被大声拒绝。静默的后来者赢会让答案取决于模组装载顺序。
- *
- * 所有权纪律同本桥其余异步面：ModHost::unload 会 FreeLibrary，攥着别人的函数指针
- * 等于等着下一次调用崩，而且崩在调用方身上、日志里没有任何东西指向刚离场的那个。
- * 宿主持表、条目按票据编号、调用路径持 weak_ptr<HostedMod> 并在调用前一刻复核。
- *
- * 宿主不解析 request 与 reply，它们是带外约定的不透明 UTF-8。service_call 同步、
- * 就地跑提供方、无超时：阻塞的提供方阻塞的就是服务器线程，返回「超时」而回调继续
- * 跑等于递给调用方一个错答案还留着提供方在跑。环靠深度上限终止，自调用直接拒绝。
+/** core/Services.cpp: the cross-mod service registry, a request and answer call.
+ * It is the opposite of the one-way broadcast in Bus.cpp on every axis: exactly one
+ * provider per name, nobody registered is an error the caller must handle, and the
+ * return value is the entire point. Two providers answering plot:can is an ambiguous
+ * answer the caller cannot choose between, so registration is exclusive and a second
+ * registrant is refused loudly. Letting the later one win silently would make the
+ * answer depend on mod load order.
+ * ModHost::unload calls FreeLibrary, so holding another mod's function pointer means
+ * waiting for the next call to crash, in the caller, with nothing in the log pointing
+ * at the mod that left. The host therefore owns the table, entries are numbered by
+ * ticket, and the call path holds a weak_ptr<HostedMod> and rechecks immediately
+ * before the call. request and reply are opaque UTF-8 agreed out of band.
+ * service_call is synchronous, runs the provider in place and has no timeout, since a
+ * timeout would hand back a wrong answer while the provider keeps running. Cycles end
+ * on the depth limit and a self-call is refused.
  */
 #include <cstdint>
 #include <memory>
@@ -33,19 +34,22 @@ namespace pier::api_impl
 {
     namespace
     {
-        /** 收下的最长服务名。理由同总线的主题上限：够写
-         *  `some-long-mod:some-query`，又短到垃圾指针变不成巨型 map 键。 */
+        /** Longest service name accepted, for the reason the bus topic limit gives.
+         *  Long enough for `some-long-mod:some-query`, short enough that a garbage
+         *  pointer cannot become an enormous map key. */
         constexpr size_t kMaxName = 128;
 
-        /** 嵌套调用上限。A → B → A 是深度 2；过了这个数的是环，不是调用链。 */
+        /** Nesting limit for calls. A to B to A is depth 2. Anything beyond this
+         *  number is a cycle and not a call chain. */
         constexpr int kMaxDepth = 8;
 
         struct Service
         {
-            HostedMod* mod = nullptr; // 只作身份比对，永不解引用
-            // 存活性经这个 weak_ptr 复核，不经 mod->shared_from_this()，后者本身
-            // 就是一次盲解引用。service_call 可能跑在任何线程上，卸载期间那次解
-            // 引用就是一次 UAF。
+            HostedMod* mod = nullptr; // Identity comparison only, never dereferenced
+            // Liveness is rechecked through this weak_ptr and not through
+            // mod->shared_from_this(), which would itself be a blind dereference.
+            // service_call may run on any thread, and during an unload that dereference
+            // is a use-after-free.
             std::weak_ptr<HostedMod> owner;
             std::string name;
             PierServiceCb cb = nullptr;
@@ -53,14 +57,15 @@ namespace pier::api_impl
         };
 
         std::mutex gMutex;
-        /** 注册 id → 服务 */
+        /** Registration id to service. */
         std::unordered_map<uint64_t, Service> gServices;
-        /** 名字 → 注册 id。按构造恰好一个。 */
+        /** Name to registration id. Exactly one by construction. */
         std::unordered_map<std::string, uint64_t> gByName;
         uint64_t gNextId = 1;
 
-        /** 按线程计的嵌套深度。thread_local 而非全局：两个线程并发调用不是
-         *  环，共享计数会把它们看成环。 */
+        /** Nesting depth per thread. thread_local rather than global, because two
+         *  threads calling concurrently are not a cycle and a shared counter would
+         *  read them as one. */
         thread_local int gDepth = 0;
 
         struct DepthGuard
@@ -69,8 +74,8 @@ namespace pier::api_impl
             ~DepthGuard() { --gDepth; }
         };
 
-        /** 每个服务只喊一次「太深」—— 环转得和 CPU 一样快，每次触发都打
-         *  日志会把一个 bug 变成一场事故。 */
+        /** Warns about excessive depth once per service. A cycle spins as fast as the
+         *  CPU, and logging on every hit turns a bug into an incident. */
         void warnDepthOnce(std::string const& name)
         {
             static std::mutex mu;
@@ -79,9 +84,9 @@ namespace pier::api_impl
             if (seen[name]) return;
             seen[name] = true;
             hostLogger().error(
-                "服务注册表：'{}' 超过调用深度 {} —— 拒绝最里层的调用。"
-                "这是一个调用环：这个服务的提供方又把它调了一遍，直接调，"
-                "或经由另一个绕回来的服务。",
+                "[service] '{}' exceeded call depth {}, innermost call refused; this is "
+                "a call cycle, where the provider of this service calls it again, either "
+                "directly or through another service that loops back",
                 name, kMaxDepth
             );
         }
@@ -99,13 +104,15 @@ namespace pier::api_impl
                 std::lock_guard lock(gMutex);
                 if (auto it = gByName.find(name); it != gByName.end())
                 {
-                    // 拒绝并点出在位者的名字。只说「注册失败」会让读日志的人去自
-                    // 己代码里找一个不存在的重复注册。
+                    // Refuse and name the incumbent. Reporting only that registration
+                    // failed sends whoever reads the log looking for a duplicate
+                    // registration in their own code that does not exist.
                     auto const& held = gServices[it->second];
                     char const* holder = held.mod ? held.mod->getName().c_str() : "?";
                     mod->getLogger().error(
-                        "service_register('{}') 被拒：已由 '{}' 提供。服务名是独占的 —— "
-                        "两个提供方会让答案取决于模组装载顺序。",
+                        "[service] service_register('{}') refused, already provided by "
+                        "'{}'; a service name is exclusive, and two providers would make "
+                        "the answer depend on mod load order",
                         name, holder
                     );
                     return 0;
@@ -115,7 +122,7 @@ namespace pier::api_impl
                 std::weak_ptr<HostedMod> owner;
                 try
                 {
-                    owner = mod->shared_from_this(); // 注册跑在主线程、模组活着
+                    owner = mod->shared_from_this(); // Registration runs on the main thread
                 }
                 catch (std::bad_weak_ptr const&)
                 {
@@ -136,8 +143,8 @@ namespace pier::api_impl
                 std::lock_guard lock(gMutex);
                 auto it = gServices.find(regId);
                 if (it == gServices.end()) return false;
-                // 只限本人：一个模组不许注销另一个的服务。和 bus_unsubscribe、
-                // schedule_cancel 同一条规矩。
+                // Scoped to the caller. A mod may not unregister another mod's
+                // service, the same rule bus_unsubscribe and schedule_cancel follow.
                 if (it->second.mod != mod) return false;
                 gByName.erase(it->second.name);
                 gServices.erase(it);
@@ -160,9 +167,11 @@ namespace pier::api_impl
 
                 auto* caller = modHandle ? asMod(modHandle) : nullptr;
 
-                // 条目在锁内拷出，跨进 dylib 时锁已释放。提供方会重入（调别的服
-                // 务、往总线发布、注册表单），持锁调进另一个模组时第一个重入的
-                // 就锁死服务器线程。
+                // The entry is copied out under the lock and the lock is released
+                // before crossing into the dylib. Providers re-enter, by calling
+                // another service, publishing on the bus or registering a form, and
+                // calling into another mod under the lock deadlocks the server thread
+                // on the first re-entry.
                 Service svc;
                 {
                     std::lock_guard lock(gMutex);
@@ -173,20 +182,24 @@ namespace pier::api_impl
                     svc = it->second;
                 }
                 if (!svc.cb || !svc.mod) return PIER_SERVICE_NOT_FOUND;
-                if (caller && svc.mod == caller) return PIER_SERVICE_REFUSED; // 不自调
+                if (caller && svc.mod == caller) return PIER_SERVICE_REFUSED; // No self-call
 
-                // 调用前一刻经 weak_ptr 复核：查表之后提供方可能已卸载，而票据表
-                // 只在卸载路径上清理。锁的是注册时捕获的那个 weak_ptr，不解引用
-                // 裸指针。
+                // Rechecked through the weak_ptr immediately before the call. The
+                // provider may have been unloaded since the lookup, and the ticket
+                // table is cleaned only on the unload path. What is locked is the
+                // weak_ptr captured at registration, and no raw pointer is
+                // dereferenced.
                 auto provider = svc.owner.lock();
                 if (!provider || provider.get() != svc.mod) return PIER_SERVICE_NOT_FOUND;
 
-                // 这里不能查 isEnabled()。ModManager::enable() 在 onEnable 回调返
-                // 回之后才把状态翻成 Enabled，而整个 load 阶段所有模组都还没
-                // enable；查了会让模组在 on_load 里调 service::call 探测别人必然得
-                // 到 NOT_FOUND。要防的「调进已 unmap 的代码」由上面的 weak_ptr 复
-                // 核加指针相等挡着，与 enabled 无关。「禁用应表现为不存在」由提供
-                // 方在 on_disable 里注销服务来表达。
+                // isEnabled() must not be consulted here. ModManager::enable() flips
+                // the state to Enabled only after the onEnable callback returns, and
+                // during the whole load phase no mod is enabled yet, so consulting it
+                // would make a mod probing others through service::call from its
+                // on_load always receive NOT_FOUND. Calling into unmapped code is
+                // guarded by the weak_ptr recheck and the pointer equality above, which
+                // do not depend on enabled. A provider that wants disabled to look like
+                // absent unregisters its service in on_disable.
 
                 DepthGuard depth;
                 bool ok = false;
@@ -196,13 +209,15 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // 提供方把异常抛过 FFI 边界在它那一侧已经是未定义行为。在这
-                    // 里接住至少让调用方活着，并给它一个能据以行动的状态码。
-                    hostLogger().error("服务 '{}' 把异常抛过了 FFI 边界", name);
+                    // A provider throwing across the FFI boundary is already undefined
+                    // behavior on its own side. Catching it here at least keeps the
+                    // caller alive and gives it a status code it can act on.
+                    hostLogger().error("[service] '{}' threw an exception across the FFI boundary", name);
                     return PIER_SERVICE_ERROR;
                 }
                 return ok ? PIER_SERVICE_OK : PIER_SERVICE_ERROR;
-                // 0 是 SERVICE_OK，异常绝不能报成功；报 ERROR，即调用发生并失败。
+                // 0 is SERVICE_OK and an exception must never report success. ERROR
+                // says the call happened and failed.
             PIER_API_GUARD_END_VAL(PIER_SERVICE_ERROR)
         }
 
@@ -232,7 +247,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
-        /** 拆除：注销该模组名下的全部服务。 */
+        /** Teardown. Unregisters every service held under this mod. */
         void teardown(HostedMod* mod)
         {
             if (!mod) return;

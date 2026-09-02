@@ -1,18 +1,18 @@
 /**
- * PlotConfine.cpp —— 地皮边界约束：网格表、合并图、实体拦截。
- *
- * 设计说明在 plot_confine.h，这里只补三条实现上的取舍。锁与 DimensionRules.cpp 同一个判断：写只发生在世界注册或合并变化时，读在 tick 路
- * 径上，但一次 Actor::move 本就要跑碰撞盒求交、方块查询、伤害判定，一次未争用的
- * mutex 淹没在噪音里。真正省事的是最外层那个原子计数：一个地皮世界都没有时连锁都不
- * 取。「读多写少所以上无锁结构」是感觉不是测量结果。
- *
- * 组根缓存整表清空，不做失效分析：合并表是整表替换推过来的（见 setPlotMerges），加
- * 一条边可能把两个几百块的组并成一个，没有便宜的增量答案。整表清空 O(1)。
- *
- * 组遍历上界 4096，与模组侧一致，但撞上界时行为故意不同：模组侧是给标题去重用的，
- * 走到哪算哪；这里是安全判定，走不完即不知道两块在不在一个组里，必须拒绝，否则把
- * 地皮合到 4096 块以上就能把约束整个关掉。
- */
+ * PlotConfine.cpp: plot boundary confinement. Grid table, merge graph, actor interception. The
+ * design is in plot_confine.h; three implementation trades are added here. The lock follows the
+ * judgement DimensionRules.cpp makes: writes happen on registration or a merge change, reads on the
+ * tick path, and one Actor::move already runs bounding box intersection, block queries and damage
+ * decisions, so an uncontended mutex vanishes into that noise. What saves work is the outermost
+ * atomic count: with no plot world, no lock is taken. Reaching for a lock-free structure because
+ * reads dominate is a feeling, not a measurement. The group root cache is cleared whole with no
+ * invalidation analysis: the merge table arrives as a whole-table replacement (see setPlotMerges)
+ * and one edge can fuse two groups of hundreds of plots, so no cheap incremental answer exists.
+ * Clearing is O(1). The group walk is bounded at 4096 like the mod side, but hitting the bound
+ * behaves differently on purpose: the mod side deduplicates a title and takes what it reached,
+ * while this is a protection decision, and an unfinished walk means not knowing whether two plots
+ * share a group, which must be refused. Otherwise merging past 4096 plots would switch the
+ * confinement off entirely. / */
 #include "pier/dimensions/plot/plot_confine.h"
 
 #include <atomic>
@@ -39,7 +39,7 @@ namespace pier::dimensions
 
         constexpr int kGroupScanLimit = 4096;
 
-        /** (x, z) 打包成一个键。两个 int32 拼进一个 uint64，无碰撞。 */
+        /** Packs (x, z) into one key. Two int32 into one uint64, without collision. */
         constexpr uint64_t pk(int32_t x, int32_t z)
         {
             return (static_cast<uint64_t>(static_cast<uint32_t>(x)) << 32)
@@ -54,16 +54,18 @@ namespace pier::dimensions
             };
         }
 
-        /** 一个维度的网格 + 合并表 + 组根备忘。 */
+        /** The grid, merge table and group root memo of one dimension. */
         struct DimGrid
         {
             int plotSize{0};
             int roadWidth{0};
-            /** 只存有合并标记的地皮：key = pk(x,z)，value = MergeBit 的按位或。 */
+            /** Only plots carrying a merge mark. key = pk(x,z), value = the bitwise or
+             *  of MergeBit. */
             std::unordered_map<uint64_t, uint32_t> merges;
-            /** 组根备忘。合并表一变就整表清空。 */
+            /** The group root memo, cleared whole whenever the merge table changes. */
             std::unordered_map<uint64_t, uint64_t> roots;
-            /** 组遍历撞上界的地皮，记住以便一直保守拒绝而不是每次重走一遍图。 */
+            /** Plots whose group walk hit the bound, remembered so the refusal stays
+             *  conservative instead of rewalking the graph every time. */
             std::unordered_set<uint64_t> oversized;
         };
 
@@ -80,19 +82,22 @@ namespace pier::dimensions
         }
 
         /**
-         * 已注册网格的维度数。最外层的无锁快速路径。
+         * The number of dimensions with a registered grid. The outermost lock-free fast
+         * path.
          *
-         * 没有任何地皮世界时，`Actor::move` 的 hook 只读一个 relaxed 原子就
-         * 返回，这正是「装了 loader 但不用地皮系统」的服务器该付的代价：零。
+         * With no plot world at all, the `Actor::move` hook reads one relaxed atomic and
+         * returns, which is what a server that installed the loader without using the
+         * plot system should pay: nothing.
          */
         std::atomic<int> gGridCount{0};
 
-        /** `Actor::move` 的 detour 是否已经装上。装上之后不再拆，见下方说明。 */
+        /** Whether the `Actor::move` detour is installed. It is never removed once
+         *  installed, as explained below. */
         std::atomic<bool> gMoveHookInstalled{false};
 
         void installMoveHookOnce();
 
-        //  网格几何
+        //  Grid geometry
 
         int positiveModLocal(int value, int modulus)
         {
@@ -129,7 +134,7 @@ namespace pier::dimensions
             }
         }
 
-        /** 这块地皮自己声明了朝 `dir` 合并。 */
+        /** This plot itself declares a merge toward `dir`. */
         bool claims(DimGrid const& g, PlotXZ id, int dir)
         {
             auto it = g.merges.find(pk(id.x, id.z));
@@ -137,30 +142,36 @@ namespace pier::dimensions
         }
 
         /**
-         * 两块相邻地皮是否连通。判据是任一侧声明，不是两侧都声明。
+         * Whether two adjacent plots are connected. The test is either side declaring
+         * it, not both.
          *
-         * 和模组侧的 `connected` 逐字一致，理由也一样：unlink 是先清邻居再存
-         * 自己，中间那次写盘失败会留下单边标记。用「与」的话，从两侧出发会走出
-         * 两个不同的集合，组根就不唯一了 —— 而组根不唯一，「同一片区域」这个
-         * 问题就没有稳定答案，同一次活塞推动会时而被拦时而放行。
+         * Word for word the same as `connected` on the mod side, for the same reason:
+         * unlink clears the neighbor before storing itself and a failed write in between
+         * leaves a one-sided mark. Requiring both would make a walk from either side
+         * produce a different set, so the group root would not be unique, and without a
+         * unique root the question of one area has no stable answer and the same piston
+         * push is blocked sometimes and allowed at others.
          */
         bool connected(DimGrid const& g, PlotXZ a, int dir)
         {
             return claims(g, a, dir) || claims(g, neighbourOf(a, dir), (dir + 2) % 4);
         }
 
-        /** `a` 在 `PlotId` 的 Ord 意义下更小（先比 x 再比 z）。和模组侧一致。 */
+        /** `a` is smaller under the Ord of `PlotId`, comparing x first and then z.
+         *  Matches the mod side. */
         constexpr bool lessThan(PlotXZ a, PlotXZ b)
         {
             return a.x != b.x ? a.x < b.x : a.z < b.z;
         }
 
         /**
-         * 合并组的代表编号。走不完（撞上界）时返回 false —— 调用方必须据此拒绝。
+         * The representative number of a merge group. Returns false when the walk did
+         * not finish because it hit the bound, and the caller must refuse on that.
          *
-         * 绝大多数地皮没合并过：四周都不连通就直接返回自己，省掉一次容器分配。
-         * 「自己没标合并」不够，邻居仍可能单边标着，所以四个方向都要按
-         * `connected` 问一遍。
+         * The vast majority of plots were never merged, so a plot with no connected
+         * neighbor returns itself and saves a container allocation. Carrying no merge
+         * mark of its own is not enough, since a neighbor may still hold a one-sided
+         * mark, so all four directions are asked through `connected`.
          */
         bool groupRootLocked(DimGrid& g, PlotXZ id, PlotXZ* out)
         {
@@ -205,13 +216,16 @@ namespace pier::dimensions
                     if (!seen.insert(nk).second) continue;
                     if (members.size() >= static_cast<size_t>(kGroupScanLimit))
                     {
-                        // 走不完 = 不知道。把整个已访问集合都标成 oversized，
-                        // 否则从组里另一块进来又要重走一遍这张走不完的图。
+                        // An unfinished walk means unknown. The entire visited set is
+                        // marked oversized, otherwise entering from another plot of the
+                        // group rewalks the same unfinishable graph.
                         for (uint64_t m : seen) g.oversized.insert(m);
                         hostLogger().warn(
-                            "地皮合并组超过 {} 块（从 {};{} 出发），跨界判定对这一组"
-                            "一律拒绝。这不是配置问题 —— 组这么大时「同一片区域」已经没有"
-                            "可负担的答案，而安全判定不知道的时候必须拒绝。",
+                            "[plot] the merge group exceeds {} plots, walked from {};{}, so "
+                            "the crossing decision refuses everything in this group; this is "
+                            "not a configuration problem, since at that size the question of "
+                            "one area has no affordable answer and a protection decision "
+                            "must refuse when it does not know",
                             kGroupScanLimit, id.x, id.z
                         );
                         return false;
@@ -223,16 +237,18 @@ namespace pier::dimensions
             }
 
             uint64_t const rootKey = pk(best.x, best.z);
-            // 整组一次写完：组里任意一块之后进来都直接命中。
+            // The whole group is written at once, so any plot of it hits the memo
+            // afterwards.
             for (uint64_t m : members) g.roots[m] = rootKey;
             *out = best;
             return true;
         }
 
         /**
-         * 一格归哪块地皮。必须和模组侧的 `owning_plot` 逐条一致。
+         * Which plot a cell belongs to. Must match `owning_plot` on the mod side
+         * exactly.
          *
-         * 返回 false = 这一格不属于任何地皮（在道路上）。
+         * Returns false when the cell belongs to no plot, meaning it is on a road.
          */
         bool owningPlotLocked(DimGrid const& g, int x, int z, PlotXZ* out)
         {
@@ -251,19 +267,20 @@ namespace pier::dimensions
             }
             if (onRoadX && !onRoadZ)
             {
-                // 南北走向的缝，分隔 base 和它东边的邻居。
+                // A north-south seam, separating base from its eastern neighbor.
                 if (!connected(g, base, 1)) return false;
                 *out = base;
                 return true;
             }
             if (!onRoadX && onRoadZ)
             {
-                // 东西走向的缝，分隔 base 和它南边的邻居。
+                // An east-west seam, separating base from its southern neighbor.
                 if (!connected(g, base, 2)) return false;
                 *out = base;
                 return true;
             }
-            // 路口：围它的 2×2 四条边全合并才算地皮内部。
+            // A junction counts as plot interior only when all four edges of the
+            // surrounding 2x2 are merged.
             PlotXZ const ne = neighbourOf(base, 1);
             PlotXZ const sw = neighbourOf(base, 2);
             if (!(connected(g, base, 1) && connected(g, base, 2) && connected(g, ne, 2)
@@ -276,7 +293,7 @@ namespace pier::dimensions
         }
     } // namespace
 
-    //  对外接口
+    //  Public interface
 
     void setPlotGrid(int dimension, int plotSize, int roadWidth)
     {
@@ -285,8 +302,9 @@ namespace pier::dimensions
             clearPlotGrid(dimension);
             return;
         }
-        // 永远不要相信调用方给的数值：负的 roadWidth 会让 cell 变成 0 甚至负数，
-        // 而 cell 是取模的除数。这一条和 PlotLayout::clamp 是同一个理由。
+        // A value from a caller is never trusted: a negative roadWidth makes cell zero
+        // or negative, and cell is the divisor of the modulus. The same reason
+        // PlotLayout::clamp gives.
         if (roadWidth < 0) roadWidth = 0;
         if (plotSize > 512) plotSize = 512;
         if (roadWidth > 64) roadWidth = 64;
@@ -299,7 +317,8 @@ namespace pier::dimensions
         {
             g.plotSize = plotSize;
             g.roadWidth = roadWidth;
-            // 几何变了，归属判定的答案就全变了。合并表本身没变，但备忘要清。
+            // Changed geometry changes every ownership answer. The merge table itself is
+            // unchanged, but the memo must be cleared.
             g.roots.clear();
             g.oversized.clear();
         }
@@ -323,12 +342,14 @@ namespace pier::dimensions
         auto it = grids().find(dimension);
         if (it == grids().end())
         {
-            // 网格还没注册就推合并表：丢掉并说清楚。静默接受会更糟 ——
-            // 表存下来了、几何却是空的，归属判定永远返回「不在地皮上」，
-            // 表现是「合并了但活塞还是推不过去」。
+            // A merge table pushed before the grid is registered is dropped, and said
+            // so. Accepting it silently is worse: the table is stored while the geometry
+            // is empty, ownership always answers not on a plot, and the symptom is that
+            // plots are merged and a piston still cannot push through.
             hostLogger().warn(
-                "维度 {} 还没有注册地皮网格就收到了合并表（{} 条），已忽略。"
-                "调用顺序应该是先 set_plot_grid 再 set_plot_merges。",
+                "[plot] dimension {} received a merge table of {} entries before a plot "
+                "grid was registered and it was ignored; the order is set_plot_grid first, "
+                "then set_plot_merges",
                 dimension, count
             );
             return;
@@ -342,7 +363,7 @@ namespace pier::dimensions
             int32_t const x = entries[i * 3 + 0];
             int32_t const z = entries[i * 3 + 1];
             auto const mask = static_cast<uint32_t>(entries[i * 3 + 2]) & 0xFu;
-            if (mask == 0) continue; // 没有标记的条目不占地方
+            if (mask == 0) continue; // An entry without a mark takes no space
             g.merges[pk(x, z)] |= mask;
         }
     }
@@ -378,12 +399,13 @@ namespace pier::dimensions
         PlotXZ a{}, b{};
         bool const inA = owningPlotLocked(g, x1, z1, &a);
         bool const inB = owningPlotLocked(g, x2, z2, &b);
-        // 都在道路上：道路是公共区域，在上面移动不算越界。
+        // Both on a road. A road is public ground and moving on it is not a crossing.
         if (!inA && !inB) return true;
-        // 一侧在地皮上、一侧不在：这就是边界。方向对称 —— 推出去和推进来
-        // 是同一类操作，只拦一个方向等于没拦。
+        // One side on a plot and the other not is the boundary. The direction is
+        // symmetric: pushing out and pushing in are the same operation, and blocking one
+        // direction only is the same as blocking neither.
         if (inA != inB) return false;
-        // 同一块，最常见的一路，不必走图。
+        // The same plot, the most common case, needs no graph walk.
         if (a == b) return true;
 
         PlotXZ ra{}, rb{};
@@ -394,20 +416,19 @@ namespace pier::dimensions
 
     namespace
     {
-        /**
-         * 实体越界拦截。
-         *
-         * 挂 Actor::move(Vec3 const& posDelta)，不挂 tick：tick 是每个实体子类各自
-         * 实现的，挂不全，而 move 是它们最后都要走的那一步。这是能力声明不是保证，
-         * 某个实体类型若自己改 mPos 而不走 move 就不受约束，那是缺口不是崩溃。
-         *
-         * 三类实体不管：玩家（约束玩家是另一件事，默认打开就是灾难）、载人的载具
-         * （玩家划船走到边被焊在原地比越界严重得多；代价是空船会被拦，但载具搬不动
-         * 方块）、已被移除的实体。
-         *
-         * 拦下时只清水平位移、保留竖直分量。全清会让卡在边界上的实体悬空不落，看起
-         * 来像服务器卡了；保留 y 之后它是撞在一堵看不见的墙上，那是玩家认得的行为。
-         */
+        /** Actor crossing interception.
+         * Hooked on Actor::move(Vec3 const& posDelta) and not on tick, because tick is
+         * implemented per actor subclass and cannot be hooked completely, while move is
+         * the step they all take. That is a capability statement, not a guarantee: an actor type
+         * writing mPos itself without going through move is unconfined, which is a gap and not a
+         * crash. Three kinds are left alone: players, since confining a player is a different
+         * matter and on by default would be a disaster; ridden vehicles, since a player rowing to
+         * the edge and being welded in place is worse than a crossing, at the cost of an empty
+         * boat being blocked, though a vehicle moves no blocks; and actors already removed. A
+         * blocked move clears only the horizontal delta and keeps the vertical one. Clearing
+         * everything leaves an actor hovering at the boundary without falling, which looks like a
+         * frozen server, while keeping y makes it hit an invisible wall, which a player
+         * recognizes. */
         LL_TYPE_INSTANCE_HOOK(
             PlotConfineActorMoveHook,
             ll::memory::HookPriority::Normal,
@@ -417,13 +438,15 @@ namespace pier::dimensions
             ::Vec3 const& posDelta
         )
         {
-            // 最外层：一个地皮世界都没有 → 一次 relaxed 读，走人。
+            // The outermost path: with no plot world at all, one relaxed read and
+            // return.
             if (gGridCount.load(std::memory_order_relaxed) == 0)
             {
                 return origin(posDelta);
             }
-            // 没有水平位移就没有跨界的可能。地上的掉落物、盔甲架、画框走这条，
-            // 而它们通常占实体总数的大头。
+            // Without a horizontal delta there is no crossing to make. Dropped items on
+            // the ground, armor stands and item frames take this path, and they usually
+            // make up most of the actor count.
             if (posDelta.x == 0.0f && posDelta.z == 0.0f)
             {
                 return origin(posDelta);
@@ -445,9 +468,10 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 读不到状态就别拦。这里拦错的代价（实体永久卡住）大于放行的
-                // 代价（一次越界）。初值也是按这个方向设的：isPlayerActor 和
-                // ridden 都初始化成 true，任何一条提前抛出都会落到「不管」。
+                // An unreadable state does not block. Blocking wrongly here costs a
+                // permanently stuck actor, which is worse than one crossing getting
+                // through. The initial values follow the same direction: isPlayerActor
+                // and ridden both start as true, so an early throw lands on leave alone.
                 return origin(posDelta);
             }
             if (isPlayerActor || ridden || dim < 0)
@@ -479,14 +503,14 @@ namespace pier::dimensions
             clamped.x = 0.0f;
             clamped.z = 0.0f;
             origin(clamped);
-            // 速度也要清，否则下一拍会带着同样的水平速度再撞一次，实体在边界上
-            // 抖动而不是停住。竖直速度保留 —— 它还得往下掉。
-            //
-            // 走 `getPosDelta()` 的 const_cast 而不是 `setPosDelta` /
-            // `getPosDeltaNonConst`：前者是 Actor.h 里直接给出定义的内联
-            // 访问器（读 mBuiltInComponents->mStateVectorComponent->mPosDelta），
-            // 编译期就能展开；后两个是 MCFOLD，要在运行时解析符号，多一个会因
-            // 版本漂移而失败的环节，而它们做的事完全一样。
+            // The velocity is cleared too, otherwise the next tick drives the same
+            // horizontal velocity into the boundary and the actor jitters instead of
+            // stopping. The vertical velocity is kept, since it still has to fall.
+            // A const_cast on `getPosDelta()` is used rather than `setPosDelta` or
+            // `getPosDeltaNonConst`: the former is an inline accessor defined in Actor.h,
+            // reading mBuiltInComponents->mStateVectorComponent->mPosDelta, and expands at
+            // compile time, while the other two are MCFOLD and need runtime symbol
+            // resolution, a step that can fail on version drift for the same effect.
             try
             {
                 auto& delta = const_cast<::Vec3&>(this->getPosDelta());
@@ -495,20 +519,23 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 清速度失败只影响手感（实体会在边界上抖一下而不是停住），
-                // 位移本身已经被上面那次 origin(clamped) 拦住了 —— 安全性质
-                // 不依赖这一步。所以这里故意不升级成 error：每 tick 一条
-                // 日志会把真问题淹掉，而这条路径每 tick 都跑。
+                // A failure to clear the velocity only affects feel, since the actor
+                // jitters at the boundary instead of stopping, while the move itself was
+                // already blocked by the origin(clamped) above, so the protection does
+                // not depend on this step. It is deliberately not raised to error: one
+                // line per tick would bury the real problem, and this path runs every
+                // tick.
             }
         }
 
         /**
-         * 第一次注册地皮网格时装上，之后永不拆。
+         * Installed when the first plot grid is registered and never removed.
          *
-         * 和 hooks/ 目录下每个文件同一条纪律：退订可能来自被 hook 的函数内部，
-         * 在那里拆补丁是不安全的。闲置的 hook 只多一次原子读。
+         * The same discipline every file under hooks/ follows: an unsubscribe can arrive
+         * from inside the hooked function and removing the patch there is unsafe. An idle
+         * hook costs one atomic read.
          *
-         * 调用点已经持有 gridMutex，所以这里不再取锁。
+         * The call site already holds gridMutex, so no lock is taken here.
          */
         void installMoveHookOnce()
         {
@@ -517,15 +544,16 @@ namespace pier::dimensions
             gMoveHookInstalled.store(true, std::memory_order_relaxed);
             if (r == 0)
             {
-                hostLogger().debug("地皮边界约束已启用");
+                hostLogger().debug("[plot] plot boundary confinement enabled");
             }
             else
             {
                 hostLogger().error(
-                    "地皮边界约束：Actor::move 的 detour 安装失败（状态码 {}）。"
-                    "最常见原因是本 loader 链接的 BDS/LeviLamina 版本和服务器实际运行的"
-                    "不一致，符号地址解析错误。结果：**实体越界完全不受约束**"
-                    "（活塞那条路不受影响，它挂在另一个符号上）。",
+                    "[plot] installing the Actor::move detour failed with status {}; the "
+                    "usual cause is a mismatch between the BDS or LeviLamina version this "
+                    "loader was linked against and the one the server runs, so a symbol "
+                    "address resolved wrongly. Actor crossing is now entirely unconfined; "
+                    "the piston path is unaffected, since it hooks a different symbol",
                     r
                 );
             }

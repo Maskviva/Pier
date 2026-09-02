@@ -1,21 +1,21 @@
 #pragma once
 
-/**
- * native_dimensions.h —— BDS 26.20 引擎原生自定义维度接口的封装。
- *
- * 本宿主只走原生这一条路。老的 FakeDimensionId 方案（改写出站包的维度 id、拦掉
- * DimensionDataPacket、切维度前先假装去一趟下界）已整体删除，两者互斥。也不要用
- * MoreDimensions 那套：26.20 上 VanillaDimensions::DimensionMap() 和 mFactoryMap 都
- * 不再是 getOrCreateDimension 的数据源，引擎拿 id 建维度时走
- * DimensionManager::mDimensionNameIdStore 反查名字，那里没有对应条目时它只返回
- * expired 的 WeakRef，那就是 blockSourceOf 返回 nullptr、报「传送失败」的原因。
- *
- * registerCustomDimension() 把注册交还给引擎：先保证 DimensionDefinitionGroup 里有
- * 定义，再调 serverRegisterCustomDimension() 拿引擎分配的 id，id 由引擎写进存档的
- * NameIdStore、重启自动带回。拿到 id 之后仍要覆盖 mFactoryMap 那一条，因为引擎默认
- * 建的是通用数据驱动维度，而 DimensionFactory::create 按名字查这个 map，后写入者胜。
- * 所有函数都不抛，失败一律返回 nullopt / false / nullptr 并打日志。
- */
+/** native_dimensions.h: a wrapper over the native custom dimension interface of the BDS 26.20
+ * engine. This host takes the native path only. The older FakeDimensionId approach, rewriting the
+ * dimension id of outbound packets, intercepting DimensionDataPacket and faking a trip through
+ * the nether before a dimension change, is removed entirely and is mutually exclusive with this
+ * one. The MoreDimensions approach does not apply either: on 26.20 neither
+ * VanillaDimensions::DimensionMap() nor mFactoryMap is a data source for getOrCreateDimension.
+ * The engine resolves a name through DimensionManager::mDimensionNameIdStore when building a
+ * dimension from an id, and with no entry there it returns an expired WeakRef, which is why
+ * blockSourceOf returns nullptr and a teleport is reported as failed. registerCustomDimension()
+ * hands registration back to the engine: it first ensures the definition is in
+ * DimensionDefinitionGroup, then calls serverRegisterCustomDimension() for the id the engine
+ * allocates, which the engine writes into the NameIdStore of the save and restores on the next
+ * boot. The mFactoryMap entry is still overwritten afterwards, because by default the engine
+ * builds a generic data-driven dimension while DimensionFactory::create looks that map up by name
+ * and the later write wins. No function throws. A failure returns nullopt, false or nullptr and
+ * logs. / */
 
 #include <functional>
 #include <optional>
@@ -30,50 +30,54 @@ namespace pier::dimensions
 {
     namespace native
     {
-        /** 引擎侧的 DimensionManager 是否拿得到（Level 已开 = true）。 */
+        /** Whether the engine DimensionManager is reachable, which means Level is
+         *  open. */
         bool available();
 
         /**
-         * 用引擎原生流程注册一个自定义维度。
+         * Registers a custom dimension through the native engine flow.
          *
-         * @param name    维度名（同时是工厂 map 的 key）
-         * @param minY    世界底部，写进 DimensionDefinition
-         * @param maxY    世界顶部
-         * @param gen     生成器类型；createGenerator 由本包接管，所以这里只
-         *                影响引擎对该维度的一些默认判断，填 Flat 最保险
-         * @return        引擎分配的维度 id；失败返回 nullopt
+         * @param name    the dimension name, which is also the key of the factory map
+         * @param minY    the world bottom, written into the DimensionDefinition
+         * @param maxY    the world top
+         * @param gen     the generator type. createGenerator is taken over by this
+         *                package, so this only affects a few engine defaults for the
+         *                dimension, and Flat is the safest value
+         * @return        the dimension id the engine allocated, or nullopt on failure
          */
         std::optional<int>
         registerCustomDimension(std::string const& name, int minY, int maxY, GeneratorType gen);
 
-        /** 问引擎要某个名字的 id。未注册返回 nullopt。 */
+        /** Asks the engine for the id of a name. nullopt when it is not registered. */
         std::optional<int> engineDimensionId(std::string const& name);
 
-        /** 引擎认为这个 id 当前有效吗。 */
+        /** Whether the engine considers this id currently valid. */
         bool isActive(int dimId);
 
         /**
-         * 按名字把维度对象逼出来（原生路径）。
+         * Forces the dimension object into existence by name, on the native path.
          *
-         * 之所以有这个而不是直接用 id：id -> 名字的反查在引擎内部走
-         * NameIdStore，而按名字进去可以少一次反查，故障面更小。返回的裸指针由
-         * DimensionRegistry 持有，调用方不要缓存。
+         * This exists instead of going in by id because the engine resolves id to name
+         * internally through NameIdStore, so entering by name skips one reverse lookup
+         * and narrows the failure surface. The returned raw pointer is owned by
+         * DimensionRegistry and must not be cached by the caller.
          */
         Dimension* getOrCreateByName(std::string const& name);
     } // namespace native
 
-    //  宿主侧 name <-> id 台账
+    //  The host-side name to id ledger
     //
-    // 注册成功时记一笔，之后维度桥的两个面（selectorNameOf / blockSourceOf）
-    // 和 md_get_dimension_id 都优先从这里查。它的数据来源是「引擎实际返回的
-    // id」，所以不存在私有镜像跟引擎漂移的问题 —— 那正是早期版本按配置文件
-    // 解析维度名会失败的原因。
+    // An entry is recorded on a successful registration, and both faces of the dimension
+    // bridge, selectorNameOf and blockSourceOf, plus md_get_dimension_id, consult it
+    // first. Its data comes from the id the engine actually returned, so a private
+    // mirror cannot drift from the engine, which is what makes resolving a dimension name
+    // out of the config file unreliable.
 
     void rememberDimension(std::string const& name, int id);
-    std::string dimensionNameOf(int id);      // 查不到返回空串
-    int dimensionIdOf(std::string_view name); // 查不到返回 -1
+    std::string dimensionNameOf(int id);      // Empty string when not found
+    int dimensionIdOf(std::string_view name); // -1 when not found
     void forEachRegisteredDimension(std::function<void(std::string const&, int)> const& fn);
 
-    /** 供日志用：把台账拍平成 "name=id, name=id"。 */
+    /** For logging: flattens the ledger into "name=id, name=id". */
     std::string describeRegisteredDimensions();
 } // namespace pier::dimensions

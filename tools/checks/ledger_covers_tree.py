@@ -1,23 +1,28 @@
 # -*- coding: utf-8 -*-
-"""ledger-covers-tree —— 工作区里的每个文件，台账里都要有一行。
+"""ledger-covers-tree: every file in the workspace needs a row in the ledger.
 
-盯的是什么：`MIGRATION.md` 是「功能只多不少」的判据，而它只有在**双向
-完整**时才是判据：
+What it watches: `MIGRATION.md` is the criterion for capabilities only ever increasing,
+and it is a criterion only while it is complete in both directions:
 
-  * 台账 → 工作区：⬜ 的行表示这个功能此刻缺席（`ledger-count` 管计数）；
-  * 工作区 → 台账：**一个在磁盘上、却不在台账里的文件，等于没有被清点过**。
+  * ledger to workspace: an outstanding row means that capability is absent right now,
+    and `ledger-count` handles the counting;
+  * workspace to ledger: a file on disk that is not in the ledger has never been counted
+    at all.
 
-第二个方向此前完全没人守。发现它的方式很难看：`LICENSE` 三份
-`Cargo.toml` 都声明 `license = "Apache-2.0"`，文件却没跟过来 —— 而台账里
-连这一行都没有，所以逐行清点一百遍也发现不了。**清单漏了一项，按清单
-核对就永远查不出那一项。**
+Nobody guarded the second direction before. The way it was found is ugly: all three
+`Cargo.toml` files declare `license = "Apache-2.0"` while `LICENSE` itself never came
+across, and the ledger did not even have that row, so counting it line by line a hundred
+times would not have found it. A checklist that is missing an item can never reveal that
+item.
 
-## 判据
+## The criterion
 
-工作区里的每个受版本控制的文件，要么在台账某一行的「新位置」列里被提到，
-要么在豁免名单里（构建产物、台账自己、本轮新增的工具）。
+Every version-controlled file in the workspace is either mentioned in the new-location
+column of some ledger row, or is on the exemption list: build artifacts, the ledger
+itself, and the tools added in this round.
 
-反过来不查：台账里有而工作区里没有的行，正是 ⬜ 的定义。
+The reverse is not checked: a row in the ledger with nothing in the workspace is the
+definition of outstanding.
 """
 
 import os
@@ -31,27 +36,28 @@ LEDGER = os.path.join(ROOT, "MIGRATION.md")
 
 SKIP_DIRS = {".git", "target", "build", ".xmake", "node_modules", "__pycache__"}
 
-# 豁免：这些文件天然不在「旧仓 → 新仓」的迁移台账里。
+# Exempt: these files inherently do not belong in an old-repository to new-repository
+# migration ledger.
 EXEMPT_EXACT = {
-    "MIGRATION.md",       # 台账不清点自己
+    "MIGRATION.md",       # The ledger does not count itself
     ".gitignore",
     "Cargo.lock",
 }
 EXEMPT_PREFIX = (
-    "tools/",             # 机检与 surrogate 是新架构的产物，没有旧仓对应物
+    "tools/",             # The checks and surrogates came with the new architecture and have no old counterpart
 )
 
 
 def run():
     r = Result("ledger-covers-tree")
     if not os.path.exists(LEDGER):
-        r.fail("找不到 MIGRATION.md")
+        r.fail("MIGRATION.md was not found")
         return r
     with open(LEDGER, encoding="utf-8") as f:
         text = f.read()
 
-    # 台账里提到过的所有路径（反引号包着的都算，不区分哪一列 ——
-    # 一个文件只要在台账里被点过名，就算清点过了）。
+    # Every path the ledger mentions. Anything in backticks counts, regardless of column:
+    # a file named anywhere in the ledger has been counted.
     mentioned = set(re.findall(r"`([^`]+)`", text))
     mentioned = {m.strip().rstrip("/") for m in mentioned}
 
@@ -67,16 +73,17 @@ def run():
             n += 1
             if rel in mentioned:
                 continue
-            # 目录形式也算（台账有时按目录记）
+            # A directory form counts too, since the ledger sometimes records by directory
             if any(rel.startswith(m + "/") for m in mentioned if "/" in m or "." not in m):
                 continue
             missing.append(rel)
 
     for rel in missing:
-        r.fail("%s 在工作区里，但台账里一次都没被点名 —— 它从来没有被清点过。"
-               "「功能只多不少」按一份漏了项的清单核对，永远查不出漏的那一项" % rel)
+        r.fail("%s is in the workspace and is never named in the ledger, so it has never been "
+               "counted. Checking that capabilities only increase against a checklist that is "
+               "missing an item can never reveal that item" % rel)
     if not missing:
-        r.note("%d 个文件全部在台账里有出处（豁免：MIGRATION.md 自己、.gitignore、tools/）" % n)
+        r.note("all %d file(s) have a source in the ledger; exempt are MIGRATION.md itself, .gitignore and tools/" % n)
     return r
 
 

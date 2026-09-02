@@ -16,14 +16,15 @@
 
 namespace pier
 {
-    /** manifest 里 `"type"` 的取值。用户可见字符串同受语言名禁令
-     *（契约 §七）：这里写 "pier"，不写任何一门语言的名字 —— 这个
-     *  管理器装的是「说 Pier ABI 的 cdylib」，什么语言编出来的它不知道。 */
+    /** The value of `"type"` in a manifest. User-visible strings fall under the same
+     *  ban on language names (contract §7). This reads "pier" and names no language.
+     *  The manager loads any cdylib that speaks the Pier ABI and does not know which
+     *  language produced it. */
     inline constexpr std::string_view ModHostName = "pier";
 
     /**
-     * 一个 `"type": "pier"` 的模组：一个普通 cdylib，经 PierApi 函数表
-     * 契约装载，而不是走 C++ 原生 mod 的 ABI。
+     * A `"type": "pier"` mod. An ordinary cdylib, loaded through the PierApi
+     * function table contract instead of the native C++ mod ABI.
      */
     class HostedMod : public ll::mod::Mod, public std::enable_shared_from_this<HostedMod>
     {
@@ -34,12 +35,13 @@ namespace pier
         PierModVTable vtable{};
 
         /**
-         * 保持 DynamicListener 存活；卸载时清空。
+         * Keeps DynamicListener objects alive. Cleared on unload.
          *
-         * 用进程内单调 id 索引，不是监听器的地址。地址是最直觉的句柄，也
-         * 是不安全的那个：退订会释放监听器，下一次订阅完全可能落在同一块内存
-         * 上，于是一个 mod 忘了丢弃的过期句柄会匹配上另一条订阅 —— 悄无声息
-         * 地退掉别人的监听器。id 永不复用，过期句柄只会匹配失败。
+         * Indexed by a process-wide monotonic id and not by the listener address.
+         * Unsubscribing frees the listener and the next subscription may land on the
+         * same memory, so a stale address handle that a mod forgot to drop can match
+         * a different subscription and silently unsubscribe someone else's listener.
+         * An id is never reused, so a stale handle only fails to match.
          */
         struct ListenerSlot
         {
@@ -49,22 +51,26 @@ namespace pier
 
         std::vector<ListenerSlot> listeners;
 
-        /** 禁用后置真：已注册的命令回调全部变 no-op（命令没法真注销）。 */
+        /** True once disabled. Every registered command callback becomes a no-op,
+         *  because a command cannot truly be unregistered. */
         bool commandsMuted = false;
 
         /**
-         * 正在执行本模组回调的栈帧数（跨线程累计）。
+         * Number of stack frames currently executing a callback of this mod, summed
+         * across threads.
          *
-         * 用途：ModHost::unload 在它非零时拒绝卸载 —— 否则 FreeLibrary 会发生在
-         * 模组自己的栈帧之下（回调里 execute_command("pier unload <self>")），
-         * 或另一线程正在派发它的总线/数据包回调时把代码段抽走。
-         * 各派发点用 CallbackScope 维护它；忘记包的派发点只是失去这层保护，
-         * 不会引入新错误。
+         * ModHost::unload refuses to unload while it is non-zero. Otherwise
+         * FreeLibrary would run beneath the mod's own frame, which happens when a
+         * callback issues execute_command("pier unload <self>"), or would unmap the
+         * code section while another thread dispatches a bus or packet callback of
+         * that mod. Dispatch sites maintain it through CallbackScope. A site that
+         * omits the scope loses this protection and introduces no new failure.
          */
         std::atomic<int> inCallback{0};
     };
 
-    /** 派发模组回调时的 RAII 计数：构造 +1，析构 -1。mod 为空时什么都不做。 */
+    /** RAII counter around a mod callback dispatch. Construction adds one and
+     *  destruction subtracts one. Does nothing when mod is null. */
     class CallbackScope
     {
     public:
@@ -83,8 +89,9 @@ namespace pier
         HostedMod* mMod;
     };
 
-    /** PierModHandle ↔ HostedMod*。句柄就是指针本身 —— 生命周期由
-     *  ModHost 的表保证：卸载先走全部 Teardown 再 erase（见 mod_host.cpp）。 */
+    /** PierModHandle to HostedMod*. The handle is the pointer itself. Its lifetime
+     *  is guaranteed by the ModHost table, which runs every Teardown step before it
+     *  erases the entry (see mod_host.cpp). */
     [[nodiscard]] inline HostedMod* asMod(PierModHandle h) noexcept
     {
         return static_cast<HostedMod*>(h);

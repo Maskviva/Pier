@@ -1,18 +1,17 @@
-/**
- * hooks/player/AttackEvent.cpp —— 合成事件 "PlayerAttackTargetEvent"，可取消。
- *
- * LeviLamina 的 PlayerAttackEvent 可取消，但载荷里的 target 是 LL 反射对
- * Actor& 的序列化，只有裸指针和静态类型名（恒为 "Actor"），分不出打的是玩家
- * 还是生物。权限侧必须分开这两件事：分不开时 pvp 旗标一关连打怪都被拦。本事件
- * 补上 targetIsPlayer 与 target 的动态类型名。
- *
- * 取消时返回值初始化的 ActorHurtResult（全零即无伤害），不调 origin。
- * Player::attack 两个重载都挂（哪个是实现路径、哪个是转发无法在此确认，挂错的
- * 后果是保护静默失效），thread_local 重入闸保证一次攻击只派发一次，否则计数型
- * 订阅方会把一次攻击算成两次。载荷 {eventId, x, y, z, dim, target, targetIsPlayer, cause, _player:{…}}。
- * x/y/z 取目标位置而非攻击者位置，与 InteractEntityEvent、RideEvent 一致；不一
- * 致时「打」和「右键」同一只羊会落到两块地皮上。
- */
+/** hooks/player/AttackEvent.cpp: the synthetic, cancellable "PlayerAttackTargetEvent".
+ * PlayerAttackEvent in LeviLamina is cancellable, but the target in its payload is the LL
+ * reflection serialization of an Actor&, carrying only a raw pointer and the static type name,
+ * which is always "Actor", so it cannot tell a player from a mob. A permission layer has to
+ * separate those two: without the distinction, turning the pvp flag off blocks attacking mobs as
+ * well. This event adds targetIsPlayer and the dynamic type name of the target.
+ * Cancelling returns a value-initialized ActorHurtResult, all zeros meaning no damage, without
+ * calling origin. Both Player::attack overloads are hooked, since which one is the implementation
+ * and which the forwarder cannot be confirmed here and hooking the wrong one makes the protection
+ * fail silently. A thread_local re-entry gate ensures one attack dispatches once, otherwise a
+ * counting subscriber would count one attack twice. Payload {eventId, x, y, z, dim, target,
+ * targetIsPlayer, cause, _player:{...}}. x, y and z are the target position and not the attacker
+ * position, matching InteractEntityEvent and RideEvent; disagreeing would put hitting and right-
+ * clicking the same sheep on two different plots. / */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -23,8 +22,9 @@
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorHurtResult.h"
 #include "mc/world/actor/player/Player.h"
-// ActorDamageCause 没有独立头文件，它是 SharedTypes::Legacy::ActorDamageCause，
-// 由 Player.h 传递引入。actors/Players.cpp 的 PIER_PACT_ATTACK 分支同此。
+// ActorDamageCause has no header of its own. It is SharedTypes::Legacy::ActorDamageCause
+// and arrives transitively through Player.h, as it does in the PIER_PACT_ATTACK branch of
+// actors/Players.cpp.
 
 #include "pier/support/log.h"
 #include "pier/support/snbt.h"
@@ -33,17 +33,20 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& attackDef(); // 前向
+        HookEventDef& attackDef(); // Forward declaration
 
         /**
-         * Player::attack 有两个重载，&Player::attack 本身歧义（C2664），所以先
-         * typedef 再 static_cast。typedef 不可省：static_cast<A (T::*)(X, Y)> 里
-         * 的逗号会被预处理器当成宏参数分隔符切开。
+         * Player::attack has two overloads and &Player::attack is ambiguous on its own
+         * (C2664), so a typedef comes first and then a static_cast. The typedef cannot be
+         * dropped: the comma inside static_cast<A (T::*)(X, Y)> would be taken by the
+         * preprocessor as a macro argument separator.
          *
-         * 二参那个是 Mob::attack 的重写，虚函数必须挂 LeviLamina 生成的 $ 别名，
-         * 否则 static_assert 拦下。三参那个是否为虚未确认：若它也报同一个
-         * static_assert，把 PlayerAttackHook3 的 &Player::attack 改成
-         * &Player::$attack；若报「没有匹配的函数」，删掉 PlayerAttackHook3 与 r3。
+         * The two-argument one overrides Mob::attack, and a virtual must be hooked
+         * through the $ alias LeviLamina generates, otherwise a static_assert stops it.
+         * Whether the three-argument one is virtual is unconfirmed: if it reports the
+         * same static_assert, change &Player::attack in PlayerAttackHook3 to
+         * &Player::$attack, and if it reports no matching function, delete
+         * PlayerAttackHook3 and r3.
          */
         using AttackFn2 = ::ActorHurtResult (Player::*)(
             ::Actor&,
@@ -53,7 +56,8 @@ namespace pier::hooks
             ::SharedTypes::Legacy::ActorDamageCause const&,
             ::Player::AttackParameters const&);
 
-        /** 见文件头「只派发一次」。按线程计：并发攻击不是重入。 */
+        /** The dispatch-once rule from the file header. Counted per thread, since
+         *  concurrent attacks are not re-entry. */
         thread_local int tlAttackDepth = 0;
 
         struct AttackDepthGuard
@@ -63,15 +67,18 @@ namespace pier::hooks
         };
 
         /**
-         * 拦下时返回值初始化的 ActorHurtResult，全零即无伤害。字段名未确认，
-         * 所以不逐字段改。若拦下之后仍然掉血，就是这个假设错了。
+         * A value-initialized ActorHurtResult on a block, all zeros meaning no damage. The
+         * field names are unconfirmed, so no field is set individually. Health still
+         * dropping after a block means this assumption is wrong.
          */
         ::ActorHurtResult refusedHurt() { return ::ActorHurtResult{}; }
 
         std::string buildAttackSnbt(Player& self, ::Actor& actor, int cause)
         {
-            // getTypeName / isPlayer 在实体正在销毁时会抛，异常穿过 detour 等于
-            // 整服崩，所以就地吞掉。订阅方读到空串会退回粗判定，不会更松。
+            // getTypeName and isPlayer throw while an actor is being destroyed, and an
+            // exception crossing a detour takes the whole server down, so they are caught
+            // here. A subscriber reading an empty string falls back to a coarser decision,
+            // which is never more permissive.
             std::string targetName;
             bool isPlayerTarget = false;
             try
@@ -101,8 +108,9 @@ namespace pier::hooks
             PlayerAttackHook2,
             ll::memory::HookPriority::Normal,
             Player,
-            // 虚函数走 $ 别名。static_cast 仍要留：两个重载都虚时 $attack 也有
-            // 两个，有 cast 才不歧义；没歧义时它无害。
+            // A virtual goes through the $ alias. The static_cast stays: if both
+            // overloads are virtual there are two $attack as well and the cast resolves
+            // the ambiguity, and it is harmless when there is none.
             static_cast<AttackFn2>(&Player::$attack),
             ::ActorHurtResult,
             ::Actor& actor,
@@ -150,23 +158,26 @@ namespace pier::hooks
             "PlayerAttackTargetEvent",
             []
             {
-                // hook() 返回 ll::memory::hookEx 的状态码，0 == 成功。两个都要
-                // 报：一个装失败另一个成功时，保护只在部分攻击路径上生效，那比
-                // 整个不生效更难查。
+                // hook() returns the ll::memory::hookEx status code, where 0 is success.
+                // Both are reported: with one failing and the other succeeding, the
+                // protection covers only some attack paths, which is harder to diagnose
+                // than none of them working.
                 int r2 = PlayerAttackHook2::hook();
                 int r3 = PlayerAttackHook3::hook();
                 auto& log = hostLogger();
                 log.debug(
-                    "[AttackEvent] 安装 detour：attack/2={} (code={})，attack/3={} (code={})",
-                    r2 == 0 ? "成功" : "失败", r2,
-                    r3 == 0 ? "成功" : "失败", r3
+                    "[hooks/AttackEvent] installing detours: attack/2={} (code={}), attack/3={} (code={})",
+                    r2 == 0 ? "ok" : "failed", r2,
+                    r3 == 0 ? "ok" : "failed", r3
                 );
                 if (r2 != 0 && r3 != 0)
                 {
                     log.error(
-                        "[AttackEvent] 两个 detour 都没装上 —— 「打玩家」和「打生物」"
-                        "在地皮上分不开，pvp 旗标拦不住人。最常见原因是本宿主链接的 "
-                        "BDS/LeviLamina 版本和服务器实际跑的不一致。");
+                        "[hooks/AttackEvent] neither detour installed, so attacking a player "
+                        "and attacking a mob cannot be told apart on a plot and the pvp flag "
+                        "blocks nobody. The usual cause is a mismatch between the BDS or "
+                        "LeviLamina version this host was linked against and the one the "
+                        "server runs.");
                 }
                 return r2 == 0 || r3 == 0;
             }

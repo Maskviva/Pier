@@ -37,9 +37,10 @@ namespace pier::dimensions
         }
 
         pier::hostLogger().error(
-            "{} 的 mHeightRange 是 {}..{}（{} 个子区块），但发给客户端的定义是 {}..{}"
-            "（{} 个子区块）—— 两边对不上，子区块请求会被判越界，方块数据一块都到不了客户端。"
-            "现已就地纠正为 {}..{}。",
+            "[dim] {} has mHeightRange {}..{} ({} subchunks) while the definition sent to "
+            "the client says {}..{} ({} subchunks); the two disagree, subchunk requests are "
+            "judged out of range and no block data reaches the client. Corrected in place "
+            "to {}..{}",
             who, actualMin, actualMax, (actualMax - actualMin) / 16,
             expectedMin, expectedMax, (expectedMax - expectedMin) / 16,
             expectedMin, expectedMax

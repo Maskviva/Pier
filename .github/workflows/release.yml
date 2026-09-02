@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  build:
+    name: Build the host
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/AppData/Local/.xmake
+          key: xmake-release-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          restore-keys: xmake-release-
+
+      - run: xmake repo -u
+
+      - run: xmake f -a x64 -m release -p windows --target_type=server -y
+
+      - run: xmake -w -y
+
+      - shell: pwsh
+        run: Get-ChildItem -Recurse bin
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pier-${{ github.sha }}-windows-x64
+          path: bin/
+
+  release-notes:
+    name: Extract release notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: notes
+        uses: ffurrer2/extract-release-notes@v3
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.notes.outputs.release_notes }}
+
+  upload:
+    name: Upload the archive
+    needs:
+      - build
+      - release-notes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: pier-${{ github.sha }}-windows-x64
+          path: artifact
+
+      # The modpacker writes bin/pier/*, and lip places the archive contents directly
+      # into plugins/pier/, so the archive has to be flat.
+      - name: Flatten the package
+        shell: bash
+        run: |
+          cp LICENSE README.md artifact/
+          if [ -d artifact/pier ]; then
+            mv artifact/pier/* artifact/ && rmdir artifact/pier
+          fi
+          if [ -d artifact/bin ]; then
+            mv artifact/bin/* artifact/ && rmdir artifact/bin
+          fi
+          find artifact
+
+      - name: Create the archive
+        working-directory: artifact
+        run: zip -r ../pier-windows-x64.zip .
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: pier-windows-x64.zip

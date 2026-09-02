@@ -1,20 +1,24 @@
--- pier-lane —— 同工具链快车道。**可选能力**。
+-- pier-lane: the same-toolchain fast lane. An optional capability.
 --
--- 宿主对车道里传的 data / vtable / 指纹一个字节都不解释，只做相等比较和
--- 存活标记。所以它不是「某语言直连」，是「同一次工具链编出来的两个 cdylib
--- 直连」。删掉这个包，service_call（(名字, UTF-8) -> UTF-8，跨语言最大公约
--- 数）照常工作 —— 槽位缺席即 NULL，SDK 按空槽纪律降级。
+-- The host interprets no byte of the data, vtable or fingerprint carried over a lane
+-- and only compares for equality and tracks liveness. It is therefore a direct link
+-- between two cdylibs built by the same toolchain, not a direct link between two mods
+-- in one language. Remove this package and service_call, whose shape is
+-- (name, UTF-8) -> UTF-8 and is the greatest common divisor across languages, keeps
+-- working. An absent slot is NULL and the SDK degrades under the empty-slot rule.
 target("pier-lane")
     set_kind("object")
-    -- object 而不是 static：本包的每个 TU 都靠**文件级静态对象**把自己注册进
-    -- 宿主的 SPI，没有任何外部符号引用它们。静态库里这种 obj 会被链接器整个
-    -- 丢掉，症状是功能**静默消失**（契约 §一 规则四）。`object-kind` 机检守着。
+    -- object and not static. Every TU in this package registers itself into the host
+    -- SPI through a file-level static object and no external symbol references them.
+    -- Inside a static library the linker drops such an object entirely, and the
+    -- symptom is a capability that disappears silently (contract §1 rule 4). The
+    -- `object-kind` check guards this.
     set_languages("c++20")
     add_deps("pier-abi", "pier-support", "pier-host")
-    -- Lane.cpp 自己一行 ll/ 的 include 都没写，但 `pier/host/hosted_mod.h`
-    -- 里有 —— 编译器展开的是 include 的**闭包**，不是第一层。漏了这一行的
-    -- 症状是 `fatal error C1083: 无法打开包括文件`，而报出来的文件名是
-    -- 一个这个包里根本没提过的头。`build-config` 机检现在按闭包算。
+    -- Lane.cpp writes no ll/ include of its own, but `pier/host/hosted_mod.h` does.
+    -- The compiler expands the closure of includes, not the first level. Omitting this
+    -- line produces `fatal error C1083: cannot open include file` naming a header this
+    -- package never mentions. The `build-config` check computes the closure.
     add_packages("levilamina")
     add_files("src/*.cpp")
 target_end()

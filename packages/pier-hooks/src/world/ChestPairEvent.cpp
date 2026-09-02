@@ -1,11 +1,10 @@
-/** world/ChestPairEvent.cpp —— 两个箱子要合成一个大箱子。
- *
- * 越界配对是一条真实的绕过：把箱子贴着地皮边界放下，与邻居地里的箱子配成大箱
- * 子，打开自己这半边就能看见对面的全部物品。容器保护判的是「你点的那一格」，
- * 而那一格确实是你自己的。
- *
- * 事件带两个箱子的坐标，取消即不配对，两个箱子各自独立（原版行为）。
- */
+/** world/ChestPairEvent.cpp: two chests are about to pair into a double chest.
+ * Pairing across a boundary is a real bypass: place a chest against the plot edge, let it
+ * pair with the neighbor's chest, and opening the near half shows everything in theirs.
+ * Container protection decides on the cell that was clicked, and that cell really is
+ * the placer's own.
+ * The event carries the coordinates of both chests. Cancelling means no pairing and each
+ * chest stays independent, which is vanilla behavior. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -27,7 +26,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& chestPairDef(); // 前向
+        HookEventDef& chestPairDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             ChestTryPairHook,
@@ -53,7 +52,8 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // 坐标读不出来时不拦：这个事件是加固，不是最后一道安全闸。
+                // Unreadable coordinates do not block: this event hardens, it is not the
+                // last safety gate.
             }
 
             std::string snbt = "{\"eventId\":\"ChestPairEvent\""
@@ -77,7 +77,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[ChestPairEvent] ChestBlockActor::_tryToPairWith 的 detour 安装失败（code={}）。", r);
+                        "[hooks/ChestPairEvent] the ChestBlockActor::_tryToPairWith detour failed to install with code={}", r);
                 }
                 return r == 0;
             }

@@ -1,14 +1,13 @@
-/** world/ExplosionEvent.cpp —— 爆炸事件，可取消。
- *
- * pier-dimensions 也钩 Level::$explode，但那一层回答的是按维度的粗粒度问题（这
- * 个维度允不允许爆炸破坏方块）。地皮级判断需要坐标和半径，只能由模组做，所以这
- * 里再挂一个更外层（HookPriority::High）的钩子：模组先看到每一次爆炸，不取消的
- * 话维度规则照常生效。
- *
- * 取消语义是这次爆炸不发生，连伤害带方块。只想保住方块、留下伤害的，用维度规则
- * PIER_DIMRULE_EXPLODE_BLOCKS，或在模组侧用 explode(..., breaks_blocks=false)
- * 重放一次。
- */
+/** world/ExplosionEvent.cpp: the cancellable explosion event.
+ * pier-dimensions hooks Level::$explode as well, but that layer answers the coarse
+ * per-dimension question of whether explosions may break blocks there. A plot-level
+ * decision needs the coordinates and the radius and can only be made by a mod, so a
+ * second hook sits further out at HookPriority::High: the mod sees every explosion first
+ * and, without a cancel, the dimension rules apply as usual.
+ * Cancelling means the explosion does not happen at all, damage and blocks alike. Keeping
+ * the damage while saving the blocks uses the dimension rule
+ * PIER_DIMRULE_EXPLODE_BLOCKS, or a replay on the mod side with
+ * explode(..., breaks_blocks=false). */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -30,17 +29,18 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& explosionDef(); // 前向
+        HookEventDef& explosionDef(); // Forward declaration
 
-        /** Level::$explode 有两个重载（八参版和 Explosion& 版）。宏内部按目标类型
-         *  解析标识符本可消歧，但显式转型无论如何都成立，且把钩的是哪一个写在明
-         *  处。同 AttackEvent。 */
+        /** Level::$explode has two overloads, the eight-argument one and the Explosion&
+         *  one. Resolving the identifier against the target type inside the macro would
+         *  disambiguate on its own, but an explicit cast holds either way and states which
+         *  one is hooked. Same as AttackEvent. */
         using ExplodeFn = bool (Level::*)(
             ::BlockSource&, ::Actor*, ::Vec3 const&, float, bool, bool, float, bool);
 
         LL_TYPE_INSTANCE_HOOK(
             LevelExplodeHook,
-            ll::memory::HookPriority::High, // 比维度规则更外层：模组先判，规则后判
+            ll::memory::HookPriority::High, // Outside the dimension rules: the mod decides first
             Level,
             static_cast<ExplodeFn>(&Level::$explode),
             bool,
@@ -106,8 +106,8 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[ExplosionEvent] Level::$explode 的 detour 安装失败（code={}）—— "
-                        "爆炸保护不生效。", r);
+                        "[hooks/ExplosionEvent] the Level::$explode detour failed to install "
+                        "with code={}, so explosion protection is inactive", r);
                 }
                 return r == 0;
             }

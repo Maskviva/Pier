@@ -1,17 +1,19 @@
-//! 原始数据包拦截。
+//! Raw packet interception.
+//! This layer handles closure ownership, the panic fence, and gathering `{ptr,len}` into a `&[u8]`.
+//! It interprets not one byte of the body: version differences, field layout and codecs all live on
+//! the caller's side. A loader usable across versions cannot understand the wire format of every
+//! version at once.
 //!
-//! 这一层管闭包的所有权、panic 围栏，以及把 `{ptr,len}` 收成 `&[u8]`。
-//! 它**不解释包体的任何一个字节** —— 版本差异、字段布局、编解码全在调用方
-//! 那一侧。一个能跨版本用的 loader 不可能同时懂每个版本的线格式。
+//! # Threads: read this before writing any state
 //!
-//! # 线程（写状态之前先读这一段）
+//! An inbound callback runs on the thread pumping that connection and an outbound one on the thread
+//! that started the send. Usually that is the server thread, but an async flush means it is not
+//! guaranteed, which is why the closure bound is `Send + Sync` and not `Send`: the same closure may
+//! be entered by several threads at once.
 //!
-//! 入站回调跑在**连接被抽水的那个线程**上，出站跑在**发起发送的那个线程**
-//! 上。通常是服务器线程，但异步 flush 意味着**不保证** —— 所以闭包的约束是
-//! `Send + Sync` 而不是 `Send`：同一个闭包可能被多个线程同时进入。
-//!
-//! 多个订阅者时，每一个看到上一个的输出，按注册顺序；**第一个 Drop 胜出**，
-//! 后面整个跳过。订阅表在派发前快照，所以回调里注册/注销是安全的。
+//! With several subscribers, each sees the output of the previous one in registration order, and
+//! the first Drop wins with everything after it skipped. The subscription table is snapshotted
+//! before dispatch, so registering and deregistering inside a callback is safe.
 
 use core::ffi::c_void;
 
@@ -22,20 +24,21 @@ use crate::rt::logger::Logger;
 use crate::rt::runtime::rt;
 use crate::sys;
 
-/// 包的方向。
+/// The direction of a packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
-    /// 客户端 → 服务端。
+    /// Client to server.
     Inbound,
-    /// 服务端 → 客户端。
+    /// Server to client.
     Outbound,
 }
 
 impl Direction {
     fn from_abi(v: i32) -> Direction {
-        // ABI 上只有这两个值。真出了第三个说明宿主比这个 SDK 新，
-        // 而对一个「方向」来说猜错的代价是把出站当入站处理 —— 宁可当出站
-        // （更常见、且改写出站包的风险低于改写入站包）。
+        // The ABI has only these two values. A third one really appearing means the host is
+        // newer than this SDK, and for a direction the cost of guessing wrong is treating
+        // outbound as inbound, so outbound is the safer guess: it is more common and rewriting
+        // an outbound packet is less risky than rewriting an inbound one.
         if v == sys::PIER_PKT_INBOUND {
             Direction::Inbound
         } else {
@@ -44,7 +47,7 @@ impl Direction {
     }
 }
 
-/// 注册时选哪些方向。
+/// Which directions to select at registration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Directions {
     Inbound,
@@ -62,36 +65,37 @@ impl Directions {
     }
 }
 
-/// 回调对这个包的处置。
+/// What the callback does with this packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// 原样转发。若调用过 `set_body` / `set_packet_id`，改写生效。
+    /// Forward unchanged. A prior `set_body` or `set_packet_id` takes effect.
     Forward,
-    /// 整个吃掉这个包。
+    /// Consume the packet entirely.
     Drop,
 }
 
-/// 连接的两种状态。
+/// The two states of a connection.
 ///
-/// **关掉是唯一可靠的「清掉这条连接的状态」信号**：一条没走完登录握手的
-/// 连接永远不会变成 Player，任何玩家事件都覆盖不到它。
+/// A close is the only reliable signal to clear the state of a connection: one that never
+/// completed the login handshake never becomes a Player and no player event covers it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionState {
     Opened,
     Closed,
 }
 
-/// 拦截器闭包的类型。
+/// The type of an interceptor closure.
 ///
-/// 单独起个名字是 clippy 的 `type_complexity` 要求的，但它也确实更好读：
-/// 这个类型在注册、蹦床、`PacketHook` 三处各出现一次，写全的话三处得
-/// 一模一样地对上，改一次要改三遍。
+/// Naming it separately is required by the clippy `type_complexity` lint and does read
+/// better: this type appears once each in registration, the trampoline and `PacketHook`,
+/// and written out in full all three would have to match exactly, so one change would be
+/// three.
 type PacketFn = dyn Fn(&mut Packet<'_>) -> Verdict + Send + Sync;
 
-/// 连接开关观察者闭包的类型。理由同上。
+/// The type of a connection open and close observer closure. Same reason as above.
 type ConnFn = dyn Fn(u64, &str, ConnectionState) + Send + Sync;
 
-/// 回调收到的一个包。**只在回调期间有效。**
+/// The packet a callback receives. Valid only during the callback.
 pub struct Packet<'a> {
     ev: &'a sys::PierPacketEvent,
     edit: &'a mut sys::PierPacketEdit,
@@ -105,12 +109,13 @@ impl<'a> Packet<'a> {
         Direction::from_abi(self.ev.direction)
     }
 
-    /// 这条连接的 id。跨包稳定，用它做每连接状态的键。
+    /// The id of this connection. Stable across packets and usable as the key of per-connection
+    /// state.
     pub fn conn_id(&self) -> u64 {
         self.ev.conn_id
     }
 
-    /// 对端地址（`ip:port`）。诊断用；做键请用 `conn_id`。
+    /// The peer address as `ip:port`. For diagnostics; use `conn_id` as a key.
     pub fn address(&self) -> &str {
         unsafe { r(self.ev.address) }
     }
@@ -127,11 +132,11 @@ impl<'a> Packet<'a> {
         self.ev.target_sub_id
     }
 
-    /// 包体，**不含头**（包 id 和 sub id 已经被解出来了）。
+    /// The body, without the header, since the packet id and sub id are already decoded.
     ///
-    /// 这一点是刻意的：改写方只需要给出新的**包体**，头由宿主按 `edit`
-    /// 重新编码 —— 于是「改一个包 id」是一次字段赋值，而不是一场
-    /// varint 拆装手术。
+    /// That is deliberate: a rewriter only supplies a new body and the host re-encodes the
+    /// header from `edit`, so changing a packet id is a field assignment rather than varint
+    /// surgery.
     pub fn body(&self) -> &[u8] {
         if self.ev.body.is_null() || self.ev.body_len == 0 {
             return &[];
@@ -139,14 +144,15 @@ impl<'a> Packet<'a> {
         unsafe { core::slice::from_raw_parts(self.ev.body, self.ev.body_len) }
     }
 
-    /// 换掉包体。可以在一次回调里调多次，最后一次算数。
+    /// Replaces the body. It may be called several times in one callback and the last one
+    /// counts.
     pub fn set_body(&mut self, bytes: &[u8]) {
         let sink = self.replace;
         unsafe { sink(self.replace_ctx, bytes.as_ptr(), bytes.len()) };
         self.replaced = true;
     }
 
-    /// 改写包 id（重映射到另一个版本的编号时用）。
+    /// Rewrites the packet id, for remapping onto the numbering of another version.
     pub fn set_packet_id(&mut self, id: i32) {
         self.edit.packet_id = id;
         self.replaced = true;
@@ -163,30 +169,35 @@ impl<'a> Packet<'a> {
     }
 }
 
-/// 一个已注册的包拦截器。
+/// A registered packet interceptor.
 ///
-/// **Drop 即注销。** 想让它活到模组卸载就调 `forget()` —— 那是显式的，
-/// 因为「注册完就扔」和「注册完忘了保存返回值」在代码里长得一模一样，
-/// 而后者是个 bug。宿主在模组卸载时会统一清掉剩下的（拆除步骤 stage 90）。
+/// Dropping it deregisters. `forget()` keeps it alive until the mod unloads, and it is
+/// explicit because registering and discarding looks identical in code to registering and
+/// forgetting to keep the returned value, and the latter is a bug. The host clears what
+/// remains when the mod unloads, at teardown stage 90.
 pub struct PacketHook {
     handle: Handle,
     unregister: Option<unsafe extern "C" fn(sys::PierModHandle, sys::PierPacketHookHandle) -> bool>,
-    /// 闭包的所有权。**注销之后才释放** —— 反过来会让宿主拿着一个已经
-    /// 释放的指针继续回调，而那一刻通常是下一个包到达时，离这里很远。
+    /// Ownership of the closure, freed only after deregistering. The other order leaves the
+    /// host calling back through an already freed pointer, and that moment is usually the
+    /// arrival of the next packet, far from here.
     ///
-    /// 顺序由 Rust 保证：`Drop::drop` 先跑（注销），字段再按声明顺序析构。
+    /// Rust guarantees the order: `Drop::drop` runs first and deregisters, then the fields drop
+    /// in declaration order.
     owned: Option<Box<dyn core::any::Any + Send + Sync>>,
 }
 
 impl PacketHook {
-    /// 放弃 Drop 时注销，让它活到模组卸载。
+    /// Gives up deregistering on drop and keeps it alive until the mod unloads.
     ///
-    /// 这一步是**显式**的，因为「注册完就扔」和「注册完忘了保存返回值」
-    /// 在代码里长得一模一样，而后者是个 bug —— 拦截器刚装上就没了。
+    /// This step is explicit because registering and discarding looks identical in code to
+    /// registering and forgetting to keep the returned value, and the latter is a bug where the
+    /// interceptor disappears the moment it is installed.
     pub fn forget(mut self) {
         self.unregister = None;
-        // 闭包必须继续活着，宿主还会调它。有意泄漏；宿主在模组卸载时
-        // 统一清掉剩下的注册（拆除步骤 stage 90）。
+        // The closure has to stay alive, since the host will keep calling it. Leaked on
+        // purpose; the host clears the remaining registrations when the mod unloads, at
+        // teardown stage 90.
         if let Some(owned) = self.owned.take() {
             core::mem::forget(owned);
         }
@@ -201,7 +212,7 @@ impl Drop for PacketHook {
     }
 }
 
-/// 数据包门面。
+/// The packet facade.
 #[derive(Clone, Copy)]
 pub struct Packets(());
 
@@ -210,17 +221,20 @@ impl Packets {
         Packets(())
     }
 
-    /// 注册一个包拦截器。
+    /// Registers a packet interceptor.
     ///
-    /// 闭包要 `Send + Sync`：见模块头的线程那一段 —— 回调不保证在服务器
-    /// 线程，而且可能被多个线程同时进入。
+    /// The closure needs `Send + Sync`; see the thread section of the module header. A callback
+    /// is not guaranteed to be on the server thread and may be entered by several threads at
+    /// once.
     pub fn intercept<F>(&self, dirs: Directions, f: F) -> Result<PacketHook>
     where
         F: Fn(&mut Packet<'_>) -> Verdict + Send + Sync + 'static,
     {
-        let reg = crate::require_slot!(packet_hook_register, "拦截数据包");
-        // 两道闸缺一不可（契约 §2.2）：先查表够不够长，再查槽非不非空。
-        // 反注册槽的偏移比注册槽更大，所以注册成功**不蕴含**这个槽读得到。
+        let reg = crate::require_slot!(packet_hook_register, "intercepting packets");
+        // Neither gate may be skipped (contract §2.2): first whether the table is long
+        // enough, then whether the slot is non-null. The deregistration slot sits at a
+        // larger offset than the registration slot, so a successful registration does not
+        // imply this slot can be read.
         let unreg = if crate::has_slot!(packet_hook_unregister) {
             rt().api.packet_hook_unregister
         } else {
@@ -232,10 +246,10 @@ impl Packets {
 
         let handle = unsafe { reg(rt().handle(), dirs.mask(), packet_trampoline, user.cast()) };
         if handle.is_null() {
-            // 注册失败：把闭包收回来释放，别泄漏。
+            // Registration failed: the closure is taken back and freed rather than leaked.
             drop(unsafe { Box::from_raw(user) });
             return Err(Error(
-                "宿主拒绝注册数据包拦截器（方向掩码为空，或宿主内部失败）".to_owned(),
+                "the host refused to register the packet interceptor, because the direction mask is empty or the host failed internally".to_owned(),
             ));
         }
         Ok(PacketHook {
@@ -245,13 +259,13 @@ impl Packets {
         })
     }
 
-    /// 注册一个连接开/关的观察者。
+    /// Registers an observer of connection opens and closes.
     pub fn on_connection<F>(&self, f: F) -> Result<PacketHook>
     where
         F: Fn(u64, &str, ConnectionState) + Send + Sync + 'static,
     {
-        let reg = crate::require_slot!(packet_conn_hook_register, "观察连接开关");
-        // 两道闸缺一不可（契约 §2.2）：先查表够不够长，再查槽非不非空。
+        let reg = crate::require_slot!(packet_conn_hook_register, "observing connection opens and closes");
+        // Neither gate may be skipped (contract §2.2): first whether the table is long
         let unreg = if crate::has_slot!(packet_conn_hook_unregister) {
             rt().api.packet_conn_hook_unregister
         } else {
@@ -264,7 +278,7 @@ impl Packets {
         let handle = unsafe { reg(rt().handle(), conn_trampoline, user.cast()) };
         if handle.is_null() {
             drop(unsafe { Box::from_raw(user) });
-            return Err(Error("宿主拒绝注册连接观察者".to_owned()));
+            return Err(Error("the host refused to register the connection observer".to_owned()));
         }
         Ok(PacketHook {
             handle: Handle::new(handle),
@@ -274,15 +288,17 @@ impl Packets {
     }
 }
 
-// ── 两个蹦床 ──────────────────────────────────────────────────────
+// The two trampolines
 //
-// panic 穿过 extern "C" 是未定义行为。两个都包在 catch_unwind 里：
-// 代价是这一个包按「原样转发」处理，而不是整个进程无诊断 abort。
-// **不能**在这里选 Drop —— 一个 panic 的拦截器把包全吃掉，症状是
-// 「玩家进不来且服务端一切正常」，比漏改一个包难查得多。
+// A panic crossing extern "C" is undefined behavior. Both are wrapped in catch_unwind, at
+// the cost of this one packet being forwarded unchanged rather than the whole process
+// aborting without a diagnostic.
+// Drop must not be chosen here: a panicking interceptor that consumed every packet would
+// give the symptom of players being unable to join while the server looks fine, which is
+// far harder to diagnose than one unmodified packet.
 
 /// # Safety
-/// 由宿主调用，`user` 是 `intercept` 装箱的闭包。
+/// Called by the host, where `user` is the closure `intercept` boxed.
 unsafe extern "C" fn packet_trampoline(
     user: *mut c_void,
     ev: *const sys::PierPacketEvent,
@@ -313,8 +329,8 @@ unsafe extern "C" fn packet_trampoline(
         }
         Err(_) => {
             Logger::get().error(
-                "数据包拦截器 panic 了。已就地拦下，这个包按原样转发 —— \
-                 选 Drop 的话症状会是「玩家进不来而服务端一切正常」，更难查。",
+                "a packet interceptor panicked. It was caught here and this packet is forwarded \
+                 unchanged; choosing Drop would give the symptom of players being unable to join while the server looks fine, which is harder to diagnose.",
             );
             sys::PIER_PKT_PASS
         }
@@ -322,7 +338,7 @@ unsafe extern "C" fn packet_trampoline(
 }
 
 /// # Safety
-/// 由宿主调用，`user` 是 `on_connection` 装箱的闭包。
+/// Called by the host, where `user` is the closure `on_connection` boxed.
 unsafe extern "C" fn conn_trampoline(
     user: *mut c_void,
     conn_id: u64,
@@ -340,6 +356,6 @@ unsafe extern "C" fn conn_trampoline(
         ConnectionState::Closed
     };
     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(conn_id, addr, state))).is_err() {
-        Logger::get().error("连接观察者 panic 了。已就地拦下。");
+        Logger::get().error("a connection observer panicked. It was caught here.");
     }
 }

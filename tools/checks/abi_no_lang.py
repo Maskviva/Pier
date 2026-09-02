@@ -1,35 +1,42 @@
 # -*- coding: utf-8 -*-
-"""abi-no-lang —— 契约面不许偏袒任何一门消费方语言（契约 §一 规则五 + §七）。
+"""abi-no-lang: the contract surface must favor no consumer language
+(contract §1 rule 5 plus §7).
 
-这条检查分三半，判据**故意不对称**，理由写在下面。
+The check has three halves and the criteria are deliberately asymmetric; the reasons
+follow.
 
-## 半一：`pier-abi/` 里不许出现任何消费方语言的拼写（连注释也不行）
+## Part one: no consumer-language spelling anywhere in `pier-abi/`, comments included
 
-消费方是「任何语言」。一旦逐槽注释里写着 ``#[repr(C)] 函数表``、
-``通常是 Arc::into_raw``、``&'static 或泄漏出来的 Box``，读这份契约的
-Go / Zig / C# 作者拿到的就不是规格，而是**另一门语言的方言**：他得先把
-Rust 的所有权模型在脑子里翻一遍，才知道自己那一侧要保证什么。
-机制本身是语言中立的（「C 布局的函数表」「活到车道撤销为止」），
-描述它的措辞也必须是。v1 的原始事故就是这个形状 ——
-「Rust 没有稳定 ABI」重写成「多数原生语言没有稳定 ABI」之后，
-那段话才第一次对所有人成立。
+The consumers are any language. Once a per-slot comment says `#[repr(C)] function table`,
+`usually Arc::into_raw` or `&'static or a leaked Box`, a Go, Zig or C# author reading this
+contract receives a dialect of another language rather than a specification: they have to
+work through the Rust ownership model in their head before knowing what their own side
+must guarantee.
 
-## 半二：C++ 拼写只在**注释**里放行
+The mechanism itself is language neutral, a function table with C layout that lives until
+the lane is withdrawn, and the wording describing it must be too. The original v1 incident
+had exactly this shape: only after "Rust has no stable ABI" was rewritten as "most native
+languages have no stable ABI" did the passage hold for everyone.
 
-不对称的理由：C++ 是**宿主的实现语言**，不是契约的消费方之一。
-注释说「宿主这里曾经攒一个 std::vector<std::string> 再跨 DLL 析构，崩了，
-所以改成零暂存流水线」——那是在交代**这个槽为什么长这样**，对任何语言的
-绑定作者都是有效信息。它和「你应该用 Arc::into_raw」的区别是：前者描述
-宿主的历史，后者给消费方下指令、而且用了某一门消费方的方言。
+## Part two: C++ spellings pass only inside comments
 
-声明部分不受这条放行 —— `abi-c-parse` 剥掉注释后扫的就是声明。
-两条检查合起来才是完整的规则五。
+The reason for the asymmetry: C++ is the implementation language of the host and not one
+of the contract's consumers. A comment saying the host once accumulated a
+std::vector<std::string> and destroyed it across a DLL boundary, which crashed, so it
+became a zero-buffer pipeline, explains why this slot looks the way it does, which is
+useful to a binding author in any language. The difference from "you should use
+Arc::into_raw" is that the former describes the history of the host while the latter
+instructs the consumer, in the dialect of one particular consumer.
 
-## 半三：用户可见字符串里的历史产品名（§七）
+Declarations do not get this exemption, since `abi-c-parse` scans declarations after
+stripping comments. Only both checks together make up the whole of rule 5.
 
-只扫**字符串字面量**，不扫注释和文档。理由同上：记录「旧仓叫
-levilamina-rust-loader、注释还写错了路径」是史料；而
-`log("update levilamina-rust-loader")` 是真的会印到用户眼前。
+## Part three: historical product names in user-visible strings (§7)
+
+Only string literals are scanned, not comments and not documentation. The reason is the
+same: recording that the old repository was called levilamina-rust-loader and that a
+comment even had the path wrong is history, while
+`log("update levilamina-rust-loader")` really does print in front of a user.
 """
 
 import os
@@ -39,17 +46,18 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from _abi import ROOT, Result  # noqa: E402
 
-# 消费方语言的名字与专属拼写。带词边界避免 "trust" / "zigzag" 之类误报。
+# The names and exclusive spellings of consumer languages. Word boundaries avoid false
+# positives such as "trust" and "zigzag".
 CONSUMER_LANG = re.compile(
     r"(\bRust\b|\brust\b|\bGolang\b|\bZig\b|\bKotlin\b|\bSwift\b|C#|"
     r"#\[|\brepr\(|&'static|\bArc::|\bBox<|\bunsafe\b|\bimpl\b|"
     r"\bOption<|\bResult<|\bVec<)"
 )
 
-# C++ 拼写：只允许出现在注释里（见半二）。
+# C++ spellings: permitted only inside comments, see part two.
 CXX_SPELL = ("std::", "string_view", "enum class", "template<", "template <")
 
-# 历史产品名。只在字符串字面量里算残留。
+# Historical product names. Only a string literal counts as a leftover.
 LEGACY = (
     "levilamina-rust-loader",
     "levilamina-rs",
@@ -64,7 +72,7 @@ CODE_EXT = (".h", ".hpp", ".cpp", ".rs")
 
 
 def split_comments(text):
-    """返回 (注释行列表, 代码行列表)，与原文行号一一对应。"""
+    """Returns (comment lines, code lines), each aligned with the original line numbers."""
     out_code, out_cmt = [], []
     in_block = False
     for line in text.splitlines():
@@ -96,7 +104,7 @@ def split_comments(text):
 def run():
     r = Result("abi-no-lang")
 
-    # ── 半一 + 半二：pier-abi/ ───────────────────────────────────────
+    # Parts one and two: pier-abi/
     abi_dir = os.path.join(ROOT, "packages", "pier-abi")
     files = 0
     for dirpath, _, names in os.walk(abi_dir):
@@ -110,16 +118,16 @@ def run():
             for i, line in enumerate(text.splitlines(), 1):
                 m = CONSUMER_LANG.search(line)
                 if m:
-                    r.fail("%s:%d 消费方语言拼写 %r（注释也不行）：%s"
+                    r.fail("%s:%d carries the consumer-language spelling %r, which is not allowed even in a comment: %s"
                            % (rel, i, m.group(0), line.strip()[:90]))
             for i, code in enumerate(code_lines, 1):
                 for s in CXX_SPELL:
                     if s in code:
-                        r.fail("%s:%d 声明里出现 C++ 拼写 %r：%s"
+                        r.fail("%s:%d has the C++ spelling %r in a declaration: %s"
                                % (rel, i, s, code.strip()[:90]))
-    r.note("pier-abi/ 扫描 %d 个文件（注释禁消费方语言，声明禁 C++ 类型）" % files)
+    r.note("scanned %d file(s) under pier-abi/: no consumer language in comments, no C++ type in declarations" % files)
 
-    # ── 半三：全仓库字符串字面量里的历史产品名 ──────────────────────
+    # Part three: historical product names in string literals across the repository
     skip_dirs = {".git", "target", "node_modules", "tools"}
     hits = 0
     scanned = 0
@@ -138,11 +146,11 @@ def run():
                 for lit in STR_LIT.findall(code):
                     for bad in LEGACY:
                         if bad in lit:
-                            r.fail("%s:%d 用户可见字符串里有历史产品名 %r：%r"
+                            r.fail("%s:%d has the historical product name %r in a user-visible string: %r"
                                    % (rel, i, bad, lit[:70]))
                             hits += 1
     if not hits:
-        r.note("%d 个源文件的字符串字面量里零历史产品名" % scanned)
+        r.note("no historical product name in the string literals of %d source file(s)" % scanned)
     return r
 
 

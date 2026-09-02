@@ -1,19 +1,25 @@
-# Pier 的 Rust 工作区。
+# The Rust workspace of Pier.
 #
-# 这里和根 `xmake.lua` 是**两条独立的构建线**，各管一半：
+# This file and the root `xmake.lua` are two independent build lines, each owning
+# one half:
 #
-#   xmake.lua   → 宿主本体（pier.dll），C++ 的八个包
-#   Cargo.toml  → 一门语言的绑定（pier-sys-rs → pier-rs），以及示例模组
+#   xmake.lua   -> the host itself (pier.dll), the eight C++ packages
+#   Cargo.toml  -> the binding for one language (pier-sys-rs -> pier-rs), and the
+#                  example mod
 #
-# 两条线之间**没有构建依赖**，只有契约依赖：Rust 侧读的是
-# `packages/pier-abi/include/sdk/abi.h` 那一份头文件，读法是手写镜像
-# （`pier-sys-rs`），一致性由 `sys-mirrors-abi` 机检守着。
+# There is no build dependency between the two lines, only a contract dependency.
+# The Rust side reads the single header packages/pier-abi/include/sdk/abi.h, and it
+# reads it through a hand-written mirror in `pier-sys-rs`, whose consistency the
+# `sys-mirrors-abi` check guards.
 #
-# 所以「宿主编不过」和「绑定编不过」是两件独立的事，可以分别修 ——
-# 这正是契约 §〇「pier-abi 是产品，其它都是它的一个实现」的实际后果。
+# A host that does not compile and a binding that does not compile are therefore two
+# independent facts that can be fixed separately, which is the practical consequence
+# of contract §0, that pier-abi is the product and everything else is one
+# implementation of it.
 #
-# 包名带 `-rs` 后缀标明这是哪条 ABI 的绑定；crate 名（`[lib] name`）保持
-# `levilamina` / `levilamina_sys`，贴着调用方的心智模型（契约 §七）。
+# The `-rs` suffix in a package name states which ABI the binding is for. The crate
+# names under `[lib] name` stay `levilamina` and `levilamina_sys`, matching the
+# caller's mental model (contract §7).
 [workspace]
 resolver = "2"
 members = [
@@ -23,7 +29,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "26.20.1"
 edition = "2021"
 license = "Apache-2.0"
 

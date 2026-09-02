@@ -1,18 +1,15 @@
-/**
- * hooks/protect/DropItemEvent.cpp —— 合成事件 "PlayerDropItemEvent"，可取消。
- *
- * LL 事件总线上没有 PlayerDropItemEvent；同名的只有原版的
- * mc/world/events/PlayerDropItemEvent.h，订阅不了也取消不了。丢弃有两条路，
- * 各挂一个钩子。Player::drop 是 Q 键，返回 bool，不调 origin 返回
- * false 即拒绝。ComplexInventoryTransaction::handle 是从打开的背包界面拖出去，
- * 完全不碰 Player::drop，只挂前者会拦住 Q 键却静默放行背包界面；取消是不调
- * origin 直接返回 NoError，事务报告为已处理而什么都没动。钩子 2 的过滤条件
- * （NormalTransaction、恰好一个来自 ContainerInventory 的动作）把「扔一摞到地
- * 上」和其他流经同一虚函数的背包挪动区分开。
- *
- * 载荷 {eventId, x, y, z, dim, item, randomly, viaInventoryUi, _player:{…}}。
- * x/y/z 取整，因为 LL 的反射把 Vec3 序列化成 JSON 数组。
- */
+/** hooks/protect/DropItemEvent.cpp: the synthetic, cancellable "PlayerDropItemEvent".
+ * The LL event bus has no PlayerDropItemEvent; the only thing of that name is the vanilla
+ * mc/world/events/PlayerDropItemEvent.h, which can be neither subscribed nor cancelled. Dropping
+ * takes two routes and each gets a hook. Player::drop is the Q key, returns bool, and refusing
+ * means returning false without calling origin. ComplexInventoryTransaction::handle is dragging a
+ * stack out of an open inventory screen and never touches Player::drop, so hooking only the first
+ * blocks the Q key while silently allowing the screen. Cancelling there means returning NoError
+ * without calling origin, so the transaction reports as handled while nothing moved. The filter
+ * on hook 2, a NormalTransaction with exactly one action from a ContainerInventory, separates
+ * throwing a stack on the ground from the other inventory moves flowing through the same virtual.
+ * Payload {eventId, x, y, z, dim, item, randomly, viaInventoryUi, _player:{...}}. x, y and z are
+ * truncated to integers, because LL reflection serializes a Vec3 as a JSON array. / */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -22,11 +19,12 @@
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/world/ContainerID.h"
 #include "mc/world/actor/player/Player.h"
-// PlayerInventory.h 必需：Player.h 只前向声明了它，而 ll::TypedStorage 把
-// unique_ptr<T> 坍缩成裸 unique_ptr<T>，所以 player.mInventory 是真的
-// unique_ptr，.get() 要求被指对象完整。缺这个 include 时 MSVC 报 C2027 加一条
-// 把 unique_ptr 说成缺成员的 C2039，读起来像解引用次数写错了。完整坍缩规则见
-// tools/typed-storage.py 的文件头。
+// PlayerInventory.h is required. Player.h only forward declares it, and ll::TypedStorage
+// collapses unique_ptr<T> to a bare unique_ptr<T>, so player.mInventory really is a
+// unique_ptr and .get() needs the pointee complete. Without this include MSVC reports
+// C2027 plus a C2039 claiming unique_ptr is missing a member, which reads like the wrong
+// number of dereferences. The full collapse rules are in the file header of
+// tools/typed-storage.py.
 #include "mc/world/actor/player/PlayerInventory.h"
 #include "mc/world/inventory/transaction/ComplexInventoryTransaction.h"
 #include "mc/world/inventory/transaction/InventoryAction.h"
@@ -43,9 +41,9 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& dropItemDef(); // 前向
+        HookEventDef& dropItemDef(); // Forward declaration
 
-        /** 物品类型名；读不出来时给 ""。 */
+        /** The item type name, or "" when it cannot be read. */
         std::string safeTypeName(::ItemStack const& item)
         {
             try
@@ -58,7 +56,7 @@ namespace pier::hooks
             }
         }
 
-        /** 共享的载荷拼装：两个钩子报告同一个事件形状。 */
+        /** Shared payload assembly, so both hooks report the same event shape. */
         std::string buildSnbt(Player& p, std::string const& itemName, bool randomly, bool viaUi)
         {
             auto const& pos = p.getPosition();
@@ -73,21 +71,22 @@ namespace pier::hooks
                 + "\"," + playerRefSnbt(p) + "}";
         }
 
-        /** 钩子装上了却一个订阅者也没有，每进程提醒一次。两个钩子共用一个旗
-         *  标，它们由同一次订阅武装。 */
+        /** Warns once per process when the hooks are installed and no subscriber exists.
+         *  Both hooks share one flag, since one subscription arms them together. */
         void warnNoSubscriberOnce(char const* which)
         {
             static bool warned = false;
             if (warned) return;
             warned = true;
             hostLogger().warn(
-                "[DropItemEvent] {} 已触发，但没有任何订阅者（def.live()==false）。"
-                "说明原生 detour 已装上，但另一侧没成功订阅 'PlayerDropItemEvent'。"
-                "检查启动日志里是否有「订阅事件 PlayerDropItemEvent 失败」。",
+                "[hooks/DropItemEvent] {} fired with no subscriber at all, def.live() is "
+                "false, so the native detour is installed while the other side never "
+                "subscribed to 'PlayerDropItemEvent'; check the startup log for a failed "
+                "subscription to that event",
                 which);
         }
 
-        /** 钩子 1：Q 键 / 丢下手持物品。 */
+        /** Hook 1: the Q key, dropping the held item. */
         LL_TYPE_INSTANCE_HOOK(
             PlayerDropItemHook,
             ll::memory::HookPriority::Normal,
@@ -107,13 +106,14 @@ namespace pier::hooks
             if (dispatchHookEventCancellable(
                     def, buildSnbt(*this, safeTypeName(item), randomly, false)))
             {
-                // false == 这次丢弃没有发生，那摞东西还在容器里。
+                // false means the drop did not happen and the stack is still in the
+                // container.
                 return false;
             }
             return origin(item, randomly);
         }
 
-        /** 钩子 2：从打开的背包界面里把一摞东西拖出去。 */
+        /** Hook 2: dragging a stack out of an open inventory screen. */
         LL_TYPE_INSTANCE_HOOK(
             InventoryUiDropHook,
             ll::memory::HookPriority::Normal,
@@ -134,8 +134,10 @@ namespace pier::hooks
                 return origin(player, isSenderAuthority);
             }
 
-            // 一个来自玩家自己背包的单独动作，就是「扔一摞到地上」的形状。合
-            // 成、容器间挪动、创造模式取物要么来源不同，要么动作不止一个。
+            // One action from the player's own inventory is the shape of throwing a stack
+            // on the ground. Crafting, moving between containers and taking items in
+            // creative each either come from a different source or carry more than one
+            // action.
             ::InventorySource source{
                 ::InventorySourceType::ContainerInventory,
                 ::ContainerID::Inventory,
@@ -153,8 +155,9 @@ namespace pier::hooks
 
             if (dispatchHookEventCancellable(def, buildSnbt(player, itemName, false, true)))
             {
-                // 返回 NoError 而非错误码：客户端认为事务已处理，不重试也不失
-                // 同步，物品只是从未离开背包。
+                // NoError rather than an error code: the client treats the transaction as
+                // handled, neither retries nor desyncs, and the item simply never left the
+                // inventory.
                 return ::InventoryTransactionError::NoError;
             }
             return origin(player, isSenderAuthority);
@@ -164,26 +167,30 @@ namespace pier::hooks
             "PlayerDropItemEvent",
             []
             {
-                // hook() 返回 ll::memory::hookEx 的状态：0 == 成功，非 0 == 符号
-                // 找不到或补丁被拒。必须显出来：装失败和正常工作长得一模一样，
-                // 而版本不匹配只能从这里诊断。
+                // hook() returns the ll::memory::hookEx status, where 0 is success and
+                // anything else means the symbol was not found or the patch was refused.
+                // It must be visible, because a failed install looks exactly like working
+                // normally and a version mismatch can only be diagnosed here.
                 int r1 = PlayerDropItemHook::hook();
                 int r2 = InventoryUiDropHook::hook();
                 auto& log = hostLogger();
                 log.debug(
-                    "[DropItemEvent] 安装 detour：PlayerDropItemHook={} (code={})，"
+                    "[hooks/DropItemEvent] installing detours: PlayerDropItemHook={} (code={}), "
                     "InventoryUiDropHook={} (code={})",
-                    r1 == 0 ? "成功" : "失败", r1,
-                    r2 == 0 ? "成功" : "失败", r2
+                    r1 == 0 ? "ok" : "failed", r1,
+                    r2 == 0 ? "ok" : "failed", r2
                 );
                 if (r1 != 0 || r2 != 0)
                 {
                     log.error(
-                        "[DropItemEvent] 原生 detour 安装失败（非 0 状态码）。最常见原因是"
-                        "本宿主链接的 BDS/LeviLamina 版本与服务器实际运行的版本不一致，"
-                        "导致 Player::$drop 或 ComplexInventoryTransaction::$handle 的符号地址"
-                        "解析错误。结果：丢弃物品保护完全不生效（物品照常掉落，且不触发任何"
-                        "拦截日志）。请用服务器实际运行的 LeviLamina/BDS 版本重新编译本宿主。");
+                        "[hooks/DropItemEvent] a native detour failed to install with a "
+                        "non-zero status. The usual cause is a mismatch between the BDS or "
+                        "LeviLamina version this host was linked against and the one the "
+                        "server runs, so the symbol address of Player::$drop or "
+                        "ComplexInventoryTransaction::$handle resolved wrongly. Drop "
+                        "protection is now entirely inactive: items drop as usual and no "
+                        "interception is logged. Rebuild this host against the LeviLamina "
+                        "and BDS versions the server actually runs.");
                 }
                 return r1 == 0 && r2 == 0;
             }

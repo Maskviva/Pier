@@ -1,19 +1,18 @@
-/** net/PacketHooks.cpp —— 裸线格式的数据包拦截。
- *
- * 钩 NetworkSystem::_sendInternal 与 NetworkConnection::receivePacket：包以明文字
- * 节、且恰好一个包的形态存在的最窄两点。往上钩 Packet::write 要重新序列化，往下钩
- * 各 peer 要拆批并跟压缩缠斗。
- *
- * 两个方向都带同一个前导 unsigned varint 包头：bits 0..9 是包 id，bits 10..11 是
- * 发送方 sub client id，bits 12..13 是接收方。桥解码它、把包体交给订阅者、回程再
- * 从 PierPacketEdit 重编码，调用方不碰 varint 装帧。出站解出的 id 与
- * packet.getId() 交叉校验，不一致说明布局假设在某个 BDS 上失效，打日志后原样放行。
- *
- * 不能沿用「一切跑在服务器线程」的口径：enableAsyncFlush 存在，发送路径不止一处可
- * 达。注册表放在 shared_mutex 后面，派发先取 shared_ptr 快照再放锁，于是回调可在
- * 派发中途注册或注销自己，另一线程释放的条目也不会在派发途中被抽走。detour 懒安
- * 装、永不卸补丁，空闲时靠一次原子读快速路由回 origin。
- */
+/** net/PacketHooks.cpp: packet interception at the raw wire format.
+ * Hooks NetworkSystem::_sendInternal and NetworkConnection::receivePacket, the two narrowest
+ * points where a packet exists as plaintext bytes and as exactly one packet. Higher, at
+ * Packet::write, would require reserializing; lower, at the peers, would mean unbatching and
+ * fighting compression. Both directions carry the same leading unsigned varint header: bits 0..9
+ * are the packet id, bits 10..11 the sender sub client id and bits 12..13 the receiver. The bridge
+ * decodes it, hands the body to subscribers and re-encodes from PierPacketEdit on the way back, so
+ * a caller never touches varint framing. Outbound, the decoded id is cross-checked against
+ * packet.getId(); a mismatch means the layout assumption no longer holds on this BDS, and it is
+ * logged before the packet passes through. The rule that everything runs on the server thread does
+ * not apply: enableAsyncFlush exists and the send path is reachable from more than one place. The
+ * registry sits behind a shared_mutex and dispatch takes a shared_ptr snapshot before releasing
+ * it, so a callback may register or unregister itself mid-dispatch and an entry released by
+ * another thread is not pulled away. Detours install lazily, are never unpatched, and route back
+ * to origin on one atomic read while idle. */
 #ifndef PIER_BUILD_CLIENT
 
 #include <atomic>
@@ -48,13 +47,14 @@ namespace pier::api_impl
 {
     namespace
     {
-        /*  注册表  */
+        /*  Registry  */
 
         struct PacketSub
         {
             HostedMod* mod;
-            /** 注册时取得的弱引用：快照只能让条目活着，回调
-             *  目标代码段随 FreeLibrary 消失，派发前必须经它复核。 */
+            /** Weak reference taken at registration. A snapshot only keeps the entry
+             *  alive, while the code section the callback targets disappears with
+             *  FreeLibrary, so it is rechecked through this before dispatch. */
             std::weak_ptr<HostedMod> owner;
             int32_t dirMask;
             PierPacketCb cb;
@@ -69,8 +69,9 @@ namespace pier::api_impl
             void* user;
         };
 
-        /** 复核订阅者仍在世；在世则返回其 shared_ptr（持有到回调返回）。
-         *  mod 为空（无归属登记）的条目照旧派发。 */
+        /** Rechecks that the subscriber is still alive and returns its shared_ptr,
+         *  held until the callback returns. An entry with a null mod, meaning no
+         *  ownership was recorded, is dispatched as before. */
         template <class Sub>
         std::shared_ptr<HostedMod> liveOwner(Sub const& sub, bool& skip)
         {
@@ -79,7 +80,7 @@ namespace pier::api_impl
             auto mod = sub.owner.lock();
             if (!mod || mod.get() != sub.mod)
             {
-                skip = true; // 已卸载：条目还在快照里，代码段已经不在
+                skip = true; // Unloaded: the entry is in the snapshot, the code is not
                 return {};
             }
             return mod;
@@ -107,9 +108,9 @@ namespace pier::api_impl
         }
 
         /**
-         * 热路径的门。读时不上锁：陈旧的 `false` 让订阅者出现的那一 tick 漏
-         * 拦一个包，陈旧的 `true` 换来一次空快照。两样都不值得每个包上一把
-         * 锁。
+         * The gate on the hot path. Read without a lock: a stale `false` misses one
+         * packet on the tick a subscriber appears, and a stale `true` costs one empty
+         * snapshot. Neither is worth a lock on every packet.
          */
         std::atomic<bool> gInboundLive{false};
         std::atomic<bool> gOutboundLive{false};
@@ -130,12 +131,14 @@ namespace pier::api_impl
         }
 
         /**
-         * 地址缓存。getIPAndPort() 每调一次建一个 std::string，而包路径是服务器最
-         * 热的环，所以每连接解析一次，之后发的是指向缓存副本的视图。
-         *
-         * 用 shared_ptr 持有而不按值：派发需要一个在整条回调链里都有效的视图，而
-         * 另一线程可能在链跑着时因连接关闭把条目逐出。连接打开时填入、关闭时丢
-         * 弃；钩子会话中途才装因而错过 open 时，第一次见到就补上。
+         * Address cache. getIPAndPort() builds a std::string on every call and the
+         * packet path is the hottest loop on the server, so it is resolved once per
+         * connection and a view onto the cached copy is handed out afterwards.
+         * Held as a shared_ptr rather than by value, because dispatch needs a view that
+         * stays valid across the whole callback chain while another thread may evict
+         * the entry mid-chain when the connection closes. Filled on connection open and
+         * dropped on close. When the hooks installed mid-session and missed the open,
+         * it is filled on first sight.
          */
         using AddressPtr = std::shared_ptr<std::string const>;
 
@@ -151,7 +154,7 @@ namespace pier::api_impl
             return m;
         }
 
-        /** 某个 identifier 缓存的 "host:port"；没见过就顺手插入。 */
+        /** The cached "host:port" for an identifier, inserted on first sight. */
         AddressPtr addressOf(::NetworkIdentifier const& id)
         {
             uint64_t const hash = id.getHash();
@@ -171,8 +174,9 @@ namespace pier::api_impl
             }
             auto ptr = std::make_shared<std::string const>(std::move(addr));
             std::lock_guard<std::mutex> g{addressLock()};
-            // 并发插入无妨：同键、等价值。留先落地的那份，两个线程报同一个指
-            // 针。
+            // A concurrent insert is harmless, since the key is the same and the
+            // values are equivalent. The first one to land is kept and both threads
+            // report the same pointer.
             return addressCache().emplace(hash, std::move(ptr)).first->second;
         }
 
@@ -182,12 +186,12 @@ namespace pier::api_impl
             addressCache().erase(hash);
         }
 
-        /*  包头编解码  */
+        /*  Header encode and decode  */
 
         constexpr uint32_t kPacketIdMask = 0x3FF; // bits 0..9
         constexpr uint32_t kSubIdMask = 0x3;
 
-        /** LEB128 解码。截断或超长 varint 返回 false。 */
+        /** LEB128 decode. Returns false on a truncated or overlong varint. */
         bool readUVarInt(uint8_t const* data, size_t len, size_t& pos, uint32_t& out)
         {
             uint32_t result = 0;
@@ -202,7 +206,7 @@ namespace pier::api_impl
                     return true;
                 }
                 shift += 7;
-                if (shift >= 35) return false; // 比 uint32 能有的还长
+                if (shift >= 35) return false; // Longer than any uint32 can be
             }
             return false;
         }
@@ -223,7 +227,7 @@ namespace pier::api_impl
             int32_t packetId;
             uint8_t senderSubId;
             uint8_t targetSubId;
-            size_t size; // 吃掉的字节数
+            size_t size; // Bytes consumed
         };
 
         bool decodeHeader(std::string const& packet, Header& out)
@@ -248,9 +252,9 @@ namespace pier::api_impl
             writeUVarInt(out, raw);
         }
 
-        /*  派发  */
+        /*  Dispatch  */
 
-        /** PIER_PKT_REPLACE 的收纳目标。 */
+        /** Where a PIER_PKT_REPLACE lands. */
         struct ReplaceBuf
         {
             std::string bytes;
@@ -273,9 +277,10 @@ namespace pier::api_impl
         };
 
         /**
-         * 重入闸。订阅者允许在回调里发包（这本来就是钩子存在的一半意义）；
-         * 没有这道闸，随之而来的 `_sendInternal` 会直接递归回派发、最坏情况
-         * 里递归回自己直到永远。从回调里发出的包原样出门。
+         * Re-entry gate. A subscriber may send a packet from inside a callback, which
+         * is half the reason the hooks exist. Without this gate the resulting
+         * `_sendInternal` recurses straight back into dispatch and, at worst, into
+         * itself forever. A packet sent from a callback goes out unchanged.
          */
         thread_local int tlDispatchDepth = 0;
 
@@ -299,13 +304,15 @@ namespace pier::api_impl
         }
 
         /**
-         * 把 in（包头 + 包体）按注册顺序过一遍所有感兴趣的订阅者，每个看到上一个
-         * 的输出。Verdict::Replaced 时重建的包落在 out 而 in 不动，Pass 与 Drop 时
-         * out 无意义。分开输入输出是未改写路径零分配的原因：只有订阅者真的重写包
-         * 体时才拷贝一次，而一个区块包几十 KB，压倒性多数的包原样转发。
-         *
-         * 畸形输入一律让包保持原样。前置条件：out 不得与 in 别名，重建读的视图可
-         * 能仍指向 in。
+         * Runs in, meaning header plus body, past every interested subscriber in
+         * registration order, each seeing the output of the previous one. On
+         * Verdict::Replaced the rebuilt packet lands in out and in is untouched; on
+         * Pass and Drop out is meaningless. Separating input from output is what makes
+         * the unmodified path allocation-free: a copy happens only when a subscriber
+         * really rewrites the body, and a chunk packet is tens of kilobytes while the
+         * overwhelming majority of packets are forwarded unchanged.
+         * Malformed input always leaves the packet as it was. Precondition: out must
+         * not alias in, since the rebuild reads views that may still point into in.
          */
         Verdict dispatch(
             int32_t direction,
@@ -319,18 +326,20 @@ namespace pier::api_impl
             Header header{};
             if (!decodeHeader(in, header)) return Verdict::Pass;
 
-            // 出站侧的布局体检 —— 这一侧手里有包对象可以对。不一致意味着上面
-            // 假设的包头编码不再成立；说一次、然后停手不碰任何包，绝不静默把
-            // 它们绞坏。
+            // The layout check on the outbound side, which is the side holding a
+            // packet object to compare against. A mismatch means the header encoding
+            // assumed above no longer holds, so it is reported once and no packet is
+            // touched afterwards, rather than mangling them silently.
             if (expectedId >= 0 && header.packetId != expectedId)
             {
                 static std::atomic<bool> warned{false};
                 if (!warned.exchange(true))
                 {
                     hostLogger().error(
-                        "[PacketHooks] 包头解析结果与 Packet::getId() 不一致"
-                        "（解析得到 {}，实际 {}）。说明这个 BDS 版本的包头布局变了，"
-                        "拦截已自动降级为全部放行 —— 请把这条日志报告给宿主维护者。",
+                        "[packet] header decode disagrees with Packet::getId(), decoded "
+                        "{} but the packet reports {}; the header layout of this BDS "
+                        "version changed, interception has degraded to passing every "
+                        "packet through, report this line to the host maintainers",
                         header.packetId,
                         expectedId
                     );
@@ -344,8 +353,9 @@ namespace pier::api_impl
             AddressPtr const address = addressOf(id);
             uint64_t const connId = id.getHash();
 
-            // `curPtr`/`curLen` 是下一个订阅者看到的东西。起始是指进 `in` 的
-            // 视图，只有当有人重写包体后才挪进 `owned`。
+            // `curPtr` and `curLen` are what the next subscriber sees. They start as a
+            // view into `in` and move into `owned` only once someone rewrites the
+            // body.
             auto const* curPtr = reinterpret_cast<uint8_t const*>(in.data()) + header.size;
             size_t curLen = in.size() - header.size;
             std::string owned;
@@ -386,17 +396,19 @@ namespace pier::api_impl
                     }
                     catch (...)
                     {
-                        // 回调抛异常是模组侧的 bug，但它不许把连接一起带走。
-                        //……也不许悄无声息。异常每次都打印；「判定被强制
-                        // 改成 PASS」的警告每进程一次。
+                        // An exception from a callback is a bug on the mod side, and it
+                        // must take neither the connection nor the silence with it. The
+                        // exception is printed every time; the warning that the verdict
+                        // was forced to PASS is printed once per process.
                         verdict = PIER_PKT_PASS;
                         ll::error_utils::printCurrentException(hostLogger());
                         static std::atomic<bool> warned{false};
                         if (!warned.exchange(true))
                         {
                             hostLogger().warn(
-                                "包钩子：某个模组回调抛了异常，其判定被强制改成 PASS。"
-                                "这条警告只打一次；上面的异常每次都打。"
+                                "[packet] a mod callback threw, its verdict was forced to "
+                                "PASS; this warning prints once, the exception above prints "
+                                "every time"
                             );
                         }
                     }
@@ -416,7 +428,7 @@ namespace pier::api_impl
             if (!changed) return Verdict::Pass;
 
             out.clear();
-            out.reserve(curLen + 5); // 5 = varint32 头的上限
+            out.reserve(curLen + 5); // 5 is the maximum varint32 header size
             encodeHeader(out, edit);
             out.append(reinterpret_cast<char const*>(curPtr), curLen);
             return Verdict::Replaced;
@@ -448,8 +460,9 @@ namespace pier::api_impl
                 }
                 catch (...)
                 {
-                    // 与包路径同一条规矩：绝不让模组的异常逃进网络栈。
-                    // 但要打日志 —— 静默的 catch(...) 会让 bug 永久隐形。
+                    // The same rule as the packet path: a mod exception never escapes
+                    // into the network stack. It is logged, because a silent catch(...)
+                    // makes the bug invisible forever.
                     ll::error_utils::printCurrentException(hostLogger());
                 }
             }
@@ -458,8 +471,9 @@ namespace pier::api_impl
         /*  detour  */
 
         /**
-         * 出站。`data` 是完整序列化好的包（头 + 体），还没组批、没压缩。改写
-         * = 用自己的字符串调 origin；丢弃 = 干脆不调。
+         * Outbound. `data` is the fully serialized packet, header plus body, before
+         * batching and compression. Rewriting means calling origin with a different
+         * string; dropping means not calling it at all.
          */
         LL_TYPE_INSTANCE_HOOK(
             PierPacketSendHook,
@@ -497,9 +511,10 @@ namespace pier::api_impl
         }
 
         /**
-         * 入站。每次 HasData 一个包。被丢弃的包不许把泵停下 —— 返回 NoData
-         * 会把这一 tick 还排着队的所有包都困死 —— 所以改成拉下一个，直到有
-         * 幸存者（或对端见底）才返回。
+         * Inbound. One packet per HasData. A dropped packet must not stall the pump,
+         * because returning NoData strands every packet still queued for this tick, so
+         * the next one is pulled instead and the hook returns only on a survivor or
+         * once the peer runs dry.
          */
         LL_TYPE_INSTANCE_HOOK(
             PierPacketReceiveHook,
@@ -513,7 +528,8 @@ namespace pier::api_impl
             if (!gInboundLive.load(std::memory_order_relaxed))
                 return origin(receiveBuffer, timepointPtr);
 
-            // 跨迭代复用：一阵改写的包共用一个缓冲，而不是每包重分配。
+            // Reused across iterations, so a burst of rewritten packets shares one
+            // buffer instead of reallocating per packet.
             std::string rewritten;
 
             for (;;)
@@ -525,8 +541,8 @@ namespace pier::api_impl
                     PIER_PKT_INBOUND, this->mId.get(), receiveBuffer, rewritten, /*expectedId=*/-1))
                 {
                 case Verdict::Drop:
-                    // 这里不许返回 NoData：那会把这一 tick 还排着队的包全
-                    // 困死。向对端要下一个。
+                    // NoData must not be returned here, since it strands every packet
+                    // still queued for this tick. The next one is requested instead.
                     continue;
                 case Verdict::Replaced:
                     receiveBuffer = rewritten;
@@ -538,7 +554,7 @@ namespace pier::api_impl
             }
         }
 
-        /** 连接被接受 —— conn_id 存在的最早时刻。 */
+        /** Connection accepted, the earliest moment conn_id exists. */
         LL_TYPE_INSTANCE_HOOK(
             PierConnOpenHook,
             ll::memory::HookPriority::Normal,
@@ -554,8 +570,8 @@ namespace pier::api_impl
         }
 
         /**
-         * 连接关闭。先通知、再逐出地址条目 —— 订阅者在 close 处理器里仍然想
-         * 要一个能解析的地址。
+         * Connection closed. Subscribers are notified before the address entry is
+         * evicted, because a close handler still wants a resolvable address.
          */
         LL_TYPE_INSTANCE_HOOK(
             PierConnCloseHook,
@@ -577,11 +593,12 @@ namespace pier::api_impl
         }
 
         /**
-         * 任意一种订阅第一次出现时把所有 detour 装齐一次。永不卸钩：退订可能
-         * 来自钩体内部。
-         *
-         * 用函数局部 static 初始化，而不是这个桥里其他懒钩子用的裸 `bool` 标
-         * 志 —— 那些全跑在服务器线程上，这里的注册不必是。
+         * Installs every detour once, when the first subscription of any kind appears.
+         * They are never unhooked, because an unsubscribe can arrive from inside a
+         * hooked function.
+         * A function-local static is used instead of the bare `bool` flag the other
+         * lazy hooks in this bridge use, since those all run on the server thread while
+         * registration here need not.
          */
         void ensureInstalled()
         {
@@ -591,21 +608,21 @@ namespace pier::api_impl
                 PierPacketReceiveHook::hook();
                 PierConnOpenHook::hook();
                 PierConnCloseHook::hook();
-                hostLogger().debug("[PacketHooks] 已安装收发包 detour");
+                hostLogger().debug("[packet] send and receive detours installed");
                 return true;
             }();
             (void)installed;
         }
 
-        /*  ABI 入口  */
+        /*  ABI entry points  */
 
         PierPacketHookHandle
         api_packet_hook_register(PierModHandle mod, int32_t dirMask, PierPacketCb cb, void* user)
         {
             PIER_API_GUARD_BEGIN
                 if (!cb) return nullptr;
-                // 零掩码注册的是一个永远不会触发的东西；拒绝它，别递回去一个
-                // 什么都不做的句柄。
+                // A zero mask registers something that can never fire. It is refused
+                // rather than answered with a handle that does nothing.
                 if ((dirMask & (PIER_PKT_MASK_INBOUND | PIER_PKT_MASK_OUTBOUND)) == 0) return nullptr;
 
                 auto* raw = asMod(mod);
@@ -618,7 +635,7 @@ namespace pier::api_impl
                     }
                     catch (...)
                     {
-                        return nullptr; // 还没被 shared_ptr 接管的模组拒收（同 Bus）
+                        return nullptr; // Refuse a mod not yet owned by a shared_ptr, as in Bus
                     }
                 }
                 auto sub = std::make_shared<PacketSub>(PacketSub{raw, std::move(owner), dirMask, cb, user});
@@ -643,7 +660,7 @@ namespace pier::api_impl
                 for (auto it = subs.begin(); it != subs.end(); ++it)
                 {
                     if (it->get() != target) continue;
-                    // 归属检查：模组只能撤自己的拦截器。
+                    // Ownership check. A mod may only remove its own interceptor.
                     if ((*it)->mod != asMod(mod)) return false;
                     subs.erase(it);
                     refreshGatesLocked();
@@ -702,8 +719,9 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        /** 拆除（stage 90）：清掉该模组名下的全部包/连接订阅。detour 留着
-         *  （见文件头「生命周期」）—— 门会在下一次派发时把空注册表短路掉。 */
+        /** Teardown at stage 90. Clears every packet and connection subscription held
+         *  under this mod. The detours stay, as the file header states, and the gate
+         *  short-circuits an empty registry on the next dispatch. */
         void teardown(HostedMod* mod)
         {
             std::unique_lock<std::shared_mutex> g{registryLock()};

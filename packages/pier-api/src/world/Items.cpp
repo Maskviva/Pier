@@ -1,8 +1,9 @@
-/** world/Items.cpp —— 物品值对象。
+/** world/Items.cpp: items as value objects.
  *
- * 物品以 ItemStack::save 的 SNBT 形式过边界。每次调用重建一个临时
- * ItemStack（ItemStack::fromTag）、查询或改动它，变换类操作再原样序列化
- * 回去。零跨边界所有权。 */
+ * An item crosses the boundary as the SNBT form of ItemStack::save. Every call
+ * rebuilds a temporary ItemStack through ItemStack::fromTag, queries or modifies it,
+ * and a transforming operation serializes it back the same way. No ownership crosses
+ * the boundary. */
 #include <string>
 #include <vector>
 
@@ -64,7 +65,7 @@ namespace pier::api_impl
                 case PIER_IPROP_IS_DAMAGED:
                     *out = item->isDamaged() ? 1.0 : 0.0;
                     return true;
-                /*  追加：物品补漏  */
+                /*  Appended: item gap fills  */
                 case PIER_IPROP_MAX_DAMAGE:
                     *out = static_cast<double>(item->getMaxDamage());
                     return true;
@@ -78,7 +79,8 @@ namespace pier::api_impl
                     *out = item->isPotionItem() ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_IS_THROWABLE:
-                    // isThrowable() 在 #ifdef LL_PLAT_C 后面 —— 服务端拿不到。
+                    // isThrowable() sits behind #ifdef LL_PLAT_C and is unavailable on
+                    // the server.
                     return false;
                 case PIER_IPROP_IS_FIRE_RESISTANT:
                     *out = item->isFireResistant() ? 1.0 : 0.0;
@@ -108,7 +110,8 @@ namespace pier::api_impl
                     *out = item->isGlint() ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_IS_BUNDLE:
-                    // isBundle() 在 #ifdef LL_PLAT_C 后面 —— 服务端拿不到。
+                    // isBundle() sits behind #ifdef LL_PLAT_C and is unavailable on the
+                    // server.
                     return false;
                 case PIER_IPROP_HAS_USER_DATA:
                     *out = item->hasUserData() ? 1.0 : 0.0;
@@ -141,7 +144,7 @@ namespace pier::api_impl
                 case PIER_ISTR_RAW_NAME_ID:
                     sink(ctx, ps(item->getRawNameId()));
                     return true;
-                /*  追加  */
+                /*  Appended  */
                 case PIER_ISTR_LORE:
                 {
                     auto const& lore = item->getCustomLore();
@@ -195,9 +198,9 @@ namespace pier::api_impl
                     return true;
                 }
                 case PIER_ISTR_HOVER_NAME:
-                    // getHoverName() 在 #ifdef LL_PLAT_C 后面 —— 用 getName()，
-                    // 它在服务端返回同一个展示串（自定义名在 getName() 内部优
-                    // 先）。
+                    // getHoverName() sits behind #ifdef LL_PLAT_C, so getName() is
+                    // used. On the server it returns the same display string, since a
+                    // custom name takes precedence inside getName().
                     sink(ctx, ps(item->getName()));
                     return true;
                 case PIER_ISTR_EFFECT_NAME:
@@ -242,7 +245,8 @@ namespace pier::api_impl
                 }
                 case PIER_IOP_SET_LORE:
                 {
-                    // sarg 是包了一层方便解析的 SNBT：{lore:["l1","l2"]}。
+                    // sarg is SNBT wrapped one level for easier parsing:
+                    // {lore:["l1","l2"]}.
                     auto tag = CompoundTag::fromSnbt(sv(sarg));
                     if (!tag || !tag->contains("lore") || !tag->at("lore").is_array()) return false;
                     std::vector<std::string> lore;
@@ -255,7 +259,7 @@ namespace pier::api_impl
                     item->setCustomLore(lore);
                     break;
                 }
-                /*  追加  */
+                /*  Appended  */
                 case PIER_IOP_SET_UNBREAKABLE:
                     item->setUnbreakable(narg != 0.0);
                     break;
@@ -267,9 +271,10 @@ namespace pier::api_impl
                     break;
                 case PIER_IOP_ADD_ENCHANT:
                 {
-                    // sarg = "enchant_name:level" —— 完整实现需要
-                    // EnchantUtils::applyEnchant。桩必须诚实地报失败，
-                    // 而不是原样返回物品并宣称成功（契约 §5.1）。
+                    // sarg is "enchant_name:level". A full implementation needs
+                    // EnchantUtils::applyEnchant. The stub reports failure honestly
+                    // rather than returning the item unchanged and claiming success
+                    // (contract §5.1).
                     return false;
                 }
                 case PIER_IOP_REMOVE_ENCHANTS:
@@ -283,9 +288,9 @@ namespace pier::api_impl
                     break;
                 case PIER_IOP_SET_CAN_DESTROY:
                 {
-                    // sarg = 包成 {v:["minecraft:stone",…]} 的 SNBT 列表（与
-                    // SET_LORE 同一个模式）—— CompoundTag::fromSnbt 只解析复合标
-                    // 签，裸 [..] 列表没法直接喂。
+                    // sarg is an SNBT list wrapped as {v:["minecraft:stone",...]},
+                    // the same pattern SET_LORE uses. CompoundTag::fromSnbt parses
+                    // compound tags only, so a bare [..] list cannot be fed to it.
                     auto tag = CompoundTag::fromSnbt(sv(sarg));
                     if (!tag || !tag->contains("v") || !tag->at("v").is_array()) return false;
                     std::vector<std::string> list;

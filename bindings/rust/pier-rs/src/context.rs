@@ -1,19 +1,21 @@
-//! 交给模组生命周期回调的上下文。
+//! The context handed to a mod's lifecycle callbacks.
 //!
-//! 它住在这里而不是 `rt` 里，是因为它是**给模组作者的门面** —— 一个把各个
-//! 域的入口聚到一处的地方。`rt` 是二十几个域建在其上的地基，地基不该认识
-//! 建在它上面的东西。
+//! It lives here and not in `rt` because it is the facade for mod authors, a place that
+//! gathers the entry points of every domain. `rt` is the foundation the twenty-odd domains
+//! are built on, and a foundation should not know what is built on it.
 //!
-//! 这个位置是被一次真实事故纠正过来的：为了拆 `rt ↔ host` 的环，
-//! `ctx.host()` / `ctx.packets()` 曾被直接删掉。环是真的，但砍掉模组作者在用
-//! 的访问器是错的解法 —— 该动的是 `ModContext` 的位置，不是它的 API 面。
+//! A real incident corrected this placement: to break the cycle between `rt` and `host`,
+//! `ctx.host()` and `ctx.packets()` were deleted outright. The cycle was real and cutting
+//! accessors mod authors were using was the wrong fix: what had to move was the position of
+//! `ModContext` and not its API surface.
 
 use crate::rt::runtime::rt;
 
-/// 交给模组生命周期回调的上下文。
+/// The context handed to a mod's lifecycle callbacks.
 ///
-/// 它本身不带状态（真正的状态在 `RUNTIME` 里），存在的意义是给各个门面
-/// 一个统一的入口，顺便让 `on_load(ctx)` 这样的签名读起来像回事。
+/// It carries no state of its own, since the real state lives in `RUNTIME`. It exists to
+/// give the facades one common entry point, and to make a signature such as
+/// `on_load(ctx)` read sensibly.
 pub struct ModContext(());
 
 impl ModContext {
@@ -27,36 +29,39 @@ impl ModContext {
         crate::Logger::get()
     }
 
-    /// 宿主与系统层面的能力（运行阶段、排期、执行命令、协议版本…）。
+    /// Capabilities at the host and system level: the run stage, scheduling, executing
+    /// commands and the protocol version.
     pub fn host(&self) -> crate::Host {
         crate::Host::get()
     }
 
-    /// 数据包门面。
+    /// The packet facade.
     pub fn packets(&self) -> crate::Packets {
         crate::Packets::get()
     }
 
-    /// 世界门面。
+    /// The world facade.
     pub fn world(&self) -> crate::World {
         crate::World::get()
     }
 
-    /// 服务器运行时控制（tick 冻结、倍速、性能采样）。
+    /// Server runtime control: freezing and warping ticks, and performance sampling.
     pub fn server(&self) -> crate::Server {
         crate::Server::get()
     }
 
-    /// 宿主是按客户端目标编的吗。
+    /// Whether the host was built for the client target.
     ///
-    /// 一般用不到 —— 装错目标的模组在握手阶段就被宿主拒绝了。留着是为了让
-    /// 同一份代码能在两个目标上做细微的行为区分，而不必靠编译期 feature。
+    /// Rarely needed, since a mod loaded onto the wrong target is refused by the host during
+    /// the handshake. It exists so that one source can make a small behavioral distinction
+    /// between the two targets without a compile-time feature.
     pub fn host_is_client(&self) -> bool {
         rt().api.is_client_host()
     }
 
-    /// 宿主的 ABI 版本与表长度。诊断用：报「这个功能你的 pier 太老」时，
-    /// 带上这两个数才能让人知道该升到多少。
+    /// The ABI version and table length of the host. For diagnostics: reporting that a pier is
+    /// too old for a feature only tells someone how far to upgrade when these two numbers come
+    /// with it.
     pub fn host_abi(&self) -> (u32, usize) {
         let r = rt();
         (r.api.abi_version, r.host_struct_size)

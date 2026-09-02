@@ -1,58 +1,42 @@
-/*
-                   _ooOoo_
-                  o8888888o
-                  88" . "88
-                  (| -_- |)
-                  O\  =  /O
-               ____/`---'\____
-             .'  \\|     |//  `.
-            /  \\|||  :  |||//  \
-           /  _||||| -:- |||||-  \
-           |   | \\\  -  /// |   |
-           | \_|  ''\---/''  |   |
-           \  .-\__  `-`  ___/-. /
-         ___`. .'  /--.--\  `. . __
-      ."" '<  `.___\_<|>_/___.'  >'"".
-     | | :  `- \`.;`\ _ /`;.`/ - ` : | |
-     \  \ `-.   \_ __\ /__ _/   .-` /  /
-======`-.____`-.___\_____/___.-`____.-'======
-                   `=---='
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-            佛祖保佑       永无BUG
-*/
-
--- Pier —— 根构建。只做三件事：全局编译环境、外部依赖、把 object 包粘成产物。
--- 任何和某个包内部相关的东西都属于那个包自己的 xmake.lua。
+-- Pier root build. It does three things: the global compile environment, the
+-- external requirements, and gluing the object packages into one artifact. Anything
+-- internal to a package belongs in that package's own xmake.lua.
 add_rules("mode.debug", "mode.release")
 add_repositories("levimc-repo https://github.com/LiteLDev/xmake-repo.git")
 
 option("target_type")
     set_default("server")
     set_values("server", "client")
-    set_description("构建目标：server（BDS）或 client（MC 客户端）")
+    set_description("Build target: server (BDS) or client (the MC client)")
 option_end()
 
 local is_client = (get_config("target_type") or "server") == "client"
 
--- 全局编译宏放**根作用域**，不放任何 target 里。
--- v1 的事故：这些宏挂在只做聚合、不编译任何 TU 的最终 target 上，
--- 等于一个 TU 都没收到 —— 症状是各包各自缺 NOMINMAX / 目标宏。
+-- Global compile definitions belong in the root scope and in no target. The final
+-- target only aggregates and compiles no TU of its own, so definitions attached
+-- there reach nothing, and the symptom is every package missing NOMINMAX and the
+-- target macro.
 add_defines("NOMINMAX", "UNICODE", "_HAS_CXX23=1")
 
--- 告诉 MSVC「源文件是 UTF-8」。
+-- Tells MSVC that source files are UTF-8, so neither parsing nor string encoding
+-- depends on the machine's active code page.
 --
--- 不加这一行的后果：中文注释在非 UTF-8 代码页（简中默认 936）下，每个文件
--- 报一条 `C4819: 该文件包含不能在当前代码页中表示的字符`。它是警告不是错误，
--- 但危害是实的 —— 一次全量构建会刷出上百条，把**真正的**警告淹掉；而一旦
--- 有人加了 `/WX`，它立刻变成硬错。
+-- Without it, any file holding a byte outside the active code page, 936 on a
+-- Simplified Chinese Windows, raises `C4819: file contains a character that cannot be
+-- represented in the current code page` once per file. It is a warning and not an
+-- error, but a full build emits
+-- hundreds of them and buries the real warnings, and it becomes a hard error the
+-- moment anyone adds `/WX`.
 --
--- 两个都要：`/source-charset` 管读入，`/execution-charset` 管字符串字面量
--- 编码成什么。只设前者的话，日志里的中文在运行期会变成乱码 —— 那比警告
--- 更难查，因为它要跑起来才显形。`/utf-8` 是这两个的合写。
+-- Both halves are needed. `/source-charset` governs how bytes are read and
+-- `/execution-charset` governs how string literals are encoded. Setting only the
+-- first leaves non-ASCII literals mangled at runtime, which is harder to trace than
+-- a warning because it appears only once the server runs. `/utf-8` sets both.
 add_cxflags("/utf-8", {tools = {"cl"}})
 if is_client then
-    -- 实现侧的目标宏。abi.h **不认识它** —— 布局在所有目标下相同（契约 §2.1），
-    -- 它只用于个别共享 TU 里挑选服务端/客户端的实现分支。
+    -- The implementation-side target macro. abi.h does not know it, since the layout
+    -- is identical on every target (contract §2.1). It only selects the server or
+    -- client implementation branch inside the few shared TUs.
     add_defines("PIER_BUILD_CLIENT")
 end
 set_languages("c++20")
@@ -74,8 +58,9 @@ if not has_config("vs_runtime") then
     set_runtimes("MD")
 end
 
--- 分包。object 类型（契约 §一 规则四）：每个 TU 必然进入最终产物，
--- 自注册的静态对象不会被链接器当作「无人引用」丢弃。
+-- The packages. They are object targets (contract §1 rule 4), so every TU reaches
+-- the final artifact and the linker does not discard a self-registering static
+-- object as unreferenced.
 includes("packages/pier-abi")
 includes("packages/pier-support")
 includes("packages/pier-host")
@@ -89,13 +74,14 @@ if is_client then
     includes("packages/pier-client")
 end
 
--- 唯一的产物：把上面的 object 包粘成一个 LeviLamina 原生 mod。
+-- The only artifact. Glues the object packages above into one native LeviLamina mod.
 --
--- 名字**两个目标下都叫 pier**，不随 target_type 改。旧仓这里写的是
--- `is_client and "pier-client" or "pier"`，那时候没有 packages/pier-client；
--- 新树把客户端槽位拆成独立能力包之后，这个表达式会和那个包的 target 重名，
--- xmake 直接报重复定义。而且名字本来就不该随构建配置漂 —— 服务端和客户端
--- 是同一个宿主的两个目标，模组、命令、日志里说的都是「pier」（契约 §七）。
+-- The name is pier on both targets and does not follow target_type. Deriving it, as
+-- in `is_client and "pier-client" or "pier"`, collides with the target of the
+-- packages/pier-client capability package and xmake reports a duplicate definition.
+-- The name should not drift with build configuration in any case. Server and client
+-- are two targets of one host, and mods, commands and logs all say pier
+-- (contract §7).
 target("Pier")
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
@@ -105,23 +91,28 @@ target("Pier")
         add_deps("pier-hooks", "pier-dimensions")
         add_packages("levilamina", "legacymoney", "bedrockdata", "snappy", "magic_enum")
 
-        -- LegacyMoney 是**可选**后端：没装它 pier 也要照常起来，经济那一族
-        -- 降级成「读取返回失败、写入返回失败」（契约 §2.1：能力缺席 = 槽位
-        -- 空，不是另一个构建）。运行期的降级逻辑一直都在
-        -- （`moneyBackendReady()` 查模组表 + 查导出符号），缺的是链接器这一半：
-        -- `add_packages("legacymoney")` 会把导入库直接链进去，产生一条硬性的
-        -- DLL 依赖，于是**加载器在 pier.dll 自己被载入时就失败**，运行期那套
-        -- 检查一行都跑不到，报错是 `0x7E The specified module could not be
-        -- found`，看不出跟经济有任何关系。
+        -- LegacyMoney is an optional backend. pier must come up without it and the
+        -- economy family degrades to failing reads and failing writes (contract §2.1,
+        -- an absent capability is an empty slot and not a different build). The
+        -- runtime degradation is in place through `moneyBackendReady()`, which checks
+        -- the mod table and the exported symbols. The linker half is what needs care:
+        -- `add_packages("legacymoney")` links the import library directly and creates
+        -- a hard DLL dependency, so the loader fails while pier.dll itself is being
+        -- loaded, none of the runtime checks ever run, and the error reads
+        -- `0x7E The specified module could not be found` with nothing to connect it
+        -- to the economy.
         --
-        -- /DELAYLOAD 让符号推迟到第一次真正调用时才解析。配套的
-        -- delayimp.lib 提供解析桩；没有它链接器会报 __delayLoadHelper2 未定义。
+        -- /DELAYLOAD defers symbol resolution to the first real call. The matching
+        -- delayimp.lib supplies the resolver stub, and without it the linker reports
+        -- __delayLoadHelper2 as undefined.
         --
-        -- **shflags 而不是 ldflags**：xmake 里 `add_ldflags` 只作用于
-        -- `kind("binary")`，共享库的链接走 `add_shflags`。这个 target 是
-        -- `set_kind("shared")`，所以写成 ldflags 会被**静默忽略** —— 构建照样
-        -- 成功，产物照样带一条硬性 DLL 依赖，症状和没加时一模一样。
-        -- 两个都写：将来这个 target 若改成 binary 也不会再踩一次。
+        -- shflags rather than ldflags: in xmake `add_ldflags` applies to
+        -- `kind("binary")` only, and a shared library links through `add_shflags`.
+        -- This target is `set_kind("shared")`, so an ldflags spelling is ignored
+        -- silently. The build still succeeds and the artifact still carries a hard
+        -- DLL dependency, with the same symptom as omitting the flag entirely. Both
+        -- are written so that changing this target to binary later cannot reintroduce
+        -- the problem.
         add_shflags("/DELAYLOAD:LegacyMoney.dll", { force = true })
         add_ldflags("/DELAYLOAD:LegacyMoney.dll", { force = true })
         add_syslinks("delayimp")

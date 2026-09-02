@@ -1,7 +1,8 @@
-/** world/Containers.cpp —— 容器访问。
+/** world/Containers.cpp: container access.
  *
- * 容器句柄是「拥有者 + which」引用，每次调用重新解析（一切经 Container
- * 虚接口走：箱子 / 玩家背包 / 末影箱共用一条代码路径）。 */
+ * A container handle is an owner plus which reference, re-resolved on every call.
+ * Everything goes through the Container virtual interface, so a chest, a player
+ * inventory and an ender chest share one code path. */
 #include <string>
 #include <utility>
 
@@ -85,8 +86,8 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Container* c = bridge::resolveContainer(ref);
                 if (!c) return false;
-                // 逐格清、走虚接口 —— removeAllItems / clearContent 在不同引擎
-                // 版次上时有时无；这一条不会。
+                // Cleared slot by slot through the virtual interface. removeAllItems
+                // and clearContent come and go across engine revisions, this does not.
                 int size = c->getContainerSize();
                 for (int i = 0; i < size; ++i)
                 {
@@ -99,18 +100,19 @@ namespace pier::api_impl
         bool api_container_refresh(PierContainerRef ref)
         {
             PIER_API_GUARD_BEGIN
-                // 方块容器没有一个可以补发的单一拥有者。它的观看者由引擎自己
-                // 的容器事务路径保持同步，这里没有任何有用的事可做 —— 直说，
-                // 不装。
+                // A block container has no single owner to resend to. Its viewers are
+                // kept in sync by the engine's own container transaction path, so
+                // there is nothing useful to do here and this says so.
                 if (ref.which == 4) return false;
 
                 Player* p = bridge::resolvePlayer(ref.player);
                 if (!p) return false;
 
-                // Player::sendInventory 重建并发送玩家容器的
-                // InventoryContentPacket。`false` = 不顺带重选快捷栏槽位；每次
-                // 刷新都强制换槽会把玩家手里的东西拽走，比这里要修的渲染陈
-                // 旧更糟。
+                // Player::sendInventory rebuilds and sends the InventoryContentPacket
+                // for the player container. `false` means the hotbar slot is not
+                // reselected. Forcing a slot change on every refresh would pull the
+                // item out of the player's hand, which is worse than the stale
+                // rendering this fixes.
                 p->sendInventory(false);
                 return true;
             PIER_API_GUARD_END

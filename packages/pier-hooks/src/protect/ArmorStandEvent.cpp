@@ -1,12 +1,10 @@
-/** protect/ArmorStandEvent.cpp —— 玩家和盔甲架换装备。
- *
- * 盔甲架是保护里的一个洞：它不是容器（PlayerOpenContainerEvent 看不见它），
- * 也不是方块（方块保护管不着），而右键一下就能把上面的整套装备换到自己身上。
- * 在展示装备的服务器上，这等于「点一下就搬空展柜」。
- *
- * 取消 = 这次交换不发生（`_trySwapItem` 返回 false 是引擎自己的「换不了」
- * 路径，物品两边都不动）。
- */
+/** protect/ArmorStandEvent.cpp: a player swapping equipment with an armor stand.
+ * An armor stand is a hole in protection: it is not a container, so
+ * PlayerOpenContainerEvent does not see it, and not a block, so block protection does not
+ * cover it, while one right click moves a whole set of equipment onto the player. On a
+ * server that displays gear, that is emptying a display case with a single click.
+ * Cancelling means the swap does not happen, and `_trySwapItem` returning false is the
+ * engine's own cannot-swap path, leaving the items on both sides untouched. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -29,7 +27,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& armorStandDef(); // 前向
+        HookEventDef& armorStandDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             ArmorStandSwapItemHook,
@@ -65,8 +63,9 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[ArmorStandSwapItemEvent] ArmorStand::_trySwapItem 的 detour 安装失败"
-                        "（code={}）—— 盔甲架上的装备不受保护。", r);
+                        "[hooks/ArmorStandEvent] the ArmorStand::_trySwapItem detour failed to "
+                        "install with code={}, so equipment on an armor stand is "
+                        "unprotected", r);
                 }
                 return r == 0;
             }

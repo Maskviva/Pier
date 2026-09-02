@@ -1,14 +1,17 @@
-/** hooks/engine/Profiler.cpp —— 分子系统的 MSPT 采样。
+/** hooks/engine/Profiler.cpp: MSPT sampling broken down by subsystem.
  *
- * profile_begin(ticks) 武装一个 N 个 level tick 的采样窗口，profile_take() 轮询
- * 取完成的报告（SNBT）。五个计时 detour 覆盖 level_tick、dimension_tick、
- * redstone、chunk_blocks、block_entities，全部遵守 hook_events.h 的生命周期规矩：
- * 第一次 profile_begin 时一起安装、永不卸补丁、未武装时走快路径分支。
+ * profile_begin(ticks) arms a sampling window of N level ticks and profile_take() polls
+ * for the finished report as SNBT. Five timing detours cover level_tick, dimension_tick,
+ * redstone, chunk_blocks and block_entities, and all follow the lifetime rules of
+ * hook_events.h: installed together on the first profile_begin, never unpatched, and
+ * taking a fast-path branch while unarmed.
  *
- * 时间是包含式墙钟时间（steady_clock）：dimension_tick 跑在 level_tick 里，
- * redstone 与 chunk 两桶跑在 dimension_tick 里。并排报告，不要求和。与 TickControl
- * 在同一个 Level::$tick 上的 detour 共存，LeviLamina 把钩子串成链，每个真正执行
- * 的 tick 只被量一次，所以 /tick warp 5 显示 5 倍样本数而每 tick 数字依旧真实。
+ * The times are inclusive wall-clock times from steady_clock: dimension_tick runs inside
+ * level_tick, and the redstone and chunk buckets run inside dimension_tick. They are
+ * reported side by side and are not meant to sum. It coexists with the TickControl detour
+ * on the same Level::$tick, since LeviLamina chains hooks, and each tick that really runs
+ * is measured once, so /tick warp 5 shows five times the samples while the per-tick
+ * numbers stay true.
  */
 #include <chrono>
 #include <cstdint>
@@ -47,7 +50,7 @@ namespace pier::hooks
             void reset() { ns = 0, calls = 0; }
         };
 
-        /** 仅服务器线程，与所有钩子状态一样。 */
+        /** Server thread only, as with every hook state. */
         struct ProfState
         {
             bool hooked = false;
@@ -82,7 +85,8 @@ namespace pier::hooks
 
         LL_TYPE_INSTANCE_HOOK(
             ProfLevelTickHook,
-            ll::memory::HookPriority::High, // 最外层：包住 TickControl 的 Normal 优先级 detour
+            // Outermost, wrapping the Normal-priority TickControl detour.
+            ll::memory::HookPriority::High,
             Level,
             &Level::$tick,
             void)
@@ -188,8 +192,8 @@ namespace pier::hooks
         {
             PIER_API_GUARD_BEGIN
                 auto& st = gProf;
-                if (ticks == 0 || ticks > 12000) return false; // 上限：20 TPS 下十分钟
-                if (st.sampling) return false;                 // 一次一个窗口
+                if (ticks == 0 || ticks > 12000) return false; // Cap: ten minutes at 20 TPS
+                if (st.sampling) return false;                 // One window at a time
                 ensureProfilerHooked();
                 st.levelTick.reset();
                 st.dimTick.reset();

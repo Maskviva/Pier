@@ -51,29 +51,33 @@ namespace pier
             return ll::makeExceptionError(std::make_exception_ptr(*e));
         }
 
-        // 唯一的入口符号。找不到就明确拒绝 —— 不做任何历史别名回退
-        //（契约 §2.4：回退意味着两个名字永远都不能改）。
+        // The only entry symbol. A miss is refused outright, with no fallback to a
+        // legacy alias (contract §2.4, a fallback means neither name can ever
+        // change).
         auto main = mod->lib.getAddress<PierMainFn>(PIER_MAIN_SYMBOL);
         if (!main)
         {
-            // pier_main 尚未被调用：模组一行代码都没跑，没有任何登记可拆。
+            // pier_main has not been called, so the mod ran no code and there is
+            // nothing registered to tear down.
             (void)mod->lib.free();
             return ll::makeStringError(
-                "'" + mod->getName() + "' 没有导出 " PIER_MAIN_SYMBOL
-                " —— 它是一个 Pier 模组吗？（SDK 的注册宏会替你导出这个符号）"
+                "'" + mod->getName() + "' does not export " PIER_MAIN_SYMBOL
+                "; the entry symbol is exported by the SDK registration macro"
             );
         }
 
         mod->vtable = PierModVTable{};
 
-        /*  拒绝路径的统一出口
-         * pier_main 一旦被调用，模组就可能已经订阅了事件、注册了总线/服务/
-         * 数据包钩子、排了任务。此后任何一条拒绝路径都必须先把这些登记全部
-         * 拆掉再 FreeLibrary —— 否则 EventBus 和各注册表里留着指向已 unmap
-         * 代码段的回调，下一次事件触发就是 use-after-free。
-         * SDK 侧（pier-rs）虽然在 on_load 之前自检版本/flag，但 ABI 面向任意
-         * 语言，宿主不能依赖对方的自觉；而且 on_load 部分注册后返回失败是
-         * 契约 §5.3 自己讨论过的正常场景。 */
+        /*  Single exit for every rejection path
+         * Once pier_main has been called the mod may already have subscribed to
+         * events, registered bus, service and packet hooks, and scheduled tasks.
+         * Every rejection path from here on must tear all of that down before
+         * FreeLibrary, otherwise EventBus and the registries keep callbacks pointing
+         * into an unmapped code section and the next event is a use-after-free.
+         * The SDK side in pier-rs does check version and flags before on_load, but
+         * the ABI faces any language and the host cannot rely on that. Returning
+         * failure from on_load after partial registration is a normal case that
+         * contract §5.3 discusses. */
         auto abandon = [&](std::string why) -> ll::Expected<>
         {
             auto& bus = ll::event::EventBus::getInstance();
@@ -82,7 +86,9 @@ namespace pier
                 if (slot.listener && !bus.removeListener(slot.listener))
                 {
                     mod->getLogger().error(
-                        "'{}' 装载失败后退订监听器 #{} 失败 —— 这条监听器可能残留在 EventBus 里",
+                        "[host] load rollback for '{}' could not remove listener {}; "
+                        "it may remain on the EventBus with a callback into an image "
+                        "about to be unmapped",
                         mod->getName(), slot.id
                     );
                 }
@@ -95,82 +101,90 @@ namespace pier
 
         if (!main(bridgeApi(), static_cast<PierModHandle>(mod.get()), &mod->vtable))
         {
-            return abandon("'" + mod->getName() + "' 的 " PIER_MAIN_SYMBOL " 返回 false");
+            return abandon("'" + mod->getName() + "': " PIER_MAIN_SYMBOL " returned false");
         }
 
-        /*  v1 握手：先看长度，再看版本，再看目标
-         * vtable 自带 struct_size（契约 §2.3），宿主只读模组声明长度以内
-         * 的字段。顺序有讲究：长度不够时连 abi_version 都不可信，所以
-         * 长度检查必须最先。 */
+        /*  Handshake: size first, then version, then target
+         * The vtable carries its own struct_size (contract §2.3) and the host reads
+         * only fields within the length the mod declares. The order matters, because
+         * when the length is too small even abi_version is untrustworthy, so the
+         * length check comes first. */
         auto const& vt = mod->vtable;
         if (vt.struct_size < sizeof(PierModVTable))
         {
             return abandon(
-                "'" + mod->getName() + "' 填回的 vtable 只有 " + std::to_string(vt.struct_size)
-                + " 字节，宿主需要至少 " + std::to_string(sizeof(PierModVTable))
-                + " —— 它的 SDK 没有填 struct_size，或早于 ABI v1"
+                "'" + mod->getName() + "' filled in a vtable of " + std::to_string(vt.struct_size)
+                + " bytes, the host requires at least " + std::to_string(sizeof(PierModVTable))
+                + "; its SDK does not set struct_size, or predates ABI v1"
             );
         }
 
-        // 兼容是一个区间，不是相等（契约 §2.2）。只追加的演进意味着新宿主能跑旧
-        // 模组：旧模组调用的是宿主表的一个逐字节相同的前缀，够不到它不认识的尾部
-        // 槽位。太新（mod_abi > 宿主）时模组可能调用宿主没有的槽，拒绝并提示升级
-        // 宿主；太旧（mod_abi < 下限）时它早于一次非追加断裂，宿主的表已不是它期
-        // 待的前缀，拒绝并提示重编模组；区间内则安全。反向偏斜（旧宿主 + 新模组）
-        // 由模组侧逐槽比对 struct_size 兜住，宿主不用管。
+        // Compatibility is a range and not an equality (contract §2.2). Append-only
+        // evolution lets a new host run an old mod, which calls a byte-identical
+        // prefix of the host table and cannot reach slots it does not know. A mod_abi
+        // above the host may call a slot the host lacks, so it is refused with a
+        // prompt to upgrade the host. A mod_abi below the floor predates a
+        // non-additive break, so the host table is no longer the prefix it expects and
+        // it is refused with a prompt to rebuild the mod. The reverse skew is covered
+        // on the mod side by per-slot struct_size checks.
         if (vt.abi_version > PIER_ABI_VERSION)
         {
             return abandon(
-                "'" + mod->getName() + "' 按 Pier ABI v" + std::to_string(vt.abi_version)
-                + " 编译，而本宿主最高只到 v" + std::to_string(PIER_ABI_VERSION) + " —— 升级 pier 宿主"
+                "'" + mod->getName() + "' was built against Pier ABI v" + std::to_string(vt.abi_version)
+                + ", this host supports up to v" + std::to_string(PIER_ABI_VERSION)
+                + "; upgrade the pier host"
             );
         }
         if (vt.abi_version < PIER_ABI_MIN_SUPPORTED)
         {
             return abandon(
-                "'" + mod->getName() + "' 按 Pier ABI v" + std::to_string(vt.abi_version)
-                + " 编译，低于本宿主支持的下限 v" + std::to_string(PIER_ABI_MIN_SUPPORTED)
-                + " —— 用当前的 pier SDK 重新编译该模组"
+                "'" + mod->getName() + "' was built against Pier ABI v" + std::to_string(vt.abi_version)
+                + ", below the minimum v" + std::to_string(PIER_ABI_MIN_SUPPORTED)
+                + " this host supports; rebuild the mod against the current pier SDK"
             );
         }
 
-        // 目标匹配走 flags 的 bit 0（契约 §2.3）。布局在所有目标下相同，
-        // 所以错配不会造成槽位错位 —— 这个检查防的是语义层面的荒唐：
-        // 服务端宿主里跑一个只会调 client_* 空槽的模组，每一步都「安全地」
-        // 失败，不如装载时就把话说清楚。
+        // Target matching uses bit 0 of flags (contract §2.3). The layout is the same
+        // on every target, so a mismatch cannot misalign slots. This check guards
+        // against a semantic absurdity instead. A mod that only ever calls empty
+        // client_* slots would run in a server host and fail safely at every step,
+        // which is worse than saying so at load time.
         uint32_t const hostFlags = bridgeApi()->host_flags;
         if ((vt.mod_flags ^ hostFlags) & PIER_FLAG_CLIENT)
         {
             bool const modIsClient = (vt.mod_flags & PIER_FLAG_CLIENT) != 0;
             return abandon(
-                "'" + mod->getName() + "' 是按" + (modIsClient ? "客户端" : "服务端")
-                + "目标编译的，而这个宿主是" + (modIsClient ? "服务端" : "客户端")
-                + "构建 —— 用匹配的目标重新编译该模组"
+                "'" + mod->getName() + "' was built for the " + (modIsClient ? "client" : "server")
+                + " target, this host is a " + (modIsClient ? "server" : "client")
+                + " build; rebuild the mod for the matching target"
             );
         }
-        // 未知位必须为零：这是「保留」二字的全部含义。现在不严，将来这些
-        // 位就没法再用 —— 老模组里会躺着随机脏值。
+        // Unknown bits must be zero, which is the entire meaning of "reserved". Being
+        // lax now would make those bits unusable later, because older mods would carry
+        // arbitrary values in them.
         if ((vt.mod_flags & ~PIER_FLAG_CLIENT) != 0 || vt._reserved0 != 0)
         {
             return abandon(
-                "'" + mod->getName() + "' 的 vtable 里保留位非零（mod_flags=0x"
-                + ll::string_utils::intToHexStr(vt.mod_flags) + "）—— SDK 有 bug，或按未来的 ABI 编译"
+                "'" + mod->getName() + "' has non-zero reserved bits in its vtable (mod_flags=0x"
+                + ll::string_utils::intToHexStr(vt.mod_flags) + "); its SDK is faulty, or it was built against a future ABI"
             );
         }
         if (vt.abi_version != PIER_ABI_VERSION)
         {
-            // 收下，但把偏斜记下来：野外的「版本不匹配」报告要一眼能核对。
-            // 模组跑在它当年那张表的严格超集上。
+            // Accepted, with the skew recorded so that a version mismatch report from
+            // the field can be checked at a glance. The mod runs on a strict superset
+            // of the table it was built against.
             hostLogger().info(
-                "'{}' 按 ABI v{} 编译；宿主提供 v{}（追加超集）—— 装载",
+                "[host] loading '{}': built against ABI v{}, host provides v{} (additive superset)",
                 mod->getName(),
                 vt.abi_version,
                 PIER_ABI_VERSION
             );
         }
 
-        // 把 Mod 的生命周期回调接到模组的 vtable 上。ModManager 默认的
-        // enable()/disable() 会调它们（见 ll/api/mod/ModManager.cpp）。
+        // Wire the Mod lifecycle callbacks onto the mod's vtable. The default
+        // enable() and disable() of ModManager call them (see
+        // ll/api/mod/ModManager.cpp).
         mod->onEnable([](ll::mod::Mod& self)
         {
             auto& hosted = static_cast<HostedMod&>(self);
@@ -196,54 +210,57 @@ namespace pier
         auto const mod = std::static_pointer_cast<HostedMod>(getMod(name));
         if (!mod)
         {
-            return ll::makeStringError("没有名为 '" + std::string(name) + "' 的 pier 模组");
+            return ll::makeStringError("no pier mod named '" + std::string(name) + "' is loaded");
         }
 
-        // 否决在 on_unload 之前问，而不是之后：否决的意义是「现在根本
-        // 不能卸」，那就不该先让模组跑完自己的收尾逻辑再告诉它卸不掉。
-        // 典型否决方是 lane：有个栈帧正停在这个模组提供的车道表项里 ——
-        // 十有八九就是当前这层调用链自己（提供方的表项触发了命令派发，那
-        // 条命令要卸载提供方）。这时 FreeLibrary 会把仍在执行的代码段
-        // unmap 掉。
+        // Vetoes are asked before on_unload and not after. A veto means the mod
+        // cannot be unloaded at all right now, so the mod should not first run its
+        // own teardown only to be told the unload is refused. The typical veto comes
+        // from lane, when a stack frame is sitting inside a lane entry this mod
+        // provides, most often the current call chain itself, where the provider's
+        // entry triggered a command dispatch and that command unloads the provider.
+        // FreeLibrary would then unmap a code section that is still executing.
         if (auto veto = spi::askUnloadVetoes(mod.get()))
         {
             return ll::makeStringError(
-                "'" + std::string(name) + "' 现在不能卸载 —— " + std::string(veto->who)
-                + " 否决：" + veto->reason
+                "'" + std::string(name) + "' cannot be unloaded now, vetoed by "
+                + std::string(veto->who) + ": " + veto->reason
             );
         }
 
-        // 通用否决：这个模组的某个回调正在执行 —— 要么是当前调用
-        // 链自己（回调里 execute_command("pier unload <self>")），要么是另一
-        // 线程正在派发它的总线/数据包回调。两种情况下 FreeLibrary 都会把正在
-        // 执行的代码段 unmap 掉。lane 的 busy 只覆盖车道；这个计数覆盖宿主的
-        // 全部派发点。
+        // The general veto. A callback of this mod is executing, either on the
+        // current call chain, where a callback issued
+        // execute_command("pier unload <self>"), or on another thread dispatching a
+        // bus or packet callback of it. FreeLibrary would unmap the executing code
+        // section in both cases. The busy flag in lane covers lanes only, while this
+        // counter covers every dispatch site in the host.
         if (int const depth = mod->inCallback.load(std::memory_order_acquire); depth > 0)
         {
             return ll::makeStringError(
-                "'" + std::string(name) + "' 现在不能卸载 —— 它有 " + std::to_string(depth)
-                + " 个回调正在执行（回调里卸载自己，或另一线程正在派发它的回调）。"
-                  "请在回调返回后重试。"
+                "'" + std::string(name) + "' cannot be unloaded now, " + std::to_string(depth)
+                + " of its callbacks are executing, either unloading itself from inside "
+                  "a callback or another thread dispatching one; retry once they return"
             );
         }
 
         if (mod->vtable.on_unload && !mod->vtable.on_unload(mod->vtable.instance))
         {
-            return ll::makeStringError("'" + std::string(name) + "' 拒绝卸载（on_unload 返回 false）");
+            return ll::makeStringError("'" + std::string(name) + "' refused to unload, on_unload returned false");
         }
         mod->commandsMuted = true;
 
-        // W-EV1：`listeners.clear()` 只丢掉宿主自己那份 shared_ptr。
-        // EventBus 的 EventStorage 存的是强引用（OrderedSet<ListenerPtr>），
-        // 所以清空这个 vector 一个监听器都没摘下来 —— 它们连同指向即将被
-        // unmap 的 dylib 的回调，继续挂在总线上。必须显式 removeListener。
+        // `listeners.clear()` drops only the host's own shared_ptr. The EventStorage
+        // of EventBus holds a strong reference in an OrderedSet<ListenerPtr>, so
+        // clearing this vector removes no listener at all. They stay on the bus along
+        // with callbacks into a dylib that is about to be unmapped, which is why
+        // removeListener is called explicitly.
         for (auto const& l : mod->listeners)
         {
             if (!ll::event::EventBus::getInstance().removeListener(l.listener))
             {
                 mod->getLogger().error(
-                    "卸载 '{}' 时摘不下监听器 {}：它可能仍挂在事件总线上，"
-                    "而它的回调指向马上要被卸载的 dylib。",
+                    "[host] unloading '{}' could not remove listener {}; it may remain "
+                    "on the event bus with a callback into a dylib about to be unloaded",
                     name,
                     l.id
                 );
@@ -251,8 +268,9 @@ namespace pier
         }
         mod->listeners.clear();
 
-        // 各能力包按 stage 升序清掉自己名下属于这个模组的一切
-        //（契约 §一 规则二；顺序背后的不变量写在 spi.h）。
+        // Each capability package clears everything it holds for this mod, in
+        // ascending stage order (contract §1 rule 2; the invariant behind the order
+        // is documented in spi.h).
         spi::runTeardown(mod.get());
 
         if (auto const e = mod->lib.free(); e)
@@ -263,7 +281,7 @@ namespace pier
         return {};
     }
 
-    /*  运行期模组控制  */
+    /*  Runtime mod control  */
 
     ll::Expected<> ModHost::controlLoad(Manifest manifest)
     {
@@ -272,13 +290,13 @@ namespace pier
         {
             return e;
         }
-        // LeviLamina 自己的流程是 load → enable；ModManager::load 只把
-        // dylib 拉起来并跑 pier_main。少了这步，模组装着但禁用：命令静音、
-        // on_enable 永远不来。
+        // The LeviLamina flow is load then enable, and ModManager::load only brings
+        // the dylib up and runs pier_main. Without this step the mod stays loaded but
+        // disabled, with its commands muted and on_enable never delivered.
         if (auto e = enable(name); !e)
         {
-            // 回滚而不是留一个半活的模组：装载了却从未启用的模组仍然
-            // 占着它的 dylib 和监听器。
+            // Roll back instead of leaving a half-live mod behind. One that is
+            // loaded but never enabled still holds its dylib and its listeners.
             (void)unload(name);
             return e;
         }
@@ -290,10 +308,11 @@ namespace pier
         auto const mod = std::static_pointer_cast<HostedMod>(getMod(name));
         if (!mod)
         {
-            return ll::makeStringError("'" + std::string(name) + "' 没有装载");
+            return ll::makeStringError("'" + std::string(name) + "' is not loaded");
         }
-        // 先 disable() 让 on_disable 真的跑到；直接 unload() 只有 on_unload，
-        // 模组永远见不到自己的禁用阶段。
+        // disable() runs first so that on_disable is actually delivered. A direct
+        // unload() would fire on_unload only and the mod would never see its own
+        // disable phase.
         if (mod->isEnabled())
         {
             if (auto e = disable(name); !e)
@@ -308,7 +327,7 @@ namespace pier
     {
         auto const mod = std::static_pointer_cast<HostedMod>(getMod(name));
         if (!mod) return nullptr;
-        return mod->lib.handle(); // HandleT 就是 void*，只差限定符转换
+        return mod->lib.handle(); // HandleT is void*, only a qualifier conversion
     }
 
     std::vector<std::string> ModHost::loadedNames() const

@@ -14,13 +14,14 @@
 namespace pier
 {
     /**
-     * manifest `"type": "pier"` 的 ModManager。
+     * The ModManager for manifests carrying `"type": "pier"`.
      *
-     * 由加载器在 ll_mod_load 里注册。ModRegistrar 在派发装载时才解析
-     * 管理器（见 ModManagerRegistry::loadMod），并按 `dependencies` 做
-     * 拓扑排序 —— 所以任何声明了
+     * Registered by the loader inside ll_mod_load. ModRegistrar resolves the manager
+     * only when it dispatches a load (see ModManagerRegistry::loadMod) and sorts
+     * topologically by `dependencies`, so this manager is guaranteed to exist by the
+     * time any mod declaring
      *   "dependencies": [{ "name": "pier" }]
-     * 的模组，派发到它时本管理器一定已经存在。
+     * is dispatched to it.
      */
     class ModHost : public ll::mod::ModManager
     {
@@ -32,40 +33,46 @@ namespace pier
         ll::Expected<> unload(std::string_view name) override;
 
         /**
-         * 正在运行的管理器；ll_mod_load 之前 / 关停之后为 nullptr。
-         * 构造里设、析构里清 —— shared_ptr 归注册表所有，这只是观察者。
+         * The running manager. nullptr before ll_mod_load and after shutdown.
+         * Set in the constructor and cleared in the destructor. The shared_ptr is
+         * owned by the registry, so this is only an observer.
          */
         static ModHost* instance();
 
-        /*  运行期模组控制（/pier 的后端）
-         * ModManagerRegistry 的 loadMod/unloadMod/enableMod/disableMod
-         * 全是 PRIVATE（只对 ModRegistrar 和 Mod 友元），启动之后没有
-         * 公开的 LeviLamina 路径能再装一个模组。能用的是继承来的
-         * protected ModManager 方法 —— 这两个包装就是干这个的。
+        /*  Runtime mod control, the backend of /pier
+         * loadMod, unloadMod, enableMod and disableMod on ModManagerRegistry are all
+         * private and befriended only to ModRegistrar and Mod, so after startup no
+         * public LeviLamina path can load another mod. What remains available is the
+         * inherited protected ModManager interface, which these two wrappers use.
          *
-         * 值得记住的后果：这样拉起来的模组活在本管理器自己的表里，不在
-         * LeviLamina 的依赖图里。依赖检查因此由 ModControl 直接翻
-         * manifest 完成 —— 副作用是连「原生 C++ mod 依赖 pier mod」
-         * 也能查到。 */
+         * One consequence is worth remembering. A mod brought up this way lives in
+         * this manager's own table and not in the LeviLamina dependency graph.
+         * Dependency checking is therefore done by ModControl reading manifests
+         * directly, which as a side effect also finds a native C++ mod that depends
+         * on a pier mod. */
 
-        /** 拉起一份解析好的 manifest：load() 然后 enable()。 */
+        /** Brings up a parsed manifest by calling load() and then enable(). */
         ll::Expected<> controlLoad(ll::mod::Manifest manifest);
 
-        /** 放倒一个：disable()（触发 on_disable）然后 unload()。 */
+        /** Takes one down by calling disable(), which fires on_disable, then
+         *  unload(). */
         ll::Expected<> controlUnload(std::string_view name);
 
-        /** 已装载模组 dylib 的基址；没装返回 nullptr。
-         *  用来识别 Windows FreeLibrary 引用计数陷阱：reload 后拿到
-         *  同一个基址 = 映像根本没卸掉，磁盘上的新 dll 没被读进来。 */
+        /** Base address of a loaded mod's dylib, or nullptr when it is not loaded.
+         *  Used to detect the Windows FreeLibrary reference count trap. The same base
+         *  address after a reload means the image was never unmapped and the new dll
+         *  on disk was not read. */
         [[nodiscard]] void const* moduleBase(std::string_view name) const;
 
-        /** 本管理器当前装着的全部模组名。 */
+        /** Names of every mod this manager currently has loaded. */
         [[nodiscard]] std::vector<std::string> loadedNames() const;
 
-        /** 当前装着的全部模组（强引用快照）。给需要「按回调地址反查归属」的
-         *  能力包用（Money/Scheduler 的无主旧槽）：ll::mod::Mod 不是多态类型，
-         *  对 ModManagerRegistry::mods() 的 Mod& 做 dynamic_cast 不合法，而本
-         *  管理器表里的每一个都一定是 HostedMod。 */
+        /** Snapshot of every currently loaded mod, holding strong references. For
+         *  capability packages that must resolve ownership from a callback address,
+         *  such as the ownerless legacy slots in Money and Scheduler. ll::mod::Mod is
+         *  not a polymorphic type, so dynamic_cast on the Mod& from
+         *  ModManagerRegistry::mods() is not valid, whereas every entry in this
+         *  manager's table is certainly a HostedMod. */
         [[nodiscard]] std::vector<std::shared_ptr<HostedMod>> hostedMods() const;
     };
 } // namespace pier

@@ -1,42 +1,45 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""typed-storage —— `ll::TypedStorage` 成员上的 `.get()` 用得对不对。
+"""typed-storage: whether `.get()` on an `ll::TypedStorage` member is used correctly.
 
-## 规则（这份文件是它唯一的正式出处）
+## The rules, for which this file is the single formal source
 
-`ll::TypedStorage<Align, Size, T>` 不是一个统一的包装器，它按 `T` 分特化：
+`ll::TypedStorage<Align, Size, T>` is not one uniform wrapper. It specializes on `T`:
 
-| `T` 是什么 | 成员是什么 | `.get()` |
+| what `T` is | what the member is | `.get()` |
 |---|---|---|
-| 类类型的**值**（`std::string`、`BlockPos`、`std::vector<…>`） | 包装器 | **要写** |
-| **标量 / 枚举**（`int`、`bool`、`DimensionType`、`ActorDamageCause`） | 就是那个值本身 | 写了是编译错误 |
-| **引用**（`Dimension&`、`Player&`） | 就是那个引用本身 | 写了是编译错误 |
-| `std::unique_ptr<T>` | 就是那个 unique_ptr | 要写，但那是 `unique_ptr::get`，语义不同 |
+| a class type by value (`std::string`, `BlockPos`, `std::vector<...>`) | the wrapper | required |
+| a scalar or enum (`int`, `bool`, `DimensionType`, `ActorDamageCause`) | the value itself | a compile error |
+| a reference (`Dimension&`, `Player&`) | the reference itself | a compile error |
+| `std::unique_ptr<T>` | the unique_ptr itself | required, but that is `unique_ptr::get` and means something else |
 
-用错的两种症状真机都见过：
-* 标量：`C2228: ".get" 的左边必须有类/结构/联合`
-* 引用：`C2039: "get" 不是 "Dimension" 的成员`
+Both symptoms of getting it wrong have been seen on a machine:
+* scalar: `C2228: left of ".get" must have class/struct/union`
+* reference: `C2039: "get" is not a member of "Dimension"`
 
-这条规则此前散在四个文件的注释里，措辞还各不相同（有的说「标量坍缩」，
-有的说「标量和引用都坍缩」，有的只提 unique_ptr）。**规则有四个出处就等于
-没有出处** —— 谁也不知道哪一份是最新的。现在正式出处是这里，那几处注释
-指过来。
+This rule used to be spread across the comments of four files, worded differently in each,
+with one saying scalars collapse, another saying scalars and references collapse, and a
+third mentioning only unique_ptr. A rule with four sources has no source, since nobody
+knows which one is current. The formal source is here now and those comments point at
+it.
 
-## 这条检查需要引擎头文件
+## This check needs the engine headers
 
-判定「这个成员的 T 是什么」只能读 `mc/**/*.h`。那些头在 LeviLamina 的 xmake
-包目录里，**这台机器上可能没有**。找不到时报 **SKIP 而不是 PASS** ——
-没有头文件不等于代码没问题（契约 §九：PASS 只能给覆盖到的那部分打 ✓）。
+Deciding what `T` a member holds means reading `mc/**/*.h`. Those headers live in the
+LeviLamina xmake package directory and may not exist on a given machine. When they are
+not found this reports SKIP and not PASS, because missing headers do not mean the code is
+fine; contract §9 says a pass only earns a checkmark for what it covers.
 
-指定位置：
-    set PIER_LL_INCLUDE=C:\\Users\\<你>\\AppData\\Local\\.xmake\\packages\\l\\levilamina\\...\\include
-或者让脚本自己在常见路径下找。
+Pointing at them:
+    set PIER_LL_INCLUDE=C:\\Users\\<you>\\AppData\\Local\\.xmake\\packages\\l\\levilamina\\...\\include
+or let the script look in the usual places itself.
 
-## 定位：surrogate，不是契约检查
+## Position: a surrogate, not a contract check
 
-编译器一定会报，所以按 §九 的判据它不进那张表。它的价值是**一次报完**：
-编译器一次只报第一个失败的 TU，而这个脚本把全仓 30 个 `.get()` 调用点
-一起验了。
+The compiler always reports this, so by the criterion of §9 it does not belong in that
+table. Its value is reporting everything at once: the compiler reports only the first
+failing TU, while this script verifies all 30 `.get()` call sites in the repository
+together.
 """
 
 import glob
@@ -47,7 +50,7 @@ import sys
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 PKGS = os.path.join(ROOT, "packages")
 
-# 标量与已知的基本类型。这些进 TypedStorage 会坍缩。
+# Scalars and the known fundamental types. These collapse inside a TypedStorage.
 SCALARS = {
     "bool", "char", "signed char", "unsigned char", "short", "unsigned short",
     "int", "unsigned int", "uint", "long", "unsigned long", "long long",
@@ -86,7 +89,7 @@ def find_engine_include():
 
 
 def collect_engine_members(inc_dir):
-    """成员名 -> (T 的写法, 声明它的头)。同名成员出现在多个类里就丢弃。"""
+    """Member name to (how T is spelled, the header declaring it). A member name appearing in more than one class is discarded."""
     members = {}
     ambiguous = set()
     enums = set()
@@ -121,28 +124,28 @@ def collect_engine_members(inc_dir):
 
 
 def collapses(t, enums):
-    """这个 T 进 TypedStorage 之后会不会坍缩（= `.get()` 是编译错误）。"""
+    """Whether this T collapses inside a TypedStorage, which makes `.get()` a compile error."""
     t = t.strip()
     if t.endswith("&") or t.endswith("&&"):
-        return True, "引用"
+        return True, "a reference"
     base = t.replace("::", " ").split()[-1] if t else ""
     if t in SCALARS or base in SCALARS:
-        return True, "标量"
+        return True, "a scalar"
     if base in enums:
-        return True, "枚举"
+        return True, "an enum"
     return False, ""
 
 
 def main():
     inc = find_engine_include()
     if inc is None:
-        print("  SKIP —— 找不到 LeviLamina 的 include 目录，无从判定成员类型。")
-        print("        用 PIER_LL_INCLUDE 指过去再跑。")
-        print("        **这不是 PASS**：没有头文件不等于代码没问题。")
+        print("  SKIP: the LeviLamina include directory was not found, so member types cannot be decided.")
+        print("        Point PIER_LL_INCLUDE at it and run again.")
+        print("        This is not a PASS: missing headers do not mean the code is fine.")
         return 0
 
     members, enums, ambiguous, n_files = collect_engine_members(inc)
-    print("  引擎头 %d 个，TypedStorage 成员 %d 个，枚举 %d 个（歧义已排除 %d 个）"
+    print("  %d engine header(s), %d TypedStorage member(s), %d enum(s), %d ambiguous name(s) excluded"
           % (n_files, len(members), len(enums), len(ambiguous)))
 
     problems = []
@@ -165,11 +168,12 @@ def main():
                 if bad:
                     line = code[: m.start()].count("\n") + 1
                     problems.append(
-                        "%s:%d `%s.get()` —— %s 装的是 %s（%s），TypedStorage 对它有特化，"
-                        "成员本身就是那个值，`.get()` 是编译错误。声明在 %s"
+                        "%s:%d `%s.get()`: %s holds %s (%s), TypedStorage specializes on it, "
+                        "the member is that value itself and `.get()` is a compile error. Declared in %s"
                         % (rel, line, name, name, t, why, where)
                     )
-            # 反向：类类型的值**漏了** .get()，同样是编译错误，只是症状不同。
+            # The reverse: a class type by value missing its .get() is equally a compile
+            # error, only with a different symptom.
             for m in re.finditer(r"\b(m[A-Z]\w*)\s*\.\s*(?!get\b)(\w+)\s*\(", code):
                 name = m.group(1)
                 info = members.get(name)
@@ -180,8 +184,8 @@ def main():
                 if not bad and not t.startswith("std::unique_ptr"):
                     line = code[: m.start()].count("\n") + 1
                     problems.append(
-                        "%s:%d `%s.%s(...)` —— %s 装的是类类型 %s，TypedStorage **保持包装**，"
-                        "要先 `.get()` 才拿得到它。声明在 %s"
+                        "%s:%d `%s.%s(...)`: %s holds the class type %s, TypedStorage keeps "
+                        "the wrapper, and `.get()` comes first to reach it. Declared in %s"
                         % (rel, line, name, m.group(2), name, t, where)
                     )
 
@@ -189,9 +193,9 @@ def main():
         print("  ✗ %s" % pb)
     if problems:
         print()
-        print("  %d 处。规则见本文件头。" % len(set(problems)))
+        print("  %d site(s). The rules are in this file's header." % len(set(problems)))
         return 1
-    print("  %d 个源文件里的 TypedStorage 成员访问全部符合坍缩规则。" % scanned)
+    print("  every TypedStorage member access across %d source file(s) follows the collapse rules." % scanned)
     return 0
 
 

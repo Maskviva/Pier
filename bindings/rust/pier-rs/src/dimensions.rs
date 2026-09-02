@@ -1,22 +1,23 @@
-//! 自定义维度 —— `pier-dimensions` 这个**可选**能力包的门面。
+//! Custom dimensions: the facade of the optional `pier-dimensions` capability package.
 //!
-//! 没编进宿主时全族槽位是 NULL，[`is_available`] 返回 false，其余调用返回
-//! 「宿主不提供」的 `Err`。这是契约 §一 规则三的运行期表现：可选包不在，
-//! 布局不变，槽位为空。
+//! When it is not built into the host the whole family of slots is NULL,
+//! [`is_available`] returns false and every other call returns an `Err` saying the host
+//! does not provide it. That is rule 3 of contract §1 at runtime: the optional package is
+//! absent, the layout is unchanged, and the slots are empty.
 //!
-//! # 注册是幂等的，所以启动时无条件注册
+//! # Registration is idempotent, so register unconditionally at startup
 //!
-//! [`add_simple`] 和 [`add_plot`] 对同一个名字在下次启动时返回**同一个**
-//! 持久化 id。所以正确的用法是启动时直接注册，而不是先用
-//! [`dimension_id`] 探一次 —— 后者在首次启动时必然落空。
+//! [`add_simple`] and [`add_plot`] return the same persisted id for the same name on the
+//! next startup, so the right usage is registering directly at startup rather than probing
+//! with [`dimension_id`] first, which necessarily misses on the first startup.
 
 use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{collect_strs, s};
 
-/// 地形生成器。数值就是引擎的 `GeneratorType`。
+/// The terrain generator. The values are the engine's `GeneratorType`.
 ///
-/// 注意 1 起步而不是 0：从 0 开始编号会让「超平坦」生成出下界。
+/// Note it starts at 1 and not 0: numbering from 0 would make superflat generate a nether.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratorType {
     Overworld = 1,
@@ -42,10 +43,11 @@ impl GeneratorType {
         self as i32
     }
 
-    /// 引擎自己对这个生成器的叫法。
+    /// What the engine itself calls this generator.
     ///
-    /// 和枚举名不是同一个东西:枚举名是这一层的,这个是**引擎认的字符串**,
-    /// 出现在生成参数和存档里。要拼给引擎看的东西时用它,不要用 `{:?}`。
+    /// Not the same thing as the enum name: the enum name belongs to this layer while this is
+    /// the string the engine recognizes, appearing in generation parameters and in the save.
+    /// Use it when assembling something for the engine, not `{:?}`.
     pub fn engine_name(self) -> &'static str {
         match self {
             GeneratorType::Overworld => "Overworld",
@@ -57,14 +59,16 @@ impl GeneratorType {
     }
 }
 
-/// 逐维度的规则。数值对应 `PIER_DIMRULE_*`。
+/// Per-dimension rules. The values correspond to `PIER_DIMRULE_*`.
 ///
-/// 为什么不用游戏规则：基岩版的游戏规则是**全服**的，把创造地皮世界的
-/// `doMobSpawning` 关掉会连生存世界一起关。这些标志在真正的调用点上
-/// （`Spawner::spawnMob`、`Level::explode`…）被检查，所以真的是逐维度的。
+/// Why not a game rule: a Bedrock game rule applies to the whole server, so turning
+/// `doMobSpawning` off for a creative plot world turns it off for the survival world too.
+/// These flags are checked at the real call sites, `Spawner::spawnMob`, `Level::explode`
+/// and others, so they really are per dimension.
 ///
-/// 没有登记过的维度**完全不受影响** —— 钩子直接落到原版实现，
-/// 调用方不需要为原版维度显式放行。
+/// A dimension that was never registered is entirely unaffected: the hook falls straight
+/// through to the vanilla implementation and a caller need not allow vanilla dimensions
+/// explicitly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DimensionRule {
     SpawnMonster = 0,
@@ -78,10 +82,12 @@ pub enum DimensionRule {
     LiquidFlow = 8,
     FarmlandDecay = 9,
     Ride = 10,
-    /// 只拦**跨地皮边界**的活塞推动，地皮内部照常。和
-    /// [`DimensionRule::PistonPush`] 同时生效，任一否决就拦下。
+    /// Blocks only a piston push crossing a plot boundary, leaving the plot interior alone. It
+    /// applies together with [`DimensionRule::PistonPush`] and either one forbidding stops
+    /// the push.
     PistonCrossPlot = 11,
-    /// 只拦跨地皮边界的实体移动。玩家和被骑的载具永不受限。
+    /// Blocks only actor movement crossing a plot boundary. Players and ridden vehicles are
+    /// never restricted.
     EntityCrossPlot = 12,
 }
 
@@ -91,11 +97,12 @@ impl DimensionRule {
     }
 }
 
-/// 地皮世界的网格布局。
+/// The grid layout of a plot world.
 ///
-/// 网格约定（SDK 必须和宿主一致）：令 `cell = plot_size + road_width`，
-/// 世界坐标 `(x, z)` 处，当 `mod(x,cell) >= plot_size || mod(z,cell) >= plot_size`
-/// 时是路；否则离地皮边缘 `border_width` 以内是边框；再否则是地皮。
+/// The grid convention, which the SDK and the host must share. With
+/// `cell = plot_size + road_width`, a world coordinate `(x, z)` is road when
+/// `mod(x,cell) >= plot_size || mod(z,cell) >= plot_size`; otherwise it is border within
+/// `border_width` of the plot edge; otherwise it is plot.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlotLayout {
     pub plot_size: i32,
@@ -126,7 +133,7 @@ impl Default for PlotLayout {
 }
 
 impl PlotLayout {
-    /// 一个地皮加一条路的宽度，也就是网格的模。
+    /// The width of one plot plus one road, which is the modulus of the grid.
     pub fn cell_size(&self) -> i32 {
         self.plot_size + self.road_width
     }
@@ -147,16 +154,16 @@ impl PlotLayout {
     }
 }
 
-/// 一个已经登记过的自定义维度。
+/// One custom dimension that has been registered.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExistingDimension {
     pub name: String,
     pub dim: i32,
-    /// 生成参数原文，由调用方自己解释。
+    /// The raw generation parameters, interpreted by the caller.
     pub snbt: String,
 }
 
-/// 这个宿主编进自定义维度能力了吗。
+/// Whether this host was built with the custom dimension capability.
 pub fn is_available() -> bool {
     if !crate::has_slot!(md_is_available) {
         return false;
@@ -167,39 +174,42 @@ pub fn is_available() -> bool {
     }
 }
 
-/// 登记一个简单自定义维度。返回维度 id（≥3）。
+/// Registers a simple custom dimension. It returns the dimension id, 3 or above.
 pub fn add_simple(name: &str, seed: u32, generator: GeneratorType) -> Result<i32> {
-    let f = crate::require_slot!(md_add_simple_dimension, "登记自定义维度");
+    let f = crate::require_slot!(md_add_simple_dimension, "registering a custom dimension");
     let id = unsafe { f(s(name), seed, generator.as_i32()) };
     if id < 0 {
         Err(Error(format!(
-            "登记不了维度 {name}（名字非法，或维度号用尽）"
+            "the dimension {name} could not be registered: the name is invalid, or the dimension numbers are exhausted"
         )))
     } else {
         Ok(id)
     }
 }
 
-/// 登记一个地皮世界。网格由生成器在生成时铺出来，不是事后刷方块。
+/// Registers a plot world. The generator lays the grid down during generation rather than
+/// blocks being placed afterwards.
 pub fn add_plot(name: &str, seed: u32, layout: &PlotLayout) -> Result<i32> {
-    let f = crate::require_slot!(md_add_plot_dimension, "登记地皮维度");
+    let f = crate::require_slot!(md_add_plot_dimension, "registering a plot dimension");
     let spec = layout.to_snbt();
     let id = unsafe { f(s(name), seed, s(&spec)) };
     if id < 0 {
         Err(Error(format!(
-            "登记不了地皮维度 {name}（名字非法，或布局参数越界）"
+            "the plot dimension {name} could not be registered: the name is invalid, or a layout parameter is out of range"
         )))
     } else {
         Ok(id)
     }
 }
 
-/// 按名字查维度 id。
+/// Looks up a dimension id by name.
 ///
-/// 只对**真正登记过**的名字给 id，没有的返回 `None` —— 而不是那个数值会在
-/// 运行期变、看起来却像合法 id 的「未定义维度」。
+/// It gives an id only for a name really registered and returns `None` otherwise, rather
+/// than the undefined dimension whose value changes at runtime while looking like a valid
+/// id.
 ///
-/// 多数时候用不着它，见模块文档里那条「无条件注册」。
+/// It is rarely needed; see the note on registering unconditionally in the module
+/// documentation.
 pub fn dimension_id(name: &str) -> Option<i32> {
     if !crate::has_slot!(md_get_dimension_id) {
         return None;
@@ -211,12 +221,13 @@ pub fn dimension_id(name: &str) -> Option<i32> {
     }
 }
 
-/// 全部已登记的自定义维度。
+/// Every registered custom dimension.
 ///
-/// 接管一个已有存档的世界管理器**必须**先问这一句：上一个插件建的维度就在
-/// 存档里活着，玩家能传进去，而管理器的表里没有它们那几行。后果不是列表短
-/// 了几条，而是那些维度不受任何规则管，并且新建世界可能被分到一个和它们
-/// 撞号的维度 id。
+/// A world manager adopting an existing save has to ask this first: the dimensions a
+/// previous plugin created are alive in the save and players can teleport into them while
+/// the manager's table has no row for them. The consequence is not a few missing rows but
+/// those dimensions being governed by no rule, and a newly created world possibly being
+/// assigned a dimension id that collides with theirs.
 pub fn list() -> Vec<ExistingDimension> {
     if !crate::has_slot!(md_list_dimensions) {
         return Vec::new();
@@ -224,8 +235,8 @@ pub fn list() -> Vec<ExistingDimension> {
     let Some(f) = crate::__rt::api().md_list_dimensions else {
         return Vec::new();
     };
-    // 每个维度 sink 一次，不是一次交出整个数组（对比 `lane_list`，那个是数组）。
-    // 用 `call_out_str` 只留得住最后一条。
+    // The host sinks once per dimension rather than handing over the whole array at once,
+    // unlike `lane_list`. Using `call_out_str` would keep only the last entry.
     let raw = collect_strs(|ctx, sink| unsafe { f(ctx, sink) });
     let mut out = Vec::with_capacity(raw.len());
     for text in raw {
@@ -238,9 +249,10 @@ pub fn list() -> Vec<ExistingDimension> {
                 dim: i.dim,
                 snbt: i.snbt,
             }),
-            // 坏的那条跳过，不让整批作废 —— `dimension_selector` 依赖这张表。
+            // A bad entry is skipped rather than voiding the whole batch, since
+            // `dimension_selector` depends on this table.
             Err(e) => crate::Logger::get().warn(&format!(
-                "维度清单里有一条解析不了，已跳过：{e}（原文：{}）",
+                "one entry of the dimension listing could not be parsed and was skipped: {e} (raw: {})",
                 text.chars().take(200).collect::<String>()
             )),
         }
@@ -256,17 +268,18 @@ struct ExistingDimensionJson {
     snbt: String,
 }
 
-/// 设一条逐维度规则。
+/// Sets one per-dimension rule.
 pub fn set_rule(dimension: i32, rule: DimensionRule, allow: bool) -> Result<()> {
-    let f = crate::require_slot!(md_set_dimension_rule, "设置维度规则");
+    let f = crate::require_slot!(md_set_dimension_rule, "setting a dimension rule");
     unsafe { f(dimension, rule.as_i32(), allow) };
     Ok(())
 }
 
-/// 读一条规则。这个维度对这条规则**没有显式登记**时是 `Ok(None)`，
-/// 意思是它走原版行为 —— 和「登记了且值为 false」是两件事。
+/// Reads one rule. A dimension with no explicit registration for that rule gives
+/// `Ok(None)`, meaning it follows vanilla behavior, which is different from being
+/// registered with the value false.
 pub fn rule(dimension: i32, rule: DimensionRule) -> Result<Option<bool>> {
-    let f = crate::require_slot!(md_get_dimension_rule, "读取维度规则");
+    let f = crate::require_slot!(md_get_dimension_rule, "reading a dimension rule");
     let mut out = false;
     if unsafe { f(dimension, rule.as_i32(), &mut out) } {
         Ok(Some(out))
@@ -275,19 +288,19 @@ pub fn rule(dimension: i32, rule: DimensionRule) -> Result<Option<bool>> {
     }
 }
 
-/// 清掉一个维度的全部规则（世界被删了）。
+/// Clears every rule of a dimension, for when the world was deleted.
 pub fn clear_rules(dimension: i32) -> Result<()> {
-    let f = crate::require_slot!(md_clear_dimension_rules, "清除维度规则");
+    let f = crate::require_slot!(md_clear_dimension_rules, "clearing the dimension rules");
     unsafe { f(dimension) };
     Ok(())
 }
 
-/// 一块地皮的合并标记。
+/// The merge marks of one plot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlotMerge {
     pub x: i32,
     pub z: i32,
-    /// 1=北 2=东 4=南 8=西 的位集合。
+    /// A bit set where 1 is north, 2 east, 4 south and 8 west.
     pub mask: u32,
 }
 
@@ -301,10 +314,11 @@ impl PlotMerge {
         self.mask == 0
     }
 
-    /// 按 `[北, 东, 南, 西]` 四个方向拼出掩码。
+    /// Assembles a mask from the four directions in the order north, east, south, west.
     ///
-    /// 顺序就是位序:`NORTH` 是 bit 0。手写 `1 | 4` 要读的人反查这张表,
-    /// 而写反了的症状是地皮朝错误的方向合并。
+    /// The order is the bit order, with `NORTH` as bit 0. Writing `1 | 4` by hand makes a
+    /// reader look the table up in reverse, and getting it backwards shows up as plots merging
+    /// in the wrong direction.
     pub fn from_dirs(x: i32, z: i32, dirs: [bool; 4]) -> PlotMerge {
         let mut mask = 0u32;
         for (i, on) in dirs.iter().enumerate() {
@@ -316,31 +330,34 @@ impl PlotMerge {
     }
 }
 
-/// 登记（或更新）一个维度的地皮网格。`plot_size <= 0` 清掉它。
+/// Registers or updates the plot grid of a dimension. A `plot_size <= 0` clears it.
 ///
-/// 几何一变，合并表就被清空 —— 旧的合并标记在新网格下指向别的地皮。
+/// Changed geometry clears the merge table, since an old merge mark points at a different
+/// plot under the new grid.
 pub fn set_plot_grid(dimension: i32, plot_size: i32, road_width: i32) -> Result<()> {
-    let f = crate::require_slot!(md_set_plot_grid, "登记地皮网格");
+    let f = crate::require_slot!(md_set_plot_grid, "registering a plot grid");
     unsafe { f(dimension, plot_size, road_width) };
     Ok(())
 }
 
 pub fn clear_plot_grid(dimension: i32) -> Result<()> {
-    let f = crate::require_slot!(md_clear_plot_grid, "清除地皮网格");
+    let f = crate::require_slot!(md_clear_plot_grid, "clearing a plot grid");
     unsafe { f(dimension) };
     Ok(())
 }
 
-/// **整体替换**一个维度的合并标记。
+/// Replaces the merge marks of a dimension as a whole.
 ///
-/// 整体而不是增量：增量要求两边永远对同一份当前状态达成一致，而解绑操作会
-/// 先清邻居再存自己 —— 中间失败就让两边的视图分岔且回不来。整体推送每次都
-/// 把两边拉回一致。
+/// As a whole and not incrementally: an increment requires both sides to agree at all
+/// times on the same current state, while unlinking clears the neighbor before storing
+/// itself, and a failure in between makes the two views diverge with no way back. A whole
+/// push pulls both sides back into agreement every time.
 ///
-/// 先调 [`set_plot_grid`]：往没登记网格的维度推送会被丢弃并告警。
+/// Call [`set_plot_grid`] first: a push to a dimension with no registered grid is dropped
+/// with a warning.
 pub fn set_plot_merges(dimension: i32, merges: &[PlotMerge]) -> Result<()> {
-    let f = crate::require_slot!(md_set_plot_merges, "推送地皮合并表");
-    // ABI 收的是 count 个 (x, z, mask) 三元组，也就是 count*3 个 i32。
+    let f = crate::require_slot!(md_set_plot_merges, "pushing the plot merge table");
+    // The ABI takes count triples of (x, z, mask), meaning count*3 i32 values.
     let mut flat: Vec<i32> = Vec::with_capacity(merges.len() * 3);
     for m in merges {
         flat.push(m.x);

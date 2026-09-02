@@ -1,8 +1,9 @@
-/** hooks/engine/TickControl.cpp —— carpet 风格的世界时钟控制。
+/** hooks/engine/TickControl.cpp: carpet-style control of the world clock.
  *
- * tick_freeze / tick_step / tick_warp，背后是 Level::$tick 上一个 detour。
- * hook_events.h 的生命周期规矩适用：第一次控制调用时懒安装，永不卸补丁（控制调
- * 用来自 tick 内部执行的命令处理器），空闲开销是一个可预测的分支。 */
+ * tick_freeze, tick_step and tick_warp, backed by one detour on Level::$tick. The
+ * lifetime rules of hook_events.h apply: installed lazily on the first control call and
+ * never unpatched, since a control call arrives from a command handler executing inside
+ * the tick, and the idle cost is one predictable branch. */
 #include <cstdint>
 
 #include "ll/api/memory/Hook.h"
@@ -18,13 +19,13 @@ namespace pier::hooks
 {
     namespace
     {
-        /** 仅服务器线程（控制调用和钩子都跑在那里）。 */
+        /** Server thread only, where both the control calls and the hook run. */
         struct TickState
         {
             bool hooked = false;
             bool frozen = false;
-            double warp = 1.0; // 每真实帧的 tick 数；小数 = 慢动作
-            double acc = 0.0;  // warp 的小数累加器
+            double warp = 1.0; // Ticks per real frame; a fraction means slow motion
+            double acc = 0.0;  // Fractional accumulator for warp
             uint32_t pendingSteps = 0;
         };
 
@@ -40,7 +41,7 @@ namespace pier::hooks
             auto& st = gTick;
             if (st.frozen)
             {
-                // 冻结：只跑显式排队的步进帧。
+                // Frozen: only explicitly queued step frames run.
                 uint32_t n = st.pendingSteps;
                 st.pendingSteps = 0;
                 for (uint32_t i = 0; i < n; ++i) origin();
@@ -48,10 +49,11 @@ namespace pier::hooks
             }
             if (st.warp == 1.0)
             {
-                origin(); // 快路径：钩子装着但空闲
+                origin(); // Fast path: the hook is installed but idle
                 return;
             }
-            // warp：累加小数 tick；>1 连跑额外帧（加速），<1 跳帧（慢动作）。
+            // warp accumulates fractional ticks. Above 1 runs extra frames, which speeds
+            // the world up, and below 1 skips frames, which is slow motion.
             st.acc += st.warp;
             int n = static_cast<int>(st.acc);
             st.acc -= n;
@@ -70,7 +72,7 @@ namespace pier::hooks
         bool api_tick_freeze(bool on)
         {
             PIER_API_GUARD_BEGIN
-                if (!on && !gTick.hooked) return true; // 没什么可撤销的
+                if (!on && !gTick.hooked) return true; // Nothing to undo
                 ensureTickHooked();
                 gTick.frozen = on;
                 if (!on) gTick.pendingSteps = 0;
@@ -82,8 +84,10 @@ namespace pier::hooks
         {
             PIER_API_GUARD_BEGIN
                 if (n == 0) return false;
-                if (!gTick.hooked || !gTick.frozen) return false; // 步进只在冻结时有意义
-                // 冻结态下一帧内执行全部待步进 tick，无上限等于一次调用冻住线程。
+                // Stepping only means something while frozen.
+                if (!gTick.hooked || !gTick.frozen) return false;
+                // While frozen every pending step tick runs within one frame, so without
+                // a cap one call freezes the thread.
                 if (n > 1200 || gTick.pendingSteps > 1200 - n) return false;
                 gTick.pendingSteps += n;
                 return true;
@@ -93,8 +97,8 @@ namespace pier::hooks
         bool api_tick_warp(double factor)
         {
             PIER_API_GUARD_BEGIN
-                if (!(factor > 0.0) || factor > 100.0) return false; // 顺带拒掉 NaN
-                if (factor == 1.0 && !gTick.hooked) return true;     // 没什么可撤销的
+                if (!(factor > 0.0) || factor > 100.0) return false; // Also rejects NaN
+                if (factor == 1.0 && !gTick.hooked) return true;     // Nothing to undo
                 ensureTickHooked();
                 gTick.warp = factor;
                 if (factor == 1.0) gTick.acc = 0.0;

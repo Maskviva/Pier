@@ -4,7 +4,8 @@ namespace pier
 {
     namespace
     {
-        /** 返回从 `i` 起一个合法 UTF-8 序列的长度（1..4）；非法返回 0。 */
+        /** Length of the valid UTF-8 sequence starting at `i`, from 1 to 4.
+         *  Returns 0 when the sequence is invalid. */
         size_t utf8SeqLen(std::string_view s, size_t i)
         {
             auto const b0 = static_cast<unsigned char>(s[i]);
@@ -20,7 +21,7 @@ namespace pier
                 auto const bk = static_cast<unsigned char>(s[i + k]);
                 if ((bk & 0xC0) != 0x80) return 0;
             }
-            // 拒绝过长编码与代理区
+            // Reject overlong encodings and the surrogate range
             auto const b1 = static_cast<unsigned char>(s[i + 1]);
             if (b0 == 0xE0 && b1 < 0xA0) return 0;
             if (b0 == 0xED && b1 >= 0xA0) return 0;
@@ -40,8 +41,10 @@ namespace pier
             auto const uc = static_cast<unsigned char>(c);
             if (uc >= 0x80)
             {
-                // 非法 UTF-8 不能原样透传 —— SDK 侧 from_utf8 会失败，整条
-                // 载荷在这里被截断，其后的 dim/取消位全部丢失。改写成 U+FFFD。
+                // Invalid UTF-8 must not pass through unchanged. from_utf8 on the
+                // SDK side fails, the payload is truncated at this point and every
+                // later field, including dim and the cancel bit, is lost. It is
+                // rewritten as U+FFFD instead.
                 size_t const n = utf8SeqLen(s, i);
                 if (n == 0)
                 {
@@ -72,8 +75,9 @@ namespace pier
                 out += "\\t";
                 break;
             default:
-                // 其余控制字符按 LL 自己的 toSnbt 规则写成 \uXXXX，
-                // 别让 0x01/0x08/0x0C 之类原样进入字符串字面量。
+                // Remaining control characters follow the toSnbt rule of LL itself
+                // and become \uXXXX. Bytes such as 0x01, 0x08 and 0x0C must not
+                // enter a string literal unchanged.
                 if (uc < 0x20 || uc == 0x7F)
                 {
                     static constexpr char hex[] = "0123456789abcdef";

@@ -1,19 +1,19 @@
-/**
- * hooks/player/GameModeEvent.cpp —— 合成事件 "PlayerChangeGameModeEvent"，可取消。
- *
- * 只在进服和跨维度时套用模式覆盖不了入口之后的 /gamemode、命令方块、记分板触
- * 发器。挂点是虚函数 Player::$setPlayerGameType，所有改模式的路径都从这里过；
- * 内层非虚的 _setPlayerGameType 是实现细节，不挂。
- *
- * 订阅方在回调里回设模式不会自激：目标模式必在允许集合内，判定幂等。仍加一道
- * 重入闸，防止把目标模式判为不允许的订阅方无限递归到引擎里崩掉（栈上全是同一
- * 帧，日志无线索）。重入时直接放行。取消即不调 origin，服务端不发变更包，客户
- * 端一拍内自行对齐。
- *
- * 载荷 {eventId, x, y, z, dim, from, to, _player:{…}}。from/to 是 ::GameType 的
- * 整数值原样（-1 Undefined、0 Survival、1 Creative、2 Adventure、5 Default、
- * 6 Spectator），不折算成自有编号，折算表会和引擎分叉。
- */
+/** hooks/player/GameModeEvent.cpp: the synthetic, cancellable
+ * "PlayerChangeGameModeEvent".
+ * Applying a mode only on join and on a dimension change misses the /gamemode, command
+ * block and scoreboard trigger paths that follow. The hook point is the virtual
+ * Player::$setPlayerGameType, through which every mode change passes; the inner
+ * non-virtual _setPlayerGameType is an implementation detail and is not hooked.
+ * A subscriber setting the mode back from its callback does not self-trigger, since the
+ * target mode is then inside the allowed set and the decision is idempotent. A re-entry
+ * gate is added anyway, so a subscriber that judges the target mode disallowed cannot
+ * recurse into the engine until it crashes, with a stack of identical frames and nothing
+ * in the log. Re-entry passes straight through. Cancelling means not calling origin, the
+ * server sends no change packet and the client realigns within a tick.
+ * Payload {eventId, x, y, z, dim, from, to, _player:{...}}. from and to carry the
+ * ::GameType integers verbatim, -1 Undefined, 0 Survival, 1 Creative, 2 Adventure,
+ * 5 Default, 6 Spectator, and are not translated into a numbering of this layer, because
+ * such a table would diverge from the engine. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -31,9 +31,10 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& gameModeDef(); // 前向
+        HookEventDef& gameModeDef(); // Forward declaration
 
-        /** 见文件头「不会自激」。派发期间再次进来一律放行。 */
+        /** The no-self-trigger rule from the file header. Re-entering during a dispatch
+         *  always passes through. */
         bool gDispatching = false;
 
         std::string buildSnbt(Player& p, int from, int to)
@@ -66,7 +67,8 @@ namespace pier::hooks
             int const from = static_cast<int>(this->getPlayerGameType());
             int const to = static_cast<int>(gameType);
 
-            // 没变就不问。每次重生、每次切维度引擎都会把当前模式再设一遍。
+            // Nothing changed, so nothing is asked. The engine sets the current mode
+            // again on every respawn and every dimension change.
             if (from == to)
             {
                 return origin(gameType);
@@ -85,7 +87,8 @@ namespace pier::hooks
             }
             if (cancelled)
             {
-                // void 返回值，取消即不调 origin：模式没动，服务端不发变更包。
+                // The return is void, so cancelling means not calling origin: the mode
+                // does not move and the server sends no change packet.
                 return;
             }
             return origin(gameType);
@@ -98,16 +101,19 @@ namespace pier::hooks
                 int const r = PlayerChangeGameModeHook::hook();
                 auto& log = hostLogger();
                 log.debug(
-                    "[GameModeEvent] 安装 detour：PlayerChangeGameModeHook={} (code={})",
-                    r == 0 ? "成功" : "失败", r);
+                    "[hooks/GameModeEvent] installing detour: PlayerChangeGameModeHook={} (code={})",
+                    r == 0 ? "ok" : "failed", r);
                 if (r != 0)
                 {
                     log.error(
-                        "[GameModeEvent] 原生 detour 安装失败（非 0 状态码）。最常见原因是"
-                        "本宿主链接的 BDS/LeviLamina 版本与服务器实际运行的版本不一致，"
-                        "导致 Player::$setPlayerGameType 的符号地址解析错误。结果：**游戏模式"
-                        "强制只在进入世界的那一刻生效**，玩家进去之后自己 /gamemode 就能绕过，"
-                        "而且不会有任何拦截日志。请用服务器实际运行的版本重新编译本宿主。");
+                        "[hooks/GameModeEvent] the native detour failed to install with a "
+                        "non-zero status. The usual cause is a mismatch between the BDS or "
+                        "LeviLamina version this host was linked against and the one the "
+                        "server runs, so the symbol address of Player::$setPlayerGameType "
+                        "resolved wrongly. Game mode enforcement now applies only at the "
+                        "moment of entering the world, a player can bypass it with "
+                        "/gamemode afterwards, and nothing is logged. Rebuild this host "
+                        "against the version the server actually runs.");
                 }
                 return r == 0;
             }

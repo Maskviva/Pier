@@ -1,16 +1,17 @@
-//! SNBT 写出。
-//!
-//! 对面（`CompoundTag::fromSnbt`）比我们严格，所以这里的规矩是「宁可啰嗦」：
-//!
-//! * **类型后缀一个都不省**。`100.0` 不写 `d` 会被读成 int，那正是宿主侧
-//!   V-21 修的同一个坑（`snbtNum` 对浮点不带后缀），只不过方向反过来。
-//! * **键一律加引号**。裸键在遇到数字开头、含点号或中文时会解析失败，而
-//!   业务侧的键名（玩家名、地皮 id）什么都可能是。
-//! * **控制字符写成 `\uXXXX`**，非法 UTF-8 在进来的时候就被宿主换成了 U+FFFD
-//!   （V-19），这里不会再见到。
-//! * 浮点用 `{:?}` 而不是 `{}`：后者对 `1.0` 会输出 `1`，后缀救不回来类型
-//!   （`1d` 合法但和 `1.0d` 不是一个书写习惯，容易在 diff 里被误读）。
-//!   非有限值（NaN/±Inf）SNBT 表达不了，落成 `0`。
+//! Writing SNBT.
+//! The other side, `CompoundTag::fromSnbt`, is stricter than this one, so the rule here is to be
+//! verbose rather than terse:
+//! * no type suffix is omitted. A `100.0` without the `d` is read as an int, the same trap
+//!   the host side has where `snbtNum` writes no suffix on a float, only in the other direction.
+//! * every key is quoted. A bare key fails to parse when it starts with a digit, contains a
+//!   dot or contains a non-ASCII character, and a business key such as a player name or a
+//!   plot id can be anything.
+//! * a control character is written as `\uXXXX`. Invalid UTF-8 was already replaced with
+//!   U+FFFD by the host on the way in and is not seen here.
+//! * a float uses `{:?}` and not `{}`: the latter prints `1` for `1.0` and the suffix does not
+//!   recover the type, since `1d` is valid while not being the same writing habit as `1.0d`
+//!   and is easily misread in a diff. A non-finite value, NaN or an infinity, cannot be
+//!   expressed in SNBT and lands as `0`.
 
 use super::NbtValue;
 
@@ -104,7 +105,7 @@ fn fmt_float(v: f64) -> String {
     if !v.is_finite() {
         return "0.0".to_owned();
     }
-    let s = format!("{v:?}"); // `{:?}` 保证小数点在
+    let s = format!("{v:?}"); // `{:?}` guarantees the decimal point is there
     if s.contains(['.', 'e', 'E']) {
         s
     } else {

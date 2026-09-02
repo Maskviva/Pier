@@ -1,9 +1,12 @@
-//! 世界 —— 关卡层面的读写：时间、天气、难度、游戏规则、生物群系、区块。
+//! The world: reads and writes at the level layer, covering time, weather, difficulty,
+//! game rules, biomes and chunks.
 //!
-//! 这一层和 [`crate::host`] 的分界是「说的是宿主还是世界」：服务器阶段、排期、
-//! 执行命令属于宿主，换个游戏也成立；时间、天气、区块属于世界。
+//! The boundary with [`crate::host`] is whether something speaks about the host or the
+//! world. The server stage, scheduling and executing a command belong to the host and hold
+//! for another game; time, weather and chunks belong to the world.
 //!
-//! 关卡本身的开关在这里；动世界里的东西在 `edit`，拼命令在 `commands`。
+//! The switches of the level itself are here, changing things inside the world is in
+//! `edit`, and assembling commands is in `commands`.
 
 mod commands;
 mod edit;
@@ -16,17 +19,17 @@ use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, collect_raw, collect_strs, s, s_raw};
 use crate::types::{Bounds, Difficulty, PositionI32, Weather};
 
-/// 扫描时落在区域里的一个实体。
+/// One actor that fell inside the region during a scan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityInfo {
-    /// 实体所在的那一格（位置向下取整）。
+    /// The cell the actor is in, its position floored.
     pub cell: PositionI32,
     pub type_name: String,
-    /// `Actor::save` 的完整 NBT。
+    /// The full NBT of `Actor::save`.
     pub snbt: String,
 }
 
-/// 一次扫描的结果。
+/// The result of one scan.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scan {
     pub blocks: Vec<BlockInfo>,
@@ -34,10 +37,11 @@ pub struct Scan {
 }
 
 impl Scan {
-    /// 按坐标索引方块。
+    /// Indexes a block by coordinate.
     ///
-    /// 每调一次都重建一张表，所以循环里别调 —— 那是 O(n²)。要反复查就
-    /// 自己留住返回值。ABI 不保证 sink 的遍历顺序，所以不能靠下标算位置。
+    /// It rebuilds a table on every call, so it does not belong in a loop, where it is O(n^2).
+    /// Repeated lookups keep the returned value. The ABI does not guarantee the traversal
+    /// order of the sink, so a position cannot be computed from an index.
     pub fn block_map(&self) -> std::collections::HashMap<PositionI32, &BlockInfo> {
         self.blocks.iter().map(|b| (b.pos, b)).collect()
     }
@@ -46,13 +50,13 @@ impl Scan {
         self.blocks.iter().filter(|b| !b.is_air()).count()
     }
 
-    /// 落在这块区域里的实体数。
+    /// How many actors fell inside this region.
     pub fn entity_count(&self) -> usize {
         self.entities.len()
     }
 }
 
-/// 一个村庄。
+/// One village.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VillageInfo {
     pub uuid: String,
@@ -61,14 +65,15 @@ pub struct VillageInfo {
     pub poi_count: i32,
 }
 
-/// 一处硬编码生成区（要塞、女巫小屋、海底神殿、掠夺者前哨站）。
+/// One hardcoded generation area: a stronghold, a witch hut, an ocean monument or a
+/// pillager outpost.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructureInfo {
     pub kind: String,
     pub bounds: Bounds,
 }
 
-/// 一条游戏规则的值。
+/// The value of one game rule.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GameRuleValue {
     Bool(bool),
@@ -76,7 +81,7 @@ pub enum GameRuleValue {
     Float(f64),
 }
 
-/// 睡眠状态（`level_get_sleep_status`）。
+/// The sleep status, from `level_get_sleep_status`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SleepStatus {
     pub sleeping: bool,
@@ -84,7 +89,7 @@ pub struct SleepStatus {
     pub active_sleeping: i32,
 }
 
-/// 关卡门面。零大小。
+/// The level facade. Zero sized.
 #[derive(Clone, Copy)]
 pub struct World(());
 
@@ -93,39 +98,41 @@ impl World {
         World(())
     }
 
-    // ── 时钟与天气 ────────────────────────────────────────────
+    // The clock and the weather
 
     pub fn time(&self) -> Result<i64> {
-        let f = crate::require_slot!(get_time, "读取世界时间");
+        let f = crate::require_slot!(get_time, "reading the world time");
         let mut out = 0i64;
         if unsafe { f(&mut out) } {
             Ok(out)
         } else {
-            Err(Error("关卡没就绪，读不出世界时间".to_owned()))
+            Err(Error("the level is not ready, so the world time cannot be read".to_owned()))
         }
     }
 
     pub fn set_time(&self, t: i64) -> Result<()> {
-        let f = crate::require_slot!(set_time, "设置世界时间");
+        let f = crate::require_slot!(set_time, "setting the world time");
         if unsafe { f(t) } {
             Ok(())
         } else {
-            Err(Error("关卡没就绪，设不了世界时间".to_owned()))
+            Err(Error("the level is not ready, so the world time cannot be set".to_owned()))
         }
     }
 
     pub fn set_weather(&self, weather: Weather) -> Result<()> {
-        let f = crate::require_slot!(set_weather, "设置天气");
+        let f = crate::require_slot!(set_weather, "setting the weather");
         if unsafe { f(weather.as_i32()) } {
             Ok(())
         } else {
-            Err(Error("关卡没就绪，设不了天气".to_owned()))
+            Err(Error("the level is not ready, so the weather cannot be set".to_owned()))
         }
     }
 
-    /// 逐项设置降雨与雷暴的强度和剩余时长（tick）。
+    /// Sets the level and the remaining duration, in ticks, of rain and of lightning
+    /// individually.
     ///
-    /// 比 [`World::set_weather`] 细：那个只有三档，这个能做「小雨下三分钟」。
+    /// Finer than [`World::set_weather`], which has three settings, this can do light rain for
+    /// three minutes.
     pub fn update_weather(
         &self,
         rain_level: f32,
@@ -133,107 +140,107 @@ impl World {
         lightning_level: f32,
         lightning_ticks: i32,
     ) -> Result<()> {
-        let f = crate::require_slot!(level_update_weather, "更新天气参数");
+        let f = crate::require_slot!(level_update_weather, "updating the weather parameters");
         let ok = unsafe { f(rain_level, rain_ticks, lightning_level, lightning_ticks) };
         if ok {
             Ok(())
         } else {
-            Err(Error("关卡没就绪，更新不了天气参数".to_owned()))
+            Err(Error("the level is not ready, so the weather parameters cannot be updated".to_owned()))
         }
     }
 
-    // ── 关卡设置 ──────────────────────────────────────────────
+    // Level settings
 
     pub fn difficulty(&self) -> Result<Difficulty> {
-        let f = crate::require_slot!(get_difficulty, "读取难度");
+        let f = crate::require_slot!(get_difficulty, "reading the difficulty");
         let mut out = 0i32;
         if !unsafe { f(&mut out) } {
-            return Err(Error("关卡没就绪，读不出难度".to_owned()));
+            return Err(Error("the level is not ready, so the difficulty cannot be read".to_owned()));
         }
-        Difficulty::from_i32(out).ok_or_else(|| Error(format!("宿主报了不认识的难度 {out}")))
+        Difficulty::from_i32(out).ok_or_else(|| Error(format!("the host reported an unrecognized difficulty {out}")))
     }
 
     pub fn set_difficulty(&self, d: Difficulty) -> Result<()> {
-        let f = crate::require_slot!(set_difficulty, "设置难度");
+        let f = crate::require_slot!(set_difficulty, "setting the difficulty");
         if unsafe { f(d.as_i32()) } {
             Ok(())
         } else {
-            Err(Error("关卡没就绪，设不了难度".to_owned()))
+            Err(Error("the level is not ready, so the difficulty cannot be set".to_owned()))
         }
     }
 
     pub fn seed(&self) -> Result<i64> {
-        let f = crate::require_slot!(get_seed, "读取世界种子");
+        let f = crate::require_slot!(get_seed, "reading the world seed");
         let mut out = 0i64;
         if unsafe { f(&mut out) } {
             Ok(out)
         } else {
-            Err(Error("关卡没就绪，读不出世界种子".to_owned()))
+            Err(Error("the level is not ready, so the world seed cannot be read".to_owned()))
         }
     }
 
-    /// 读一条游戏规则。规则名不认识时是 `Err`，不是某个默认值。
+    /// Reads one game rule. An unrecognized rule name is an `Err` and not some default value.
     pub fn game_rule(&self, name: &str) -> Result<GameRuleValue> {
-        let f = crate::require_slot!(game_rule_get, "读取游戏规则");
+        let f = crate::require_slot!(game_rule_get, "reading a game rule");
         let text = call_out_str(|ctx, sink| unsafe { f(s(name), ctx, sink) })
-            .ok_or_else(|| Error(format!("没有名为 {name} 的游戏规则")))?;
+            .ok_or_else(|| Error(format!("there is no game rule named {name}")))?;
         let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("游戏规则 SNBT 解析失败：{e}")))?;
+            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the game rule SNBT failed: {e}")))?;
         let kind = v.get_str("type")?.to_owned();
         match kind.as_str() {
             "bool" => Ok(GameRuleValue::Bool(v.get_bool("value")?)),
             "int" => Ok(GameRuleValue::Int(v.get_i64("value")?)),
             "float" => Ok(GameRuleValue::Float(v.get_f64("value")?)),
-            other => Err(Error(format!("游戏规则 {name} 的类型是不认识的 {other:?}"))),
+            other => Err(Error(format!("game rule {name} has the unrecognized type {other:?}"))),
         }
     }
 
     pub fn set_game_rule(&self, name: &str, value: &str) -> Result<()> {
-        let f = crate::require_slot!(game_rule_set, "设置游戏规则");
+        let f = crate::require_slot!(game_rule_set, "setting a game rule");
         if unsafe { f(s(name), s(value)) } {
             Ok(())
         } else {
             Err(Error(format!(
-                "设不了游戏规则 {name}={value}（规则名或值不合法）"
+                "the game rule {name}={value} could not be set, since the rule name or the value is invalid"
             )))
         }
     }
 
     pub fn default_spawn(&self) -> Result<PositionI32> {
-        let f = crate::require_slot!(level_get_default_spawn, "读取默认出生点");
+        let f = crate::require_slot!(level_get_default_spawn, "reading the default spawn point");
         let (mut x, mut y, mut z) = (0i32, 0i32, 0i32);
         if unsafe { f(&mut x, &mut y, &mut z) } {
             Ok((x, y, z))
         } else {
-            Err(Error("关卡没就绪，读不出默认出生点".to_owned()))
+            Err(Error("the level is not ready, so the default spawn point cannot be read".to_owned()))
         }
     }
 
     pub fn set_default_spawn(&self, x: i32, y: i32, z: i32) -> Result<()> {
-        let f = crate::require_slot!(level_set_default_spawn, "设置默认出生点");
+        let f = crate::require_slot!(level_set_default_spawn, "setting the default spawn point");
         if unsafe { f(x, y, z) } {
             Ok(())
         } else {
-            Err(Error("关卡没就绪，设不了默认出生点".to_owned()))
+            Err(Error("the level is not ready, so the default spawn point cannot be set".to_owned()))
         }
     }
 
-    /// 立刻存盘。
+    /// Saves to disk immediately.
     pub fn save(&self) -> Result<()> {
-        let f = crate::require_slot!(level_save, "保存关卡");
+        let f = crate::require_slot!(level_save, "saving the level");
         if unsafe { f() } {
             Ok(())
         } else {
-            Err(Error("关卡没就绪，存不了盘".to_owned()))
+            Err(Error("the level is not ready, so it cannot be saved".to_owned()))
         }
     }
 
     pub fn sleep_status(&self) -> Result<SleepStatus> {
-        let f = crate::require_slot!(level_get_sleep_status, "读取睡眠状态");
+        let f = crate::require_slot!(level_get_sleep_status, "reading the sleep status");
         let text = call_out_str(|ctx, sink| unsafe { f(ctx, sink) })
-            .ok_or_else(|| Error("关卡没就绪，读不出睡眠状态".to_owned()))?;
+            .ok_or_else(|| Error("the level is not ready, so the sleep status cannot be read".to_owned()))?;
         let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("睡眠状态 SNBT 解析失败：{e}")))?;
+            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the sleep status SNBT failed: {e}")))?;
         Ok(SleepStatus {
             sleeping: v.opt_bool("sleeping").unwrap_or(false),
             total_players: v.opt_i32("total_players").unwrap_or(0),
@@ -241,19 +248,20 @@ impl World {
         })
     }
 
-    // ── 生物群系 ──────────────────────────────────────────────
+    // Biomes
 
     pub fn biome(&self, dim: i32, x: i32, y: i32, z: i32) -> Result<String> {
-        let f = crate::require_slot!(level_get_biome, "读取生物群系");
+        let f = crate::require_slot!(level_get_biome, "reading a biome");
         call_out_str(|ctx, sink| unsafe { f(dim, x, y, z, ctx, sink) })
-            .ok_or_else(|| Error(format!("读不出维度 {dim} ({x},{y},{z}) 的生物群系")))
+            .ok_or_else(|| Error(format!("the biome at ({x},{y},{z}) in dimension {dim} could not be read")))
     }
 
-    /// 按列设置一片区域的生物群系。
+    /// Sets the biome of a region, column by column.
     ///
-    /// 不收 y：`setBiome3d` 是逐 y 的，但基岩版按列存生物群系，给一个 y
-    /// 会让调用方以为能分层设。返回**成功设置的列数**；0 意味着一列都没设成
-    /// （区块没加载，或群系名不认识），而不是「设了但什么都没变」。
+    /// It takes no y. `setBiome3d` works per y while Bedrock stores a biome per column, and
+    /// taking a y would suggest layers can be set separately. It returns how many columns were
+    /// set, and 0 means none were, because the chunks are not loaded or the biome name is
+    /// unrecognized, rather than being set with nothing changing.
     pub fn set_biome(
         &self,
         dim: i32,
@@ -261,18 +269,19 @@ impl World {
         to: (i32, i32),
         biome: &str,
     ) -> Result<i32> {
-        let f = crate::require_slot!(level_set_biome, "设置生物群系");
+        let f = crate::require_slot!(level_set_biome, "setting a biome");
         let (min_x, max_x) = (from.0.min(to.0), from.0.max(to.0));
         let (min_z, max_z) = (from.1.min(to.1), from.1.max(to.1));
         Ok(unsafe { f(dim, min_x, min_z, max_x, max_z, s(biome)) })
     }
 
-    // ── 只读查询 ──────────────────────────────────────────────
+    // Read-only queries
 
-    /// 一个维度里的村庄。
+    /// The villages in one dimension.
     pub fn villages(&self, dim: i32) -> Vec<VillageInfo> {
-        // 长度闸和非空闸缺一不可（契约 §2.2）：表短到够不着这个字段时，
-        // 读它是越界读，而越界读回来的东西常常看起来像个合法函数指针。
+        // Neither the length gate nor the non-null gate may be skipped (contract §2.2): with a
+        // table too short to reach this field, reading it is out of bounds, and what comes
+        // back often looks like a valid function pointer.
         if !crate::has_slot!(villages) {
             return Vec::new();
         }
@@ -281,7 +290,7 @@ impl World {
         };
         parse_each(
             collect_strs(|ctx, sink| unsafe { f(dim, ctx, sink) }),
-            "村庄",
+            "village",
             |v| {
                 Some(VillageInfo {
                     uuid: v.opt_str("uuid").unwrap_or_default().to_owned(),
@@ -293,10 +302,11 @@ impl World {
         )
     }
 
-    /// 半径内**已加载**区块里的硬编码生成区。
+    /// The hardcoded generation areas in the loaded chunks within a radius.
     ///
-    /// 只看已加载的区块：一个只读查询不该把区块强行加载进来。所以结果为空
-    /// 既可能是「附近没有」，也可能是「附近的区块没加载」。
+    /// Only loaded chunks are examined, since a read-only query should not force chunks to
+    /// load. An empty result therefore means either that there are none nearby or that the
+    /// nearby chunks are not loaded.
     pub fn structures_near(
         &self,
         dim: i32,
@@ -313,7 +323,7 @@ impl World {
         };
         parse_each(
             collect_strs(|ctx, sink| unsafe { f(dim, x, y, z, radius, ctx, sink) }),
-            "结构",
+            "structure",
             |v| {
                 Some(StructureInfo {
                     kind: v.opt_str("type").unwrap_or_default().to_owned(),
@@ -323,12 +333,13 @@ impl World {
         )
     }
 
-    // ── 区块与存档键 ──────────────────────────────────────────
+    // Chunks and save keys
 
-    /// `[min..max]` 覆盖的区块是不是**全部**在内存里。
+    /// Whether every chunk covered by `[min..max]` is in memory.
     ///
-    /// 删存档键之前必须问这一句：一个加载着的区块在内存里有副本，卸载时会把
-    /// 刚删掉的键原样写回去，而删除本身「成功」了并报了一个正数。
+    /// This has to be asked before deleting a save key: a loaded chunk has a copy in memory
+    /// and writes the key just deleted straight back on unload, while the deletion itself
+    /// succeeded and reported a positive number.
     pub fn chunks_loaded(
         &self,
         dim: i32,
@@ -337,64 +348,69 @@ impl World {
         max_x: i32,
         max_z: i32,
     ) -> Result<bool> {
-        let f = crate::require_slot!(level_chunks_loaded, "查询区块加载状态");
+        let f = crate::require_slot!(level_chunks_loaded, "querying the chunk load state");
         match unsafe { f(dim, min_x, min_z, max_x, max_z) } {
             1 => Ok(true),
             0 => Ok(false),
-            _ => Err(Error(format!("维度 {dim} 不可用，问不出区块加载状态"))),
+            _ => Err(Error(format!("dimension {dim} is unavailable, so the chunk load state cannot be determined"))),
         }
     }
 
-    /// 删掉一个区块的全部存档键，让引擎下次加载时按生成器重新生成。
+    /// Deletes every save key of a chunk, so the engine regenerates it from the generator on
+    /// the next load.
     ///
-    /// **区块必须先卸载**，见 [`World::chunks_loaded`]。让区块卸载是调用方的事：
-    /// 谁在附近、什么时候可以卸载，要的是这一层不该有的领域知识。
+    /// The chunk must be unloaded first; see [`World::chunks_loaded`]. Getting a chunk
+    /// unloaded is the caller's business, since who is nearby and when unloading is possible
+    /// needs domain knowledge this layer should not have.
     ///
-    /// 返回删掉的键数。0 是正常结果，意思是那个区块从来没生成过。
+    /// It returns how many keys were deleted. A 0 is a normal result and means that chunk was
+    /// never generated.
     pub fn delete_chunk_keys(&self, dim: i32, chunk_x: i32, chunk_z: i32) -> Result<i32> {
-        let f = crate::require_slot!(level_delete_chunk_keys, "删除区块存档键");
+        let f = crate::require_slot!(level_delete_chunk_keys, "deleting the save keys of a chunk");
         let n = unsafe { f(dim, chunk_x, chunk_z) };
         if n < 0 {
-            Err(Error("存档层不可用，删不了区块键".to_owned()))
+            Err(Error("the save layer is unavailable, so chunk keys cannot be deleted".to_owned()))
         } else {
             Ok(n)
         }
     }
 
-    /// 列出一个区块的全部存档键。
+    /// Lists every save key of a chunk.
     ///
-    /// 键是**二进制**，含 0 字节，所以是 `Vec<u8>` 而不是 `String` ——
-    /// 走一次 UTF-8 转换会把它损坏成一个删不掉的键。
+    /// A key is binary and contains zero bytes, so it is a `Vec<u8>` and not a `String`: a
+    /// UTF-8 conversion would corrupt it into a key that cannot be deleted.
     pub fn chunk_keys(&self, dim: i32, chunk_x: i32, chunk_z: i32) -> Result<Vec<Vec<u8>>> {
-        let f = crate::require_slot!(level_chunk_keys, "列出区块存档键");
+        let f = crate::require_slot!(level_chunk_keys, "listing the save keys of a chunk");
         let mut n = 0i32;
         let keys = collect_raw(|ctx, sink| {
             n = unsafe { f(dim, chunk_x, chunk_z, ctx, sink) };
         });
         if n < 0 {
-            Err(Error("存档层不可用，列不出区块键".to_owned()))
+            Err(Error("the save layer is unavailable, so chunk keys cannot be listed".to_owned()))
         } else {
             Ok(keys)
         }
     }
 
-    /// 逐字删掉一个存档键。内容不解释，传什么删什么。
+    /// Deletes one save key byte for byte. The content is not interpreted and what is passed
+    /// is what is deleted.
     pub fn delete_key(&self, key: &[u8]) -> Result<()> {
-        let f = crate::require_slot!(level_delete_key, "删除存档键");
+        let f = crate::require_slot!(level_delete_key, "deleting a save key");
         if unsafe { f(s_raw(key)) } {
             Ok(())
         } else {
-            Err(Error("存档层不可用，或这个键不存在".to_owned()))
+            Err(Error("the save layer is unavailable, or this key does not exist".to_owned()))
         }
     }
 }
 
-// ── 解析助手 ──────────────────────────────────────────────────────
+// Parsing helpers
 
-/// 逐条解析一批 SNBT，坏的那条跳过并告警。
+/// Parses a batch of SNBT one entry at a time, skipping a bad one with a warning.
 ///
-/// 整批作废是不对的：一个村庄的条目坏了不该让「这个世界有哪些村庄」变成
-/// 无法回答的问题。跳过时打日志，否则就成了契约 §5.1 禁的静默回退。
+/// Voiding the whole batch is wrong: one broken village entry should not make which
+/// villages exist unanswerable. A skip is logged, otherwise it becomes the silent fallback
+/// contract §5.1 forbids.
 fn parse_each<T>(
     raw: Vec<String>,
     what: &str,
@@ -406,16 +422,16 @@ fn parse_each<T>(
             Ok(v) => match build(&v) {
                 Some(item) => out.push(item),
                 None => {
-                    crate::Logger::get().warn(&format!("{what}条目缺了必需的字段，已跳过：{text}"))
+                    crate::Logger::get().warn(&format!("a {what} entry was missing a required field and was skipped: {text}"))
                 }
             },
-            Err(e) => crate::Logger::get().warn(&format!("{what}条目 SNBT 解析失败，已跳过：{e}")),
+            Err(e) => crate::Logger::get().warn(&format!("parsing the SNBT of a {what} entry failed and it was skipped: {e}")),
         }
     }
     out
 }
 
-/// 取 `{bounds:{min:[…],max:[…]}}`。
+/// Reads `{bounds:{min:[...],max:[...]}}`.
 fn parse_bounds(v: &NbtValue) -> Option<Bounds> {
     let b = v.get("bounds")?;
     Some(Bounds {

@@ -1,7 +1,8 @@
-//! 方块状态与方块实体。
+//! Block states and block entities.
 //!
-//! 方块状态是方块身份的一部分（改了就是另一个方块）；方块实体是挂在
-//! 这一格上的额外数据（箱子里的东西、告示牌上的字）。两者不是一回事。
+//! A block state is part of the identity of a block, so changing one makes it a different
+//! block, while a block entity is extra data attached to the cell, such as the contents of
+//! a chest or the text on a sign. The two are not the same thing.
 
 use super::parse_boxes;
 use crate::block::Block;
@@ -12,67 +13,67 @@ use crate::sys;
 use crate::types::Bounds;
 
 impl Block {
-    // ── 方块状态 ──────────────────────────────────────────────
+    // Block states
 
-    /// 读一个方块状态的值。
+    /// Reads the value of one block state.
     pub fn state(&self, name: &str) -> Result<String> {
-        let f = crate::require_slot!(block_get_state, "读取方块状态");
+        let f = crate::require_slot!(block_get_state, "reading a block state");
         call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, s(name), ctx, sink) })
-            .ok_or_else(|| Error(format!("{self} 没有名为 {name} 的方块状态")))
+            .ok_or_else(|| Error(format!("{self} has no block state named {name}")))
     }
 
-    /// 全部方块状态。
+    /// Every block state.
     pub fn states(&self) -> Result<NbtValue> {
         let text = self.text(sys::PIER_BSTR_STATE)?;
-        NbtValue::parse(&text).map_err(|e| Error(format!("方块状态 SNBT 解析失败：{e}")))
+        NbtValue::parse(&text).map_err(|e| Error(format!("parsing the block state SNBT failed: {e}")))
     }
 
     pub fn set_state(&self, name: &str, value: &str) -> Result<()> {
-        let f = crate::require_slot!(block_set_state, "写入方块状态");
+        let f = crate::require_slot!(block_set_state, "writing a block state");
         let ok = unsafe { f(self.dim, self.x, self.y, self.z, s(name), s(value)) };
         if ok {
             Ok(())
         } else {
             Err(Error(format!(
-                "写不了 {self} 的状态 {name}={value}（这个方块没有这个状态，或值不在取值域里）"
+                "the state {name}={value} of {self} could not be written: the block has no such state, or the value is outside its range"
             )))
         }
     }
 
-    /// 碰撞盒。
+    /// The collision box.
     pub fn collision_shape(&self) -> Result<Vec<Bounds>> {
-        let f = crate::require_slot!(block_get_collision_shape, "读取方块碰撞盒");
+        let f = crate::require_slot!(block_get_collision_shape, "reading the collision box of a block");
         let text =
             call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, ctx, sink) })
-                .ok_or_else(|| Error(format!("读不出 {self} 的碰撞盒")))?;
+                .ok_or_else(|| Error(format!("the collision box of {self} could not be read")))?;
         parse_boxes(&text)
     }
 
-    // ── 方块实体 ──────────────────────────────────────────────
+    // Block entities
 
-    /// 方块实体的 NBT。这一格上没有方块实体时是 `Ok(None)`。
+    /// The NBT of the block entity. A cell with no block entity gives `Ok(None)`.
     pub fn block_entity(&self) -> Result<Option<NbtValue>> {
-        let f = crate::require_slot!(block_entity_snbt, "读取方块实体");
+        let f = crate::require_slot!(block_entity_snbt, "reading a block entity");
         let Some(text) =
             call_out_str(|ctx, sink| unsafe { f(self.dim, self.x, self.y, self.z, ctx, sink) })
         else {
             return Ok(None);
         };
         let v =
-            NbtValue::parse(&text).map_err(|e| Error(format!("方块实体 SNBT 解析失败：{e}")))?;
+            NbtValue::parse(&text).map_err(|e| Error(format!("parsing the block entity SNBT failed: {e}")))?;
         Ok(Some(v))
     }
 
-    /// 把方块实体的 NBT 写回去（`BlockActor::load`）。
-    /// 这一格上必须已经是对应的那种方块。
+    /// Writes the NBT of the block entity back, through `BlockActor::load`.
+    /// The cell already has to hold the matching kind of block.
     pub fn set_block_entity(&self, snbt: &str) -> Result<()> {
-        let f = crate::require_slot!(edit_set_block_entity, "写入方块实体");
+        let f = crate::require_slot!(edit_set_block_entity, "writing a block entity");
         let ok = unsafe { f(self.dim, self.x, self.y, self.z, s(snbt)) };
         if ok {
             Ok(())
         } else {
             Err(Error(format!(
-                "写不了 {self} 的方块实体（这一格上不是对应的方块，或 NBT 形状不对）"
+                "the block entity of {self} could not be written: the cell does not hold the matching block, or the NBT shape is wrong"
             )))
         }
     }

@@ -1,13 +1,13 @@
-/** protect/ItemFrameEvent.cpp —— 玩家打了一下物品展示框。
- *
- * 展示框和盔甲架一样是保护的盲区：左键打一下就能把里面的物品打出来，而这条路既
- * 不是破坏方块（框还在）也不是打实体（框是方块），症状是展示品被偷而日志里什么
- * 都没有。
- *
- * 钩 ItemFrameBlock::$attack，也就是左键取物。放物品进去走方块交互，已被 LL 的
- * PlayerInteractBlockEvent 与本包的 PlayerUseItemOnEvent 覆盖。取消即这一下不生
- * 效，返回 false 是引擎自己的「打了但没反应」路径。
- */
+/** protect/ItemFrameEvent.cpp: a player hit an item frame.
+ * An item frame, like an armor stand, is a blind spot for protection: one left click
+ * knocks the item out, and that path is neither breaking a block, since the frame
+ * remains, nor hitting an actor, since the frame is a block. The symptom is a stolen
+ * display with nothing in the log.
+ * ItemFrameBlock::$attack is hooked, which is taking the item with a left click. Putting
+ * an item in goes through block interaction and is already covered by
+ * PlayerInteractBlockEvent in LL and PlayerUseItemOnEvent in this package. Cancelling
+ * makes the hit have no effect, and returning false is the engine's own hit-without-a-
+ * response path. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -28,7 +28,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& itemFrameDef(); // 前向
+        HookEventDef& itemFrameDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             ItemFrameAttackHook,
@@ -40,7 +40,8 @@ namespace pier::hooks
             ::BlockPos const& pos)
         {
             auto& def = itemFrameDef();
-            // 没有玩家就没有归属可判（掉落的方块、活塞），照原样放行。
+            // Without a player there is no ownership to judge, as with a falling block or
+            // a piston, so it passes through unchanged.
             if (!def.live() || player == nullptr) return origin(player, pos);
 
             std::string snbt = "{\"eventId\":\"PlayerAttackItemFrameEvent\""
@@ -62,8 +63,8 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[PlayerAttackItemFrameEvent] ItemFrameBlock::$attack 的 detour 安装失败"
-                        "（code={}）—— 展示框里的物品不受保护。", r);
+                        "[hooks/ItemFrameEvent] the ItemFrameBlock::$attack detour failed to "
+                        "install with code={}, so items in an item frame are unprotected", r);
                 }
                 return r == 0;
             }

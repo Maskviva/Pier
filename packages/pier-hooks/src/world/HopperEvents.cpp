@@ -1,8 +1,9 @@
-/** hooks/world/HopperEvents.cpp —— "HopperTransferEvent"：漏斗每一次槽位写
- * 入（HopperBlockActor::setItem）时触发，也就是物品进出漏斗的每一刻。载荷
- * 带前后两份堆叠，订阅者自己算差量（增加 = 物品流入）。没有维度字段：
- * setItem 作用域里没有 BlockSource；观察者按自己注册的位置键控。生命周期
- * 规矩见 hook_events.h。 */
+/** hooks/world/HopperEvents.cpp: "HopperTransferEvent", fired on every slot write of a
+ * hopper through HopperBlockActor::setItem, which is every moment an item enters or
+ * leaves one. The payload carries the stack before and after and a subscriber computes
+ * the difference itself, where an increase means an inflow. There is no dimension field,
+ * because the scope of setItem holds no BlockSource, and an observer keys on the position
+ * it registered. The lifetime rules are in hook_events.h. */
 #include "pier/hooks/hook_events.h"
 
 #include <atomic>
@@ -23,7 +24,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& hopperDef(); // 前向，钩体要用
+        HookEventDef& hopperDef(); // Forward declaration, used by the hook body
 
         LL_TYPE_INSTANCE_HOOK(
             HopperSetItemHook,
@@ -37,43 +38,48 @@ namespace pier::hooks
             auto& def = hopperDef();
             if (!def.live())
             {
-                origin(slot, item); // 装着但空闲
+                origin(slot, item); // Installed but idle
                 return;
             }
 
-            // 这道卫必须跑在任何 this-> 虚派发之前。Container::setItem 函数体平
-            // 凡，MSVC 的 ICF 极可能把它和箱子、熔炉同形状的 setItem 折叠到同一
-            // 地址，于是本 detour 对那些方块实体也会进来；那时 this 是
-            // ChestBlockActor*，经它虚调用按漏斗的 Container 子对象偏移读 vptr，
-            // 拿到垃圾 vptr 后 DEP 跳转崩溃。getType() 非虚、读偏移 0 的
-            // BlockActor::mType、对所有方块实体同义，被折叠也安全。
+            // This guard must run before any virtual dispatch through this->. The body of
+            // Container::setItem is trivial and the MSVC ICF very likely folds it onto the
+            // same address as the identically shaped setItem of a chest or a furnace, so
+            // this detour is entered for those block entities too. this is then a
+            // ChestBlockActor*, a virtual call through it reads the vptr at the hopper's
+            // Container subobject offset, and jumping through that garbage vptr crashes on
+            // DEP. getType() is non-virtual, reads BlockActor::mType at offset 0, means the
+            // same for every block entity, and stays safe under folding.
             if (this->getType() != ::BlockActorType::Hopper)
             {
-                // 判别器。崩溃若真由 ICF 折叠导致，这里会对箱子、熔炉触发，
-                // 说明卫修好了它；若是 this 调整块不匹配，getType() 读到垃圾，
-                // 这里带着无意义的值触发且计数器收不到事件，说明该换钩点。
+                // The discriminator. If the crash really came from ICF folding, this
+                // fires for chests and furnaces, which means the guard fixed it. If the
+                // this-adjustor did not match, getType() reads garbage, this fires with a
+                // meaningless value while the counter receives no events, which means the
+                // hook point has to change.
                 static std::atomic<bool> logged{false};
                 if (!logged.exchange(true))
                 {
                     hostLogger().debug(
-                        "HopperTransferEvent 的卫拒掉了一个非漏斗方块实体（getType={}）。"
-                        "ICF 折叠下这是预期现象；如果计数一直是空的，说明该换钩点了。",
+                        "[hooks/HopperEvents] the guard refused a non-hopper block entity "
+                        "(getType={}); that is expected under ICF folding, and a counter that "
+                        "stays empty means the hook point has to change",
                         static_cast<int>(this->getType()));
                 }
                 origin(slot, item);
                 return;
             }
-            if (slot < 0 || slot >= 5) // 漏斗恰好 5 格；仍然加固
+            if (slot < 0 || slot >= 5) // A hopper has exactly 5 slots; hardened anyway
             {
                 origin(slot, item);
                 return;
             }
 
-            // 先取写入前的状态，让写入发生，再上报。
+            // Read the state before the write, let the write happen, then report.
             int oldCount = 0;
             std::string oldName;
             {
-                // $getItem 是非虚实现，不走 vtable。
+                // $getItem is the non-virtual implementation and skips the vtable.
                 ItemStack const& prev = this->$getItem(slot);
                 oldCount = prev.mCount;
                 if (oldCount > 0) oldName = prev.getTypeName();

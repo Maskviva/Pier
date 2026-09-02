@@ -1,26 +1,27 @@
-//! 命令拼装层 —— `/fill` 与 `/tickingarea`。
+//! The command assembly layer: `/fill` and `/tickingarea`.
 //!
-//! 这些**不是 ABI 槽位**:它们把一条命令拼出来交给 `Host::execute_command`。
-//! 放在这里而不是让调用方自己拼，是因为拼错的地方（维度选择器、体积上限、
-//! 名字字符集）都有明确的失败模式，而症状离根因很远。
+//! These are not ABI slots: they assemble a command and hand it to
+//! `Host::execute_command`. They live here rather than being assembled by a caller because
+//! the places one gets wrong, the dimension selector, the volume cap and the name character
+//! set, all have definite failure modes whose symptoms are far from their causes.
 
 use crate::rt::error::{Error, Result};
 use crate::types::PositionI32;
 use crate::world::World;
 
-/// 一个整数格的长方体,`(min, max)`。
+/// A cuboid in whole cells, as `(min, max)`.
 pub type Box3D = (PositionI32, PositionI32);
 
-/// 一条 `/fill` 命令的体积上限。
+/// The volume cap of one `/fill` command.
 ///
-/// 引擎自己的上限是 32768 格,超了整条命令直接失败 —— 不是少填几格,
-/// 是一格都不填。
+/// The engine's own cap is 32768 cells and exceeding it fails the whole command: not a few
+/// cells short, but not one cell filled.
 pub const MAX_FILL_VOLUME: i64 = 32_768;
 
-/// 把一个长方体按 y 切成若干条,每条都在 [`MAX_FILL_VOLUME`] 以内。
+/// Cuts a cuboid along y into slices, each within [`MAX_FILL_VOLUME`].
 ///
-/// 按 y 切而不是按最长边:一条 `/fill` 的代价主要在它跨了多少个区块,
-/// 而同一根 y 柱上的格子必然在同一个区块里。
+/// Along y rather than along the longest edge: the cost of a `/fill` lies mostly in how
+/// many chunks it spans, and the cells of one y column are necessarily in the same chunk.
 pub fn split_box(from: PositionI32, to: PositionI32) -> Vec<Box3D> {
     let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
     let (y0, y1) = (from.1.min(to.1), from.1.max(to.1));
@@ -29,8 +30,9 @@ pub fn split_box(from: PositionI32, to: PositionI32) -> Vec<Box3D> {
     if area <= 0 {
         return Vec::new();
     }
-    // 一层的面积就已经超上限时,per 会被钳到 1:那时每条命令只有一层,
-    // 仍然可能超,由引擎自己拒绝。这里不假装能替它切开。
+    // When one layer alone already exceeds the cap, per is clamped to 1, so each command
+    // covers one layer, may still exceed it, and the engine refuses it itself. This does
+    // not pretend to be able to cut it up on its behalf.
     let per = (MAX_FILL_VOLUME / area).max(1);
     let mut out = Vec::new();
     let mut y = y0 as i64;
@@ -42,19 +44,21 @@ pub fn split_box(from: PositionI32, to: PositionI32) -> Vec<Box3D> {
     out
 }
 
-/// 常加载区块的名字是不是合法的。
+/// Whether the name of a ticking area is valid.
 ///
-/// 引擎只收 `A-Z a-z 0-9 _`。带空格或中文的名字会让 `/tickingarea add`
-/// 把名字当成下一个参数来解析,报出来的错和名字毫无关系。
+/// The engine accepts `A-Z a-z 0-9 _` only. A name containing a space or a non-ASCII
+/// character makes `/tickingarea add` parse the name as the next argument, and the error
+/// it reports has nothing to do with the name.
 pub fn is_valid_ticking_area_name(name: &str) -> bool {
     !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 impl World {
-    /// 用 `/fill` 填一块区域,自动切成符合体积上限的若干条。
+    /// Fills a region with `/fill`, cut automatically into slices within the volume cap.
     ///
-    /// 返回执行了多少条命令。中途失败就**停在那里**并返回 `Err`,不继续 ——
-    /// 继续下去会得到一片填了一半的区域,而调用方从返回值里看不出填到哪了。
+    /// It returns how many commands ran. A failure partway stops there and returns `Err`
+    /// rather than continuing, since continuing gives a half-filled region and the return
+    /// value does not say how far it got.
     pub fn fill_blocks(
         &self,
         dim: i32,
@@ -71,20 +75,21 @@ impl World {
                 a.0, a.1, a.2, b.0, b.1, b.2
             ))?;
             n += 1;
-            // execute_command 的 Ok 只表示命令跑完了,不表示它成功。
+            // An Ok from execute_command means the command ran and not that it succeeded.
             if out.contains("Syntax error") || out.contains("Unknown command") {
                 return Err(Error(format!(
-                    "第 {n} 条 fill 被引擎拒绝（方块名 {block} 不认识?）:{out}"
+                    "fill number {n} was refused by the engine; is the block name {block} unrecognized? {out}"
                 )));
             }
         }
         Ok(n)
     }
 
-    /// 建一个常加载区块。
+    /// Creates a ticking area.
     ///
-    /// 常加载区块是**存档级**的,活过重启,也不属于任何模组 —— 所以模组卸载
-    /// 时不会自动撤掉,要自己 [`World::remove_ticking_area`]。
+    /// A ticking area belongs to the save, survives a restart and belongs to no mod, so it is
+    /// not removed automatically when a mod unloads and needs
+    /// [`World::remove_ticking_area`].
     pub fn add_ticking_area(
         &self,
         dim: i32,
@@ -94,7 +99,7 @@ impl World {
     ) -> Result<()> {
         if !is_valid_ticking_area_name(name) {
             return Err(Error(format!(
-                "常加载区块名 `{name}` 不合法:只能用 A-Z a-z 0-9 和下划线"
+                "the ticking area name `{name}` is invalid: only A-Z, a-z, 0-9 and underscore are allowed"
             )));
         }
         let sel = dim_sel(dim)?;
@@ -103,7 +108,7 @@ impl World {
             from.0, from.1, to.0, to.1
         ))?;
         if out.contains("error") || out.contains("Unknown") {
-            return Err(Error(format!("常加载区块 `{name}` 没能建立:{out}")));
+            return Err(Error(format!("the ticking area `{name}` could not be created: {out}")));
         }
         Ok(())
     }
@@ -113,15 +118,16 @@ impl World {
         let out = crate::Host::get()
             .execute_command(&format!("execute in {sel} run tickingarea remove {name}"))?;
         if out.contains("error") || out.contains("Unknown") {
-            return Err(Error(format!("常加载区块 `{name}` 没能撤掉:{out}")));
+            return Err(Error(format!("the ticking area `{name}` could not be removed: {out}")));
         }
         Ok(())
     }
 
-    /// 列出一个维度里的常加载区块名。
+    /// Lists the ticking area names of one dimension.
     ///
-    /// 引擎的输出是一段给人看的文本,这里按逗号和空白拆。**格式跟着版本走**,
-    /// 拆不出来时返回空表而不是报错 —— 但那时日志里有原文可查。
+    /// The engine output is prose meant for a human, split here on commas and whitespace. The
+    /// format follows the version, so failing to split returns an empty table rather than an
+    /// error, and the raw output is in the log.
     pub fn list_ticking_areas(&self, dim: i32) -> Result<Vec<String>> {
         let sel = dim_sel(dim)?;
         let out = crate::Host::get()
@@ -134,7 +140,7 @@ impl World {
             .collect();
         if names.is_empty() && !out.trim().is_empty() {
             crate::Logger::get().warn(&format!(
-                "tickingarea list 的输出里一个名字都没拆出来,引擎输出格式可能变了:{out}"
+                "not one name could be split out of the tickingarea list output; the engine output format may have changed: {out}"
             ));
         }
         Ok(names)
@@ -144,7 +150,7 @@ impl World {
 fn dim_sel(dim: i32) -> Result<String> {
     crate::sel::dimension_selector(dim).ok_or_else(|| {
         Error(format!(
-            "维度 {dim} 没有命令选择器:id 为负,或者它没有登记过（见 dimensions::list）"
+            "dimension {dim} has no command selector: the id is negative, or it was never registered (see dimensions::list)"
         ))
     })
 }

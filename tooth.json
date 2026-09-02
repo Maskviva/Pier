@@ -1,0 +1,41 @@
+{
+  "format_version": 3,
+  "format_uuid": "289f771f-2c9a-4d73-9f3f-8492495a924d",
+  "tooth": "github.com/Maskviva/pier",
+  "version": "26.20.1",
+  "info": {
+    "name": "pier",
+    "description": "Loads LeviLamina mods written in other languages through one C ABI (manifest type: pier).",
+    "author": "Maskviva",
+    "license": "Apache-2.0",
+    "homepage": "https://github.com/Maskviva/pier",
+    "tags": [
+      "platform:levilamina",
+      "type:mod",
+      "type:loader"
+    ]
+  },
+  "variants": [
+    {
+      "platform": "win-x64",
+      "dependencies": {
+        "github.com/LiteLDev/LeviLamina": "26.20.4"
+      },
+      "assets": [
+        {
+          "type": "zip",
+          "urls": [
+            "https://github.com/Maskviva/pier/releases/download/26.20.1/pier-windows-x64.zip"
+          ],
+          "placements": [
+            {
+              "type": "dir",
+              "src": ".",
+              "dest": "plugins/pier/"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

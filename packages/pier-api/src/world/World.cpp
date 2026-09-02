@@ -1,7 +1,8 @@
-/** world/World.cpp —— 世界读写：粒子、区域扫描、单方块读写、方块属性/动作、
- *  方块实体快照、爆炸。
+/** world/World.cpp: world reads and writes. Particles, region scans, single block
+ *  reads and writes, block properties and actions, block entity snapshots, explosions.
  *
- *  方块「句柄」是（维度, 坐标），每次调用对着活的 BlockSource 重新解析。
+ *  A block handle is a (dimension, coordinate) pair, re-resolved against the live
+ *  BlockSource on every call.
  */
 #include <cstdint>
 #include <algorithm>
@@ -54,9 +55,9 @@ namespace pier::api_impl
         {
             PIER_API_GUARD_BEGIN
                 PierPlayerPos out{0.0, 0.0, 0.0, 0, false};
-                // 与统一的玩家身份模型对齐：resolvePlayer 先按 getRealName() 匹
-                // 配，落空再按 getNameTag()（显示名）—— 普通玩家两者相同，旧行
-                // 为得以保留。
+                // Aligned with the single player identity model: resolvePlayer matches
+                // getRealName() first and falls back to getNameTag(), the display name.
+                // For an ordinary player the two are identical.
                 Player* p = bridge::resolvePlayer(PierPlayerSel{0, name});
                 if (!p) return out;
                 auto pos = p->getPosition();
@@ -91,18 +92,19 @@ namespace pier::api_impl
                 int minY = std::min(y1, y2), maxY = std::max(y1, y2);
                 int minZ = std::min(z1, z2), maxZ = std::max(z1, z2);
 
-                // 体积上限 + 64 位循环变量（INT32_MAX 边界不再死循环）。
-                constexpr int64_t kMaxVolume = int64_t{1} << 24; // 16M 格，约 256×256×256
+                // A volume cap plus 64-bit loop variables, so a bound at INT32_MAX
+                // cannot loop forever.
+                constexpr int64_t kMaxVolume = int64_t{1} << 24; // 16M cells, about 256x256x256
                 int64_t const volume = (int64_t{maxX} - minX + 1) * (int64_t{maxY} - minY + 1)
                     * (int64_t{maxZ} - minZ + 1);
                 if (blocksSink && volume > kMaxVolume)
                 {
                     hostLogger().error(
-                        "scan_region：区域 {} 格超过上限 {} —— 请分块扫描", volume, kMaxVolume);
+                        "[api] scan_region refused, a region of {} cells exceeds the limit of {}; scan in blocks", volume, kMaxVolume);
                     return false;
                 }
 
-                // 方块：逐格走完整个盒子（先自下而上，再 x，再 z）。
+                // Blocks: the whole box cell by cell, bottom to top, then x, then z.
                 if (blocksSink)
                 {
                     for (int64_t y = minY; y <= maxY; ++y)
@@ -113,9 +115,10 @@ namespace pier::api_impl
                             {
                                 auto const& block = bs->getBlock(
                                     BlockPos{static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)});
-                                // 这个 LL 版本没有 getSerializationId() 访问器；直
-                                // 接读公开成员 mSerializationId（同一个标签：
-                                // {name, states, version}）。
+                                // This LL version has no getSerializationId() accessor,
+                                // so the public member mSerializationId is read
+                                // directly. It is the same tag:
+                                // {name, states, version}.
                                 std::string snbt =
                                     block.mSerializationId.get().toSnbt(SnbtFormat::Minimize);
                                 blocksSink(ctx, static_cast<int>(x), static_cast<int>(y), static_cast<int>(z),
@@ -125,7 +128,8 @@ namespace pier::api_impl
                     }
                 }
 
-                // 实体：按盒子过滤运行时实体表，落进格子。
+                // Actors: the runtime entity table filtered by the box and mapped
+                // onto cells.
                 if (entitiesSink)
                 {
                     for (auto* actor : level->getRuntimeActorList())
@@ -148,7 +152,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        //  单方块读写
+        //  Single block reads and writes
 
         bool api_get_block(int32_t dim, int32_t x, int32_t y, int32_t z, void* ctx, PierBlockSink sink)
         {
@@ -163,19 +167,18 @@ namespace pier::api_impl
         }
 
         /**
-         * 原生写方块。不走 /execute in… run setblock。
-         *
-         * 命令路径的代价：失败只有一个 bool 而没有原因（方块名拼错、维度没加载、坐
-         * 标在未生成的区块里，症状全一样）；每次写方块都过一遍命令解析、权限检查和
-         * origin 构造，而一次批量编辑有几十万个方块；控制不了 update flags，「粘贴
-         * 时不要产生掉落物」在那条路上无法表达；副作用还会被命令事件和日志看见。
-         *
-         * 直接走 BlockSource::setBlock，与 api_edit_set_block_nbt 同一条路。
-         * blockSpec 两种写法都收：minecraft:stone 或 stone 取默认状态；
-         * {name:"minecraft:stone",states:{…}} 是完整序列化 NBT，会跑引擎的版本升级
-         * 表。认不出的方块名返回 false，不像 getDefaultBlockState 那样安静地填一个
-         * 占位方块 —— 那会让拼错名字的 //set 把整片地区刷掉。
-         */
+         * A native block write, not /execute in ... run setblock. What the command path costs:
+         * failure is a bare bool with no reason, so a misspelled block name, an unloaded dimension
+         * and a coordinate in an ungenerated chunk all look the same; every write goes through
+         * command parsing, a permission check and origin construction, while one bulk edit touches
+         * hundreds of thousands of blocks; update flags cannot be controlled, so not producing
+         * drops while pasting is inexpressible; and the side effects are visible to command events
+         * and to the log. BlockSource::setBlock is used directly, the same path as
+         * api_edit_set_block_nbt. blockSpec accepts both forms: minecraft:stone or stone takes the
+         * default state, while {name:"minecraft:stone",states:{...}} is full serialized NBT and
+         * runs the engine version upgrade table. An unrecognized block name returns false rather
+         * than quietly filling in a placeholder the way getDefaultBlockState does, which would let
+         * a fill with a misspelled name wipe an entire area. / */
         bool api_set_block(int32_t dim, int32_t x, int32_t y, int32_t z, PierStr blockSpec)
         {
             PIER_API_GUARD_BEGIN
@@ -191,16 +194,17 @@ namespace pier::api_impl
                                                          : bridge::defaultBlockNamed(spec);
                 if (!block) return false;
 
-                // DEFAULT = NEIGHBORS | NETWORK，和 /setblock 的观感一致：邻居
-                // 会更新，变更会同步给客户端。要别的行为用 edit_set_block_nbt，
-                // 那个收 flags。第 5 个参数是 BlockChangeContext 的引用，不
-                // 能传 nullptr。用和 //set 同一个来源，别的插件挂在方块变更上
-                // 的钩子看到的东西才不变。
+                // DEFAULT is NEIGHBORS | NETWORK, which matches what /setblock feels
+                // like: neighbors update and the change syncs to clients. Anything else
+                // goes through edit_set_block_nbt, which takes flags. The fifth
+                // argument is a BlockChangeContext reference and cannot be nullptr. The
+                // same change source as a fill is used so that a hook another plugin
+                // installed on block changes sees what it saw before.
                 return bs->setBlock(BlockPos{x, y, z}, *block, 3, nullptr, bridge::blockEditContext());
             PIER_API_GUARD_END
         }
 
-        //  方块属性
+        //  Block properties
 
         Block const* blockAt(int32_t dim, int32_t x, int32_t y, int32_t z, BlockSource** bsOut = nullptr)
         {
@@ -229,15 +233,17 @@ namespace pier::api_impl
                     return true;
                 case PIER_BPROP_IS_CRAFTING_BLOCK:
                 case PIER_BPROP_IS_INTERACTIVE_BLOCK:
-                    // Block::isCraftingBlock() / isInteractiveBlock() 不是每个
-                    // BDS 26.20.x 小版本的生成头里都有（它们跟着 Mojang 的导出
-                    // 符号走，26.20.0 和 26.20.2 之间挪过）。报「不支持」而不是
-                    // 编译失败；安全层只对这两个属性把它翻成错误。
+                    // Block::isCraftingBlock() and isInteractiveBlock() are not present
+                    // in the generated headers of every BDS 26.20.x point release. They
+                    // follow the Mojang export symbols and moved between 26.20.0 and
+                    // 26.20.2. This reports unsupported instead of failing to compile,
+                    // and the safety layer turns that into an error for these two
+                    // properties only.
                     return false;
                 case PIER_BPROP_HAS_BLOCK_ENTITY:
                     *out = (bs->getBlockEntity(BlockPos{x, y, z}) != nullptr) ? 1.0 : 0.0;
                     return true;
-                /*  追加：方块补漏  */
+                /*  Appended: block gap fills  */
                 case PIER_BPROP_LIGHT:
                     *out = static_cast<double>(block->getLight().mValue);
                     return true;
@@ -285,9 +291,9 @@ namespace pier::api_impl
                         bs->getBlock(BlockPos{x, y, z}).getDirectSignal(*bs, BlockPos{x, y, z}, 0));
                     return true;
                 case PIER_BPROP_COMPARATOR_SIGNAL:
-                    // getComparatorSignal(BlockSource&, BlockPos const&, uchar dir)
-                    // —— dir=0（向下）是安全默认；要指定方向的调用方走方块动作
-                    // API。
+                    // getComparatorSignal(BlockSource&, BlockPos const&, uchar dir).
+                    // dir=0, downward, is the safe default, and a caller needing a
+                    // specific direction uses the block action API.
                     *out = static_cast<double>(
                         block->getComparatorSignal(*bs, BlockPos{x, y, z}, 0));
                     return true;
@@ -304,8 +310,9 @@ namespace pier::api_impl
                     *out = static_cast<double>(block->getFlameOdds());
                     return true;
                 case PIER_BPROP_BOUNCINESS:
-                    // getBounciness(IConstBlockSource const&, BlockPos const&) ——
-                    // 依赖区域的弹性（比如史莱姆块）需要上下文。
+                    // getBounciness(IConstBlockSource const&, BlockPos const&).
+                    // Bounciness that depends on the region, as for a slime block,
+                    // needs the context.
                     *out = static_cast<double>(block->getBounciness(*bs, BlockPos{x, y, z}));
                     return true;
                 case PIER_BPROP_IS_SOLID:
@@ -353,19 +360,20 @@ namespace pier::api_impl
                     sink(ctx, ps(out));
                     return true;
                 }
-                /*  追加  */
+                /*  Appended  */
                 case PIER_BSTR_STATE:
                 {
-                    // 把全部方块状态按 SNBT {name:value,…} 序列化出去。
+                    // Emits every block state as SNBT of the form {name:value,...}.
                     sink(ctx, ps(block->mSerializationId.get().toSnbt(SnbtFormat::Minimize)));
                     return true;
                 }
                 case PIER_BSTR_COLLISION_SHAPE:
                 {
                     // getCollisionShape(AABB& out, IConstBlockSource const&,
-                    // BlockPos const&, optional_ref) —— 填一个 AABB，方块有碰撞
-                    // 箱时返回 true。多盒形状要走
-                    // BlockSource::fetchCollisionShapes；这里只报主形状。
+                    // BlockPos const&, optional_ref) fills an AABB and returns true
+                    // when the block has a collision box. A multi-box shape needs
+                    // BlockSource::fetchCollisionShapes; only the primary shape is
+                    // reported here.
                     AABB aabb;
                     bool has = block->getCollisionShape(aabb, *bs, BlockPos{x, y, z}, nullptr);
                     std::string out = has
@@ -378,9 +386,9 @@ namespace pier::api_impl
                 }
                 case PIER_BSTR_OUTLINE_SHAPE:
                 {
-                    // getOutline(IConstBlockSource const&, BlockPos const&, AABB&
-                    // buffer) —— 返回 buffer 的 const 引用（buffer 在栈上时调用
-                    // 依然成立）。
+                    // getOutline(IConstBlockSource const&, BlockPos const&,
+                    // AABB& buffer) returns a const reference to buffer, which stays
+                    // valid with buffer on the stack.
                     AABB buffer;
                     auto const& aabb = block->getOutline(*bs, BlockPos{x, y, z}, buffer);
                     std::string out = "[{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y)
@@ -420,20 +428,20 @@ namespace pier::api_impl
                     if (out) out(ctx, ps(std::string_view{has ? "1" : "0"}));
                     return true;
                 }
-                /*  追加  */
+                /*  Appended  */
                 case PIER_BACT_GET_STATE:
                 {
-                    // 按名字取单个方块状态 —— 这个 LL 版本没有单点的
-                    // getState(name)。在正经的 BlockState API 接进来之前报「不
-                    // 支持」。
+                    // Reading a single block state by name. This LL version has no
+                    // point getState(name), so it reports unsupported until a proper
+                    // BlockState API is available.
                     return false;
                 }
                 case PIER_BACT_POP_RESOURCE:
                 {
-                    // 原生掉落，不再走 `/setblock… air destroy`。
-                    //
-                    // Level::destroyBlock 就是命令背后做的事，而且它返回是否真
-                    // 的破坏成功 —— 命令路径只能给一个「命令跑过了」。
+                    // Native drops rather than `/setblock ... air destroy`.
+                    // Level::destroyBlock is what the command does underneath, and it
+                    // returns whether the block was really destroyed, where the command
+                    // path can only report that the command ran.
                     auto* level = bridge::levelReady();
                     if (!level) return false;
                     return level->destroyBlock(
@@ -442,10 +450,10 @@ namespace pier::api_impl
                 case PIER_BACT_AS_ITEM:
                 {
                     if (!out) return false;
-                    // asItemInstance(BlockSource&, BlockPos const&) 返回
-                    // ItemInstance（不是 ItemStack）。ItemInstance 没有与
-                    // itemToSnbt 签名兼容的 SNBT 序列化器，改序列化它的
-                    // user-data CompoundTag。
+                    // asItemInstance(BlockSource&, BlockPos const&) returns an
+                    // ItemInstance and not an ItemStack. ItemInstance has no SNBT
+                    // serializer compatible with the itemToSnbt signature, so its
+                    // user-data CompoundTag is serialized instead.
                     auto item = block->asItemInstance(*bs, BlockPos{x, y, z});
                     auto* ud = item.getUserData();
                     out(ctx, ps(ud ? ud->toSnbt(SnbtFormat::Minimize) : std::string{"{}"}));
@@ -473,7 +481,7 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        //  爆炸
+        //  Explosions
 
         bool api_explode(
             int32_t dim,
@@ -491,8 +499,9 @@ namespace pier::api_impl
                 auto* level = bridge::levelReady();
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!level || !bs) return false;
-                // 半径无上限等于一次调用炸掉整片加载区块并冻住线程。原版
-                // 最大的爆炸（凋灵/末影水晶）半径不超过 8；这里放宽到 64。
+                // Without a cap, one call blows up every loaded chunk and freezes the
+                // thread. The largest vanilla explosion, from a wither or an end
+                // crystal, has a radius of at most 8; this allows up to 64.
                 if (!(radius >= 0.0f) || radius > 64.0f) return false;
                 Actor* src = (source != 0) ? bridge::resolveActor(source) : nullptr;
                 return level->explode(

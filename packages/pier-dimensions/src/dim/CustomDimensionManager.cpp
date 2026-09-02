@@ -1,18 +1,18 @@
 /**
- * CustomDimensionManager.cpp —— 维度注册的全过程。
- *
- * 五条不能违反的次序与判据，每条的实现都在对应位置：
- *
- *  1. 权威是引擎的 NameIdStore，不是 VanillaDimensions::DimensionMap 或工厂 map。
- *     只改后两者时注册会返回 3 而传送失败。
- *  2. 工厂闭包必须在原生注册之前就位，否则注册表里多出一条指向空的条目。
- *  3. id 由引擎分配，不按 customDimensionMap.size() 自算：任何一条配置加载失败都
- *     会让运行期 id 与配置对不上。
- *  4. 配置里 SNBT 坏掉不许 continue：id 被丢掉后下次开服重新分配，玩家存档里的
- *     DimensionId 当场失效。
- *  5. 不许改写 VanillaDimensions::Undefined()，引擎自己在用这个哨兵做判断。
- *
- * 只走原生路径，没有回退：注册失败就是失败。
+ * CustomDimensionManager.cpp: the whole of dimension registration.
+ * Five orderings and tests that must not be violated, each implemented where it says:
+ *  1. The authority is the engine NameIdStore, not VanillaDimensions::DimensionMap or
+ *     the factory map. Updating only the latter two makes registration return 3 while
+ *     teleporting fails.
+ *  2. The factory closure must be in place before native registration, otherwise the
+ *     registry gains an entry pointing at nothing.
+ *  3. The id is allocated by the engine, never from customDimensionMap.size(), since
+ *     one failed config load puts the runtime id out of step with the config.
+ *  4. A broken SNBT in the config must not continue past the entry: dropping the id
+ *     means the next boot allocates a new one and every player's saved DimensionId is
+ *     invalidated on the spot.
+ *  5. VanillaDimensions::Undefined() is never rewritten; the engine uses that sentinel
+ *     itself. The native path only: a failed registration is a failure.
  */
 #include "pier/dimensions/dim/custom_dimension_manager.h"
 
@@ -59,24 +59,24 @@ namespace pier::dimensions
         using ::pier::hostLogger;
 
         /**
-         * `SimpleCustomDimension` 把生成器类型以 magic_enum 名字的形式写进
-         * payload；`PlotDimension` 没有这一项（它自己接管 `createGenerator`）。
-         *
-         * 这条注释以前写的是「这个值不决定地形长什么样」。对
-         * PlotDimension 成立，对 SimpleCustomDimension 不成立 —— 它的
-         * `createGenerator` 就是拿这个值做 switch 的。所以读不到时的回退不是
-         * 无害的：它决定玩家进去看到的是平坦、下界还是虚空，因此每一次回退
-         * 都要出声（契约 §5.1：回退要说清回退成了什么）。
-         *
-         * 另外要记住：这个名字是维度第一次创建时由 `generateNewData`
-         * 写下的，之后再也不会被参数覆盖。建错了就只能改配置或删维度重建。
+         * `SimpleCustomDimension` writes the generator type into the payload as a
+         * magic_enum name. `PlotDimension` has no such field, since it takes over
+         * `createGenerator` itself.
+         * The value does decide the terrain for SimpleCustomDimension, whose
+         * `createGenerator` switches on it. A fallback when it cannot be read is
+         * therefore not harmless: it decides whether a player sees flat, nether or void,
+         * so every fallback says what it fell back to (contract §5.1).
+         * The name is written by `generateNewData` when the dimension is first created
+         * and is never overwritten by a later argument, so a wrong choice can only be
+         * fixed by editing the config or deleting and recreating the dimension.
          */
         GeneratorType readGeneratorType(CompoundTag const& nbt)
         {
             if (!nbt.contains("generatorType"))
             {
-                // PlotDimension 本来就不写这一项，属于正常情况，用 debug 级别。
-                hostLogger().debug("维度数据里没有 generatorType，按 Flat 处理");
+                // PlotDimension does not write this field at all, which is normal, so
+                // this is debug level.
+                hostLogger().debug("[dim] no generatorType in the dimension data, treating it as Flat");
                 return GeneratorType::Flat;
             }
             std::string stored;
@@ -88,18 +88,21 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 读不出来和读出来但解析不了，对调用方是同一件事：拿不到生成器
-                // 类型。两条路合并到下面那条 error，日志里带上读到的原文。
+                // Unreadable and read-but-unparsable are the same thing to a caller:
+                // the generator type is unavailable. Both paths join the error below,
+                // which carries the raw text that was read.
                 stored.clear();
             }
             hostLogger().error(
-                "维度数据里的 generatorType='{}' 无法解析，退回 Flat —— 地形会和创建时选的不一样",
+                "[dim] generatorType='{}' in the dimension data could not be parsed, falling "
+                "back to Flat; the terrain will differ from what was chosen at creation",
                 stored
             );
             return GeneratorType::Flat;
         }
 
-        /** 同一个维度名只播报一次「就绪」。热重载会重复调 addDimension。 */
+        /** Announces ready once per dimension name. A reload calls addDimension
+         *  again. */
         void announceReady(std::string const& name, int id)
         {
             static std::mutex mtx;
@@ -108,7 +111,7 @@ namespace pier::dimensions
                 std::lock_guard lock{mtx};
                 if (!announced.insert(name).second) return;
             }
-            hostLogger().info("维度 '{}' 就绪：id {}", name, id);
+            hostLogger().info("[dim] '{}' ready with id {}", name, id);
         }
     } // namespace
 
@@ -117,9 +120,11 @@ namespace pier::dimensions
         using ll::memory::HookPriority;
 
         /**
-         * 跨维度坐标换算。原版三维度之间的比例换算（主世界 <-> 下界 1:8）由
-         * 引擎自己算；只要有一头是自定义维度，就原样搬过去 —— 自定义维度没有
-         * 「与主世界的比例」这个概念，任何换算都是瞎猜。
+         * Cross-dimension coordinate conversion. The engine computes the ratio between
+         * the vanilla dimensions itself, overworld to nether being 1:8. As soon as one
+         * end is a custom dimension the coordinate is carried over unchanged, because a
+         * custom dimension has no ratio to the overworld and any conversion would be a
+         * guess.
          */
         LL_TYPE_STATIC_HOOK(
             VanillaDimensionsConvertPointHook,
@@ -140,17 +145,16 @@ namespace pier::dimensions
         };
 
         /*
-         * 不要给 fromSerializedInt 再挂第二个 hook。
-         *
-         * 上游 MoreDimensions 把这个函数挂了两次（...Hook 和 ...HookI），因为
-         * 在它面向的那一代 BDS 上，确实存在两个 mangled 形状相同的重载。
-         * 26.20 的 SDK 里只有一个可挂的重载 ——
-         * `Bedrock::Result<DimensionType>(Bedrock::Result<int>&&)`。另一个
-         * `DimensionType fromSerializedInt(int)` 是 MCFOLD：链接器把它折叠进了
-         * 别处一个字节相同的函数体，挂它等于 detour 一堆不相干的函数。
-         *
-         * 而把可挂的那一个注册两次，第二个 detour 会蹦床进第一个，
-         * `origin()` 从此不再是代码以为的那个意思。
+         * fromSerializedInt takes exactly one hook.
+         * Upstream MoreDimensions hooks it twice, as ...Hook and ...HookI, because the
+         * BDS generation it targets really does have two overloads with the same mangled
+         * shape. The 26.20 SDK has one hookable overload,
+         * `Bedrock::Result<DimensionType>(Bedrock::Result<int>&&)`. The other,
+         * `DimensionType fromSerializedInt(int)`, is MCFOLD: the linker folded it into a
+         * byte-identical function body elsewhere, so hooking it detours a pile of
+         * unrelated functions.
+         * Registering the hookable one twice makes the second detour trampoline into the
+         * first, and `origin()` stops meaning what the code assumes.
          */
         LL_TYPE_STATIC_HOOK(
             VanillaDimensionsFromSerializedIntHook,
@@ -161,11 +165,13 @@ namespace pier::dimensions
             Bedrock::Result<int>&& dim
         )
         {
-            // 不要无条件 *dim：Bedrock::Result 里装的可能是错误，解引用是未定义行
-            // 为，存档里一个坏字段就能让服务端崩在这里。0/1/2 必须走 origin，否则
-            // 等于把原版三维度的反序列化也接管了。判据是引擎的 NameIdStore（本包
-            // 的台账是它的镜像），DimensionMap 只作 fromString 与 dimensionSelector
-            // 的兜底镜像。
+            // *dim is never taken unconditionally: a Bedrock::Result may hold an error
+            // and dereferencing it is undefined behavior, so one bad field in a save
+            // would crash the server here. 0, 1 and 2 must go to origin, otherwise this
+            // takes over deserialization of the vanilla dimensions too. The test is the
+            // engine NameIdStore, of which this package's ledger is a mirror, while
+            // DimensionMap serves only as the fallback mirror for fromString and
+            // dimensionSelector.
             if (!dim) return origin(std::move(dim));
 
             int const value = *dim;
@@ -180,8 +186,10 @@ namespace pier::dimensions
         };
 
         /**
-         * 玩家上次退出时所在的维度这次没注册上（配置被删、注册失败……）时，
-         * 把 Y 顶到哨兵值让引擎重新找落点，而不是把人放进一个不存在的维度。
+         * When the dimension a player last left from is not registered this time,
+         * because the config was deleted or registration failed, the Y is pushed to the
+         * sentinel so the engine finds a new landing spot instead of placing the player
+         * in a dimension that does not exist.
          */
         LL_TYPE_INSTANCE_HOOK(
             LevelStorageLoadServerPlayerDataHook,
@@ -206,29 +214,32 @@ namespace pier::dimensions
             }
             catch (...)
             {
-                // 读不出维度号就当这条存档没说过维度：原样返回，让引擎按它自己
-                // 的默认流程处理。这里不能假定是主世界 —— 那正是契约 §5.1
-                // 反对的那种补默认值。
+                // An unreadable dimension number is treated as a save that said nothing
+                // about a dimension: returned unchanged so the engine follows its own
+                // default flow. Assuming the overworld here is exactly the kind of
+                // filled-in default contract §5.1 rejects.
                 return result;
             }
 
-            // 判据同 fromSerializedInt：先问引擎台账，DimensionMap 只兜底，
-            // 原版三维度直接放行。
+            // The same test as fromSerializedInt: the engine ledger first, DimensionMap
+            // only as a fallback, and the three vanilla dimensions pass straight
+            // through.
             bool const known = (savedDim >= 0 && savedDim <= 2) || !dimensionNameOf(savedDim).empty()
                 || VanillaDimensions::DimensionMap().mLeft.contains(DimensionType{savedDim});
             if (!known)
             {
-                hostLogger().warn("玩家存档里的维度 {} 当前不可用，重置落点", savedDim);
+                hostLogger().warn("[dim] dimension {} in a player save is unavailable, resetting the spawn point", savedDim);
                 result->at("Pos")[1] = FloatTag{0x7fff};
             }
             return result;
         }
 
         /*
-         * LL_AUTO_* 在静态初始化期就把自己装上了 —— 这正是要的，因为
-         * `initializeHttp` 跑在任何维度注册之前很久。所以它不能再出现在
-         * 下面的 HookRegistrar 里：旧代码两处都列了，detour 被装了两次，
-         * unhook 时引用计数回不到零。
+         * LL_AUTO_* installs itself during static initialization, which is what is
+         * wanted here because `initializeHttp` runs long before any dimension
+         * registration. It must therefore not also appear in the HookRegistrar below:
+         * listing it in both places installs the detour twice and the reference count
+         * never returns to zero on unhook.
          */
         LL_AUTO_TYPE_INSTANCE_HOOK(
             PropertiesSettingsClientSideGenHook,
@@ -260,21 +271,23 @@ namespace pier::dimensions
             CompoundTag nbt;
         };
 
-        /** name -> {id, payload}，能完整恢复的每一条。 */
+        /** name to {id, payload}, for every entry that could be fully restored. */
         std::unordered_map<std::string, DimensionInfo> customDimensionMap;
 
         /**
-         * 配置里有这一条、但 SNBT 载荷解析不了的名字。id 保留，绝不会被
-         * 分给别的维度；载荷在下一次 addDimension 时重新生成。
-         *
-         * 这是「id 与配置失配」的修法：旧代码在这里直接 `continue`，于是这条
-         * 从 customDimensionMap 里消失、却仍留在 dimensionList 里，而 id 又是
-         * 按 `3 + customDimensionMap.size()` 分配的 —— 结果是运行期 id 与配置
-         * 对不上，dimensionList 查不到，下游表现为「传送失败：维度 N 未注册」。
+         * Names present in the config whose SNBT payload could not be parsed. The id is
+         * kept and never handed to another dimension, and the payload is regenerated on
+         * the next addDimension.
+         * Skipping such an entry instead would drop it from customDimensionMap while it
+         * stays in dimensionList, and with ids allocated as
+         * `3 + customDimensionMap.size()` the runtime id falls out of step with the
+         * config, dimensionList no longer finds it, and downstream this reads as a
+         * teleport failing because dimension N is not registered.
          */
         std::unordered_map<std::string, int> salvagedIds;
 
-        /** 配置声明过的所有 id，防止一次重载把同一个号发出去两次。 */
+        /** Every id the config declares, so one reload cannot hand out the same number
+         *  twice. */
         std::unordered_set<int> usedIds;
 
         std::unordered_set<std::string> registeredDimension;
@@ -286,15 +299,17 @@ namespace pier::dimensions
         CustomDimensionConfig::setDimensionConfigPath();
         CustomDimensionConfig::loadConfigFile();
 
-        // 配置镜像只用于：记住上次的 id/数据、去重、以及引擎表漂移时的告警。
-        // id 本身一律由引擎 DimensionManager 分配（见 addDimension 第 3 步）。
+        // The config mirror is used only to remember the previous id and data, to
+        // deduplicate, and to warn when the engine table has drifted. The id itself is
+        // always allocated by the engine DimensionManager, see step 3 of addDimension.
 
         for (auto& [name, info] : CustomDimensionConfig::getConfig().dimensionList)
         {
             if (info.dimId < 3)
             {
                 hostLogger().error(
-                    "dimension_config：'{}' 的 id 是 {}，而自定义维度的 id 从 3 起 —— 这一条会被重新分配",
+                    "[dim] dimension_config: '{}' has id {} while a custom dimension id starts "
+                    "at 3, so this entry will be reallocated",
                     name, info.dimId
                 );
                 continue;
@@ -302,7 +317,7 @@ namespace pier::dimensions
             if (!impl->usedIds.insert(info.dimId).second)
             {
                 hostLogger().error(
-                    "dimension_config：id {} 被不止一个维度声明，'{}' 会被重新分配", info.dimId, name
+                    "[dim] dimension_config: id {} is declared by more than one dimension, '{}' will be reallocated", info.dimId, name
                 );
                 continue;
             }
@@ -311,7 +326,8 @@ namespace pier::dimensions
             if (!nbtTag)
             {
                 hostLogger().error(
-                    "dimension_config：'{}'（id {}）的数据读不出来 —— 保住 id，注册时重新生成数据",
+                    "[dim] dimension_config: the data of '{}' (id {}) could not be read; the id "
+                    "is kept and the data is regenerated at registration",
                     name, info.dimId
                 );
                 impl->salvagedIds.emplace(name, info.dimId);
@@ -321,16 +337,18 @@ namespace pier::dimensions
         }
 
 
-        // 26.20 起自定义维度由引擎原生支持，FakeDimensionId 那一整套包改写
-        // 已经删除：客户端通过 DimensionDataPacket 真正认识这些维度，区块、
-        // 子区块、切换都带真实维度 id 走原版流程。
+        // From 26.20 the engine supports custom dimensions natively and no packet
+        // rewriting of the FakeDimensionId kind is involved. The client learns these
+        // dimensions through DimensionDataPacket, and chunks, subchunks and transitions
+        // all carry the real dimension id along the vanilla flow.
         hook_list::HookReg::hook();
 
-        // 排查用，默认不装；见 chunk_trace.h。
+        // Diagnostics, not installed by default. See chunk_trace.h.
         registerChunkTraceHooks();
 
-        // 按维度生效的行为规则。无条件装：没有设过规则的维度会直接
-        // origin()，所以装上去对原版维度没有任何影响。
+        // Per-dimension behavior rules, installed unconditionally. A dimension with no
+        // rule set goes straight to origin(), so installing them has no effect on the
+        // vanilla dimensions.
         registerDimensionRuleHooks();
     }
 
@@ -357,15 +375,15 @@ namespace pier::dimensions
 
         if (!ll::service::getLevel())
         {
-            throw std::runtime_error("Level 尚未就绪，无法注册维度 " + dimName);
+            throw std::runtime_error("Level is not ready, cannot register dimension " + dimName);
         }
 
         Impl::DimensionInfo info;
 
-        //  1. 先把业务数据（seed / layout 等）准备好
+        //  1. Prepare the payload, meaning seed, layout and the rest
         //
-        // payload 必须在分配 id 之前拿到：原生注册要从里头读生成器类型才能
-        // 构造 DimensionDefinition。
+        // The payload must exist before an id is allocated, because native registration
+        // reads the generator type out of it to construct the DimensionDefinition.
 
         bool const knownLocally = impl->customDimensionMap.contains(dimName);
         if (knownLocally)
@@ -374,27 +392,31 @@ namespace pier::dimensions
         }
         else if (auto salvaged = impl->salvagedIds.find(dimName); salvaged != impl->salvagedIds.end())
         {
-            // 配置里这条的 SNBT 坏了，但 id 还留着。重新生成数据、保住 id，
-            // 玩家存档里的 DimensionId 就不会失效。
+            // The SNBT of this config entry is broken while the id survives. The data is
+            // regenerated and the id kept, so the DimensionId in a player save stays
+            // valid.
             info.id = DimensionType{salvaged->second};
             info.nbt = data();
             impl->salvagedIds.erase(salvaged);
-            hostLogger().warn("维度 '{}'：数据已丢失，重新生成，沿用 id {}", dimName, info.id.value());
+            hostLogger().warn("[dim] '{}' lost its data, regenerating it and keeping id {}", dimName, info.id.value());
         }
         else
         {
             info.nbt = data();
         }
 
-        // 2. 工厂闭包必须在原生注册之前就位。serverRegisterCustomDimension 会走到
-        //    DimensionFactory::create(name)，而 create() 拿名字去 mFactoryMap 查闭
-        //    包。先注册后写 map 时那一刻 map 里没有这个名字，引擎在闭包缺席下完成注
-        //    册，DimensionRegistry 多出一条指向空的条目，外面那圈 catch(...) 把异常
-        //    吞掉，玩家一进来服务端喂出去的数据就是坏的。
+        // 2. The factory closure must be in place before native registration.
+        //    serverRegisterCustomDimension reaches DimensionFactory::create(name), and
+        //    create() looks the closure up in mFactoryMap by name. Registering first and
+        //    writing the map afterwards leaves the name absent at that moment, the engine
+        //    completes registration without a closure, DimensionRegistry gains an entry
+        //    pointing at nothing, the surrounding catch(...) swallows the exception, and
+        //    the server feeds broken data as soon as a player enters.
         auto shared = std::make_shared<Impl::DimensionInfo>(info);
 
-        // insert_or_assign 而不是 emplace：同一次开服里的第二次注册（或热重载
-        // 之后）必须替换掉旧闭包，否则引擎会拿上一轮的闭包去建维度。
+        // insert_or_assign and not emplace. A second registration within one boot, or
+        // one after a reload, must replace the old closure, otherwise the engine builds
+        // the dimension with the closure from the previous round.
         ll::service::getLevel()->getDimensionFactory().mFactoryMap.insert_or_assign(
             dimName,
             [dimName, shared, factory = std::move(factory)](
@@ -403,8 +425,9 @@ namespace pier::dimensions
                 DimensionType id = shared->id;
                 if (id.value() < 3)
                 {
-                    // 还没回填 —— 说明当前正处在 serverRegisterCustomDimension
-                    // 内部的重入调用里。直接问引擎。
+                    // Not written back yet, which means this is a re-entrant call from
+                    // inside serverRegisterCustomDimension. The engine is asked
+                    // directly.
                     if (auto engineId = native::engineDimensionId(dimName))
                     {
                         id = DimensionType{*engineId};
@@ -412,8 +435,10 @@ namespace pier::dimensions
                     else
                     {
                         hostLogger().error(
-                            "维度 '{}' 的工厂被调用时 id 还没确定，且引擎侧也查不到 —— 拒绝建维度，"
-                            "不能拿一个默认值（很可能是主世界 0）去建",
+                            "[dim] the factory for '{}' was called before its id was fixed and "
+                            "the engine does not know it either; refusing to build the "
+                            "dimension rather than using a default that would most likely be "
+                            "the overworld, 0",
                             dimName
                         );
                         return {};
@@ -423,12 +448,14 @@ namespace pier::dimensions
             }
         );
 
-        // 3. id 只由引擎原生注册分配。BDS 26.20 起 DimensionManager 自带
-        //    NameIdStore，id 存进存档、由引擎持久化，getOrCreateDimension 也只认
-        //    它。不要退回 MoreDimensions 式的「假维度」路径（自分配 id、只改
-        //    DimensionMap 和工厂 map、再把 Undefined() 哨兵改写成像真 id 的数字）：
-        //    那条路在 26.20 上建不出维度，还会弄乱引擎内部依赖 Undefined() 的比较。
-        //    注册失败就是失败，直接抛出，Slots.cpp 的 GUARD 把它翻成 -1。
+        // 3. The id is allocated only by native registration. From BDS 26.20 the
+        //    DimensionManager carries its own NameIdStore, the engine persists the id
+        //    into the save, and getOrCreateDimension recognizes nothing else. The
+        //    MoreDimensions style fake-dimension path, allocating an id locally, touching
+        //    only DimensionMap and the factory map, and rewriting Undefined() into
+        //    something that looks like a real id, builds no dimension on 26.20 and
+        //    corrupts the engine's own comparisons against Undefined(). A failed
+        //    registration throws, which the GUARD in Slots.cpp turns into -1.
 
         auto const nativeId =
             native::registerCustomDimension(dimName, kWorldMinY, kWorldMaxY, readGeneratorType(info.nbt));
@@ -436,27 +463,31 @@ namespace pier::dimensions
         if (!nativeId)
         {
             hostLogger().error(
-                "维度 '{}' 无法经引擎 DimensionManager 原生注册 —— 判定注册失败，不再退回假维度路径。"
-                "检查上方 registerCustomDimension 的日志（Level 是否就绪、DimensionDefinitionGroup 是否接受定义）。",
+                "[dim] '{}' could not be registered natively through the engine "
+                "DimensionManager, so registration failed and no fake-dimension fallback is "
+                "attempted; check the registerCustomDimension lines above for whether Level "
+                "was ready and whether DimensionDefinitionGroup accepted the definition",
                 dimName
             );
-            throw std::runtime_error("维度 '" + dimName + "' 原生注册失败");
+            throw std::runtime_error("native registration of dimension '" + dimName + "' failed");
         }
 
         if (knownLocally && info.id.value() != *nativeId)
         {
-            // 引擎给的 id 跟配置里记的不一样：以引擎为准，并把配置改过来。
-            // 旧 id 只可能出现在上一版手抄逻辑写下的配置里，那些 id 从来
-            // 就没在引擎侧生效过，所以没有存档兼容性问题。
+            // The id the engine gave differs from the one in the config. The engine
+            // wins and the config is corrected. Such an id can only come from a config
+            // written by locally-allocating logic, and those ids were never in effect on
+            // the engine side, so there is no save compatibility concern.
             hostLogger().warn(
-                "维度 '{}'：配置里记的 id 是 {}，引擎分配的是 {}，以引擎为准",
+                "[dim] '{}': the config records id {} while the engine allocated {}; the engine wins",
                 dimName, info.id.value(), *nativeId
             );
         }
         info.id = DimensionType{*nativeId};
         impl->usedIds.insert(*nativeId);
 
-        // 回填。闭包里读的是这一份，所以必须在任何维度被真正创建之前更新。
+        // Written back. The closure reads this copy, so it must be updated before any
+        // dimension is actually created.
         shared->id = info.id;
         shared->nbt = info.nbt;
 
@@ -465,9 +496,10 @@ namespace pier::dimensions
 
         ll::memory::modify(VanillaDimensions::DimensionMap(), [&](auto& dimMap)
         {
-            // BidirectionalUnorderedMap 的 insert_or_assign 只覆盖它碰到的
-            // 那两条。如果这个名字之前映射到别的 id，旧的 id->name 条目会留在
-            // mLeft 里，继续解析成一个已经不存在的维度。
+            // insert_or_assign on a BidirectionalUnorderedMap only overwrites the two
+            // entries it touches. If this name previously mapped to a different id, the
+            // old id-to-name entry stays in mLeft and keeps resolving to a dimension that
+            // no longer exists.
             if (auto it = dimMap.mRight.find(dimName); it != dimMap.mRight.end())
             {
                 if (it->second.value() != info.id.value()) dimMap.mLeft.erase(it->second);
@@ -475,14 +507,15 @@ namespace pier::dimensions
             dimMap.insert_or_assign(dimName, info.id);
         });
 
-        // Undefined() 是引擎自己在用的哨兵值，永远不改写（MoreDimensions 那个
-        // 改写是给没有原生支持的旧版本的补偿手段，这里只走原生路径，用不上）。
+        // Undefined() is a sentinel the engine uses itself and is never rewritten. The
+        // MoreDimensions rewrite compensates for versions without native support, and
+        // this path is native only.
 
         impl->registeredDimension.emplace(dimName);
 
-        // 持久化。旧代码只在「它认为这个维度是新的」时才写，而且用的是
-        // emplace() —— 对已存在的键是空操作。于是一条已经和运行期 id 漂移了
-        // 的配置永远改不回来。改成：只要有任何一项不同就写。
+        // Persisted whenever any field differs. Writing only when the dimension looks
+        // new, and doing it with emplace(), which is a no-op on an existing key, leaves a
+        // config that has drifted from the runtime id permanently uncorrectable.
         {
             auto& list = CustomDimensionConfig::getConfig().dimensionList;
             auto snbt = info.nbt.toSnbt(SnbtFormat::Minimize);
@@ -493,7 +526,7 @@ namespace pier::dimensions
                 if (!CustomDimensionConfig::saveConfigFile())
                 {
                     hostLogger().error(
-                        "dimension_config.json 写入失败；'{}' 下次开服可能拿到新的 id", dimName
+                        "[dim] writing dimension_config.json failed; '{}' may receive a new id on the next boot", dimName
                     );
                 }
             }
@@ -507,59 +540,66 @@ namespace pier::dimensions
         }
         catch (...)
         {
-            // 命令枚举只影响 `/execute in <name>` 这类按名字选维度的写法，
-            // 维度本身照常工作 —— 所以这里降级而不是失败，但必须出声，否则
-            // 「维度好好的、就是命令里打不出名字」会变成一个查不到根因的报障。
-            hostLogger().warn("维度 '{}' 注册命令枚举失败（不影响维度本身，但 /execute in 用不了名字）", dimName);
+            // The command enum only affects forms that select a dimension by name, such
+            // as `/execute in <name>`, while the dimension itself keeps working. This
+            // degrades rather than fails, but it must say so, otherwise a working
+            // dimension whose name cannot be typed in a command becomes a report with no
+            // findable cause.
+            hostLogger().warn("[dim] '{}' failed to register its command enum; the dimension works, but /execute in cannot use its name", dimName);
         }
 
         try
         {
-            // 只用引擎侧 NameIdStore 做判据。`VanillaDimensions::fromString`
-            // 在本构建有 std::string ABI 问题，对自定义维度会回读成垃圾值
-            // （实测 -1870061440），不可信，故不再用它自检。
+            // The engine NameIdStore is the only test. `VanillaDimensions::fromString`
+            // has a std::string ABI problem in this build and reads back garbage for a
+            // custom dimension, observed as -1870061440, so it is not trusted for the
+            // self-check.
             if (auto const engineId = native::engineDimensionId(dimName); !engineId || *engineId != info.id.value())
             {
                 hostLogger().error(
-                    "维度 '{}'（id {}）在引擎的 DimensionManager 里查不到 —— 传送会失败。引擎侧回读结果：{}",
+                    "[dim] '{}' (id {}) is not present in the engine DimensionManager, so "
+                    "teleporting will fail; the engine read back: {}",
                     dimName, info.id.value(),
-                    engineId ? std::to_string(*engineId) : std::string{"(未注册)"}
+                    engineId ? std::to_string(*engineId) : std::string{"(not registered)"}
                 );
             }
             else
             {
                 hostLogger().debug(
-                    "维度 '{}' 自检通过：id {}，引擎侧 active={}",
+                    "[dim] '{}' passed its self-check with id {}, engine active={}",
                     dimName, info.id.value(), native::isActive(info.id.value())
                 );
             }
         }
         catch (...)
         {
-            hostLogger().warn("维度 '{}' 自检抛异常（自检失败本身不影响维度）", dimName);
+            hostLogger().warn("[dim] the self-check for '{}' threw; a failed self-check does not affect the dimension itself", dimName);
         }
 
-        // 唯一的权威判据：引擎真正建出来的那个 Dimension 自报的 id。
-        // 名字->id 表、DimensionMap、本包台账、配置文件都可能各说各话，
-        // 只有这个对象是玩家真正会被传送进去的东西。
+        // The only authoritative test: the id reported by the Dimension the engine
+        // really built. The name-to-id table, DimensionMap, this package's ledger and the
+        // config file can all disagree, and this object is the one a player is actually
+        // teleported into.
         auto* probe = native::getOrCreateByName(dimName);
         if (!probe)
         {
-            hostLogger().error("维度 '{}' 注册后建不出实例 —— 判定注册失败", dimName);
-            throw std::runtime_error("维度 '" + dimName + "' 无法实例化");
+            hostLogger().error("[dim] '{}' registered but no instance could be built, registration failed", dimName);
+            throw std::runtime_error("dimension '" + dimName + "' could not be instantiated");
         }
 
         int const realId = probe->getDimensionId().value();
         if (realId != info.id.value())
         {
             hostLogger().error(
-                "维度 '{}' 台账 id 是 {}，但引擎建出来的实例 id 是 {} —— "
-                "把玩家传进 {} 会让引擎在区块线程上抛异常直接 abort。判定注册失败。",
+                "[dim] the ledger id of '{}' is {} while the instance the engine built "
+                "reports {}; teleporting a player into {} would make the engine throw on a "
+                "chunk thread and abort, so registration failed",
                 dimName, info.id.value(), realId, info.id.value()
             );
-            // 台账已经写脏了，回滚掉，免得 dimensionSelector 还能查到它。
+            // The ledger is already dirty and is rolled back, so dimensionSelector can
+            // no longer find it.
             rememberDimension(dimName, -1);
-            throw std::runtime_error("维度 '" + dimName + "' 的 id 与引擎实例不符");
+            throw std::runtime_error("the id of dimension '" + dimName + "' does not match the engine instance");
         }
 
         announceReady(dimName, realId);

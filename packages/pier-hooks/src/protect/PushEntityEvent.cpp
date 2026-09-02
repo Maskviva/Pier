@@ -1,17 +1,18 @@
-/**
- * hooks/protect/PushEntityEvent.cpp —— 合成事件 "PlayerPushEntityEvent"，可取消。
- *
- * 推挤不需要点击，是唯一一种能在完全锁死的领地上存活、且不留日志的破坏手段：
- * 访客可以把牲畜赶出围栏、把船顶进虚空、把展示框挪走。
- *
- * 钩点是自由函数 PushableByEntityUtility::skipPush（故用 LL_STATIC_HOOK）。它是
- * 引擎自己的「这次推挤该不该跳过」之问，返回 true 是每个调用方本来就处理好的结
- * 果；在推挤内部拒绝会留下两个实体重叠、碰撞悬而未决。碰撞解算从两边都会跑，玩家可能作为 owner 也可能作为 other 到达，两边都要认。
- * 权限在被推实体的位置上判定，因为站在边界外的玩家可以推里面的动物。两边都是
- * 玩家时不管，那是正常移动。节流见 decision_throttle.h。
- *
- * 载荷 {eventId, x, y, z, dim, target, _player:{name,xuid,uuid}}。
- */
+/** hooks/protect/PushEntityEvent.cpp: the synthetic, cancellable
+ * "PlayerPushEntityEvent".
+ * Pushing needs no click and is the one form of griefing that survives a fully locked
+ * claim while leaving no log: a visitor can herd livestock out of a fence, shove a boat
+ * into the void, or move an item frame away.
+ * The hook point is the free function PushableByEntityUtility::skipPush, hence
+ * LL_STATIC_HOOK. It is the engine's own question of whether this push should be skipped,
+ * and returning true is an outcome every caller already handles, while refusing inside
+ * the push itself would leave two actors overlapping with the collision unresolved.
+ * Collision resolution runs from both sides and the player may arrive as owner or as
+ * other, so both are recognized. Permission is decided at the position of the actor being
+ * pushed, because a player standing outside the boundary can push an animal inside. With
+ * players on both sides nothing happens, since that is ordinary movement. Throttling is
+ * described in decision_throttle.h.
+ * Payload {eventId, x, y, z, dim, target, _player:{name,xuid,uuid}}. */
 #include "pier/hooks/decision_throttle.h"
 #include "pier/hooks/hook_events.h"
 
@@ -31,7 +32,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& pushDef(); // 前向
+        HookEventDef& pushDef(); // Forward declaration
 
         std::unordered_map<std::string, ThrottledDecision>& pushCache()
         {
@@ -50,7 +51,7 @@ namespace pier::hooks
             auto& def = pushDef();
             if (!def.live()) return origin(owner, other);
 
-            // 两边都可能是玩家，见文件头。
+            // Either side may be the player, see the file header.
             ::Actor* pusher = nullptr;
             ::Actor* target = nullptr;
             if (owner.isPlayer() && !other.isPlayer())
@@ -65,15 +66,15 @@ namespace pier::hooks
             }
             else
             {
-                // 两边都不是玩家，或者两边都是。生物推生物是世界行为；玩家推
-                // 玩家是正常移动。
+                // Neither side is a player, or both are. A mob pushing a mob is world
+                // behavior and a player pushing a player is ordinary movement.
                 return origin(owner, other);
             }
 
             auto& p = *static_cast<Player*>(pusher);
 
             std::string key = p.getXuid();
-            if (key.empty()) key = p.getRealName(); // 离线模式服务器
+            if (key.empty()) key = p.getRealName(); // An offline-mode server
 
             auto const& tpos = target->getPosition();
             int const x = static_cast<int>(tpos.x);
@@ -88,8 +89,9 @@ namespace pier::hooks
                 return cached ? true : origin(owner, other);
             }
 
-            // getTypeName 在实体正在销毁时会抛。这条路每 tick 都跑，异常穿过
-            // detour 等于整服崩，所以就地吞掉。
+            // getTypeName throws while an actor is being destroyed. This path runs every
+            // tick and an exception crossing a detour takes the whole server down, so it
+            // is caught here.
             std::string targetName;
             try
             {
@@ -111,7 +113,7 @@ namespace pier::hooks
             bool const cancelled = dispatchHookEventCancellable(def, snbt);
             throttleStore(pushCache(), key, x, y, z, dim, now, cancelled);
 
-            // true == 跳过这次推挤，正是取消的意思。
+            // true means skip this push, which is exactly what cancelling means.
             return cancelled ? true : origin(owner, other);
         }
 

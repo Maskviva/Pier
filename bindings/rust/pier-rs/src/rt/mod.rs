@@ -1,7 +1,8 @@
-//! 运行时地基：握手、槽位闸、字符串收口、日志、panic 围栏。
+//! The runtime foundation: the handshake, the slot gates, string handling, logging and the
+//! panic fence.
 //!
-//! 这一层不认识任何游戏概念。域模块（`player` / `block` / …）全部建在它
-//! 上面，而它只认识 `levilamina_sys`。
+//! This layer knows no game concept. The domain modules, `player`, `block` and the rest,
+//! are all built on it while it knows only `levilamina_sys`.
 
 #[macro_use]
 pub(crate) mod accessors;

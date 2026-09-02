@@ -1,16 +1,14 @@
-/**
- * hooks/protect/ProjectileEvent.cpp —— 合成事件 "PlayerSpawnProjectileEvent"，可取消。
- *
- * 原版投射物是物品组件，投掷走 ThrowableItemComponent::_doThrow →
- * ProjectileItemComponent::shootProjectile → Item::createProjectileActor。
- * BedrockSpawner::spawnProjectile 已不在玩家路径上，仅作兜底；PlayerUseItemEvent
- * 覆盖不了弓弩三叉戟的蓄力—释放路径。五个钩点按覆盖面排列且会嵌套，gDispatching
- * 把一次发射收敛成一个判定。取消停下的是投射物，不退还弹药：钩子跑到时箭已离开
- * 背包，客户端一 tick 内自行对齐。
- *
- * 载荷 {eventId, x, y, z, dim, projectile, _player:{name,xuid,uuid}}。钩点 2、4
- * 触发时实体类型尚未解析，projectile 可能为空，只作参考。
- */
+/** hooks/protect/ProjectileEvent.cpp: the synthetic, cancellable "PlayerSpawnProjectileEvent".
+ * A vanilla projectile is an item component and throwing goes through
+ * ThrowableItemComponent::_doThrow, then ProjectileItemComponent::shootProjectile, then
+ * Item::createProjectileActor. BedrockSpawner::spawnProjectile is no longer on the player path
+ * and serves only as a backstop, and PlayerUseItemEvent does not cover the charge-and-release
+ * path of bows, crossbows and tridents. The five hook points are ordered by coverage and do nest,
+ * and gDispatching collapses one launch into one decision. Cancelling stops the projectile and
+ * does not refund ammunition: by the time the hook runs the arrow has already left the inventory,
+ * and the client realigns within a tick.
+ * Payload {eventId, x, y, z, dim, projectile, _player:{name,xuid,uuid}}. At hook points 2 and 4
+ * the entity type is not resolved yet, so projectile may be empty and is informational only. / */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -41,13 +39,14 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& projectileDef(); // 前向
+        HookEventDef& projectileDef(); // Forward declaration
 
         /**
-         * 判定进行中的标记，嵌套钩点据此不再重复问。
+         * The in-progress flag a nested hook point checks so it does not ask again.
          *
-         * thread_local 而非全局：全局标记会让两次并发发射互相吞掉对方的判定，
-         * 那种漏放是安静的。DispatchGuard 在每个钩子退出时复原。
+         * thread_local and not global: a global flag would let two concurrent launches
+         * swallow each other's decision, and that kind of leak is silent. DispatchGuard
+         * restores it as each hook exits.
          */
         thread_local bool gDispatching = false;
 
@@ -57,7 +56,8 @@ namespace pier::hooks
             ~DispatchGuard() { gDispatching = false; }
         };
 
-        /** 共享的载荷拼装：五个钩点报告同一个事件形状。 */
+        /** Shared payload assembly, so all five hook points report the same event
+         *  shape. */
         std::string buildSnbt(Player& p, std::string const& projectile, ::Vec3 const& at, int dim)
         {
             return "{\"eventId\":\"PlayerSpawnProjectileEvent\""
@@ -69,8 +69,10 @@ namespace pier::hooks
                 + "\"," + playerRefSnbt(p) + "}";
         }
 
-        /** 名字类调用在物品或实体正在销毁时会抛，异常穿过 detour 等于整服崩，
-         *  所以就地吞掉。订阅方拿到空名字会退回粗判定，不会更松。 */
+        /** A name lookup throws while an item or actor is being destroyed, and an
+         *  exception crossing a detour takes the whole server down, so it is caught here.
+         *  A subscriber receiving an empty name falls back to a coarser decision, which is
+         *  never more permissive. */
         template <class Fn>
         std::string safeName(Fn&& fn)
         {
@@ -84,15 +86,17 @@ namespace pier::hooks
             }
         }
 
-        /** 问一次。必须拒绝这次发射时返回 true。 */
+        /** Asks once. Returns true when this launch must be refused. */
         bool refuseLaunch(Player& p, std::string const& projectile, ::Vec3 const& at, int dim)
         {
             DispatchGuard guard;
             return dispatchHookEventCancellable(projectileDef(), buildSnbt(p, projectile, at, dim));
         }
 
-        // 1. 组件驱动的投射物：雪球、鸡蛋、末影珍珠、药水、附魔之瓶、风弹、
-        //    火焰弹，以及弓弩射出的箭。直接带 Player*，返回 nullptr 即取消。
+        // 1. Component-driven projectiles: snowballs, eggs, ender pearls, potions,
+        //    experience bottles, wind charges, fire charges, and the arrows a bow or
+        //    crossbow shoots. It carries a Player* directly and returning nullptr
+        //    cancels.
 
         LL_TYPE_INSTANCE_HOOK(
             ShootProjectileHook,
@@ -119,8 +123,8 @@ namespace pier::hooks
             return origin(region, aimPos, aimDir, power, player);
         }
 
-        // 2. 弓弩释放本身。与 1 冗余，但它在逐箭循环之前触发，所以多重射的弩
-        //    在这里只花一次判定。
+        // 2. The bow or crossbow release itself. Redundant with 1, but it fires before
+        //    the per-arrow loop, so a multishot crossbow costs one decision here.
 
         LL_TYPE_INSTANCE_HOOK(
             ShooterReleaseHook,
@@ -155,7 +159,8 @@ namespace pier::hooks
             origin(shooterStack, player, durationLeft);
         }
 
-        // 3. 投出的三叉戟。它是定制物品，钩点 1、2 都够不到。
+        // 3. A thrown trident. It is a bespoke item and neither hook point 1 nor 2
+        //    reaches it.
 
         LL_TYPE_INSTANCE_HOOK(
             TridentReleaseHook,
@@ -187,7 +192,7 @@ namespace pier::hooks
             origin(item, player, durationLeft);
         }
 
-        // 4. 装了烟花火箭的弩，同 3。
+        // 4. A crossbow loaded with a firework rocket, as in 3.
 
         LL_TYPE_INSTANCE_HOOK(
             CrossbowFireworkHook,
@@ -217,7 +222,8 @@ namespace pier::hooks
             origin(projectileInstance, player);
         }
 
-        // 5. 旧 spawner 路径，兜底附加包实体与发射器邻近代码。
+        // 5. The older spawner path, a backstop for add-on entities and the code around
+        //    dispensers.
 
         LL_TYPE_INSTANCE_HOOK(
             SpawnProjectileHook,
@@ -237,8 +243,8 @@ namespace pier::hooks
                 return origin(region, id, spawner, position, direction);
             }
 
-            // 三叉戟由 TridentReleaseHook 负责；在这里再报一次会让一次投掷触
-            // 发两遍事件。
+            // Tridents belong to TridentReleaseHook, and reporting one here as well would
+            // fire the event twice for a single throw.
             static auto& tridentName = EntityCanonicalName(::ActorType::Trident);
             if (*id.mCanonicalName == tridentName)
             {
@@ -260,9 +266,11 @@ namespace pier::hooks
             "PlayerSpawnProjectileEvent",
             []
             {
-                // 逐个报状态（0 == 成功）：钩点覆盖面不同，只有 1 装失败时雪球
-                // 和弓箭全部漏过而三叉戟仍被拦，症状是「保护时灵时不灵」。合并
-                // 成一条日志就分不出这种局部失效。
+                // Each status is reported separately, where 0 is success. The hook points
+                // cover different things, so with only 1 failing every snowball and arrow
+                // gets through while tridents are still blocked, and the symptom is
+                // protection that works sometimes. One combined log line could not tell
+                // such a partial failure apart.
                 int r1 = ShootProjectileHook::hook();
                 int r2 = ShooterReleaseHook::hook();
                 int r3 = TridentReleaseHook::hook();
@@ -270,31 +278,37 @@ namespace pier::hooks
                 int r5 = SpawnProjectileHook::hook();
                 auto& log = hostLogger();
                 log.debug(
-                    "[ProjectileEvent] 安装 detour：shootProjectile={}，_shootProjectiles={}，"
-                    "trident.releaseUsing={}，_shootFirework={}，spawnProjectile={}"
-                    "（codes: {} {} {} {} {}）",
-                    r1 == 0 ? "成功" : "失败", r2 == 0 ? "成功" : "失败",
-                    r3 == 0 ? "成功" : "失败", r4 == 0 ? "成功" : "失败",
-                    r5 == 0 ? "成功" : "失败",
+                    "[hooks/ProjectileEvent] installing detours: shootProjectile={}, _shootProjectiles={}, "
+                    "trident.releaseUsing={}, _shootFirework={}, spawnProjectile={} "
+                    "(codes: {} {} {} {} {})",
+                    r1 == 0 ? "ok" : "failed", r2 == 0 ? "ok" : "failed",
+                    r3 == 0 ? "ok" : "failed", r4 == 0 ? "ok" : "failed",
+                    r5 == 0 ? "ok" : "failed",
                     r1, r2, r3, r4, r5);
                 if (r1 != 0)
                 {
                     log.error(
-                        "[ProjectileEvent] 主钩点 ProjectileItemComponent::shootProjectile "
-                        "安装失败（code={}）—— 雪球、鸡蛋、末影珍珠、药水、弓箭等**组件驱动**"
-                        "的投射物将完全不受保护（其余钩点只覆盖三叉戟、弩烟花和老路径）。"
-                        "最常见原因是本宿主链接的 BDS/LeviLamina 版本与服务器实际运行的版本"
-                        "不一致。", r1);
+                        "[hooks/ProjectileEvent] the primary hook point "
+                        "ProjectileItemComponent::shootProjectile failed to install with "
+                        "code={}, so component-driven projectiles such as snowballs, eggs, "
+                        "ender pearls, potions and arrows are entirely unprotected; the "
+                        "remaining hook points cover only tridents, crossbow fireworks and "
+                        "the older path. The usual cause is a mismatch between the BDS or "
+                        "LeviLamina version this host was linked against and the one the "
+                        "server runs.", r1);
                 }
                 if (r2 != 0 || r3 != 0 || r4 != 0 || r5 != 0)
                 {
                     log.warn(
-                        "[ProjectileEvent] 有辅助钩点未装上（codes: {} {} {} {}）—— "
-                        "对应路径（弓弩整发判定 / 三叉戟 / 弩烟花 / 老 spawner 路径）"
-                        "的拦截会缺失。",
+                        "[hooks/ProjectileEvent] a secondary hook point failed to install "
+                        "(codes: {} {} {} {}), so interception is missing on the "
+                        "corresponding paths: the whole-shot decision for bows and "
+                        "crossbows, tridents, crossbow fireworks and the older spawner "
+                        "path",
                         r2, r3, r4, r5);
                 }
-                // 主钩点必须在；辅助钩点缺失只降级（已 warn）。
+                // The primary hook point is required; a missing secondary one only
+                // degrades, and that was warned about above.
                 return r1 == 0;
             }
         };

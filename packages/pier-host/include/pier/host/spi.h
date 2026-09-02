@@ -1,13 +1,17 @@
 #pragma once
-// 宿主的 SPI —— 能力包与宿主之间唯一的协作面（契约 §一 规则二）。
+// The host SPI, the only collaboration surface between capability packages and the
+// host (contract §1 rule 2).
 //
-// 方向永远是「能力包注册进宿主，宿主在正确的时机回调」。宿主不 include、
-// 不链接任何能力包的符号；能力包之间也互不认识。一个包不在，注册就不
-// 发生，对应槽位保持 NULL —— 这就是「可选」的全部实现机制。
+// The direction is always the same. A capability package registers into the host and
+// the host calls back at the right moment. The host includes and links no symbol of
+// any capability package, and the packages do not know each other. When a package is
+// absent its registration never happens and the matching slots stay NULL, which is
+// the whole implementation of "optional".
 //
-// 注册发生在文件级静态对象的构造里（各包 set_kind("object") 保证这些
-// 对象必然存在，见契约 §一 规则四）。注册表本体是 Meyers 单例，静态
-// 初始化顺序因此无关紧要。所有回调都在服务器线程触发。
+// Registration happens in the constructors of file-level static objects, which are
+// guaranteed to exist because every package uses set_kind("object") (contract §1
+// rule 4). The registries themselves are Meyers singletons, so static initialization
+// order does not matter. Every callback fires on the server thread.
 
 #include <cstdint>
 #include <optional>
@@ -30,29 +34,34 @@ class BlockSource;
 
 namespace pier::spi
 {
-    /*  1. 槽位包：装载期把函数指针填进 PierApi
-     * 每个能力包注册一个（或几个）填充函数；宿主在 load() 里、任何模组
-     * 装载之前统一执行。填充只许写自己域的槽位；表头四个标量由宿主填。 */
+    /*  1. Slot packs, which fill function pointers into PierApi at load time
+     * Each capability package registers one or more fill functions and the host runs
+     * them together inside load(), before any mod is loaded. A fill function may
+     * write only the slots of its own domain. The four header scalars are filled by
+     * the host. */
     struct SlotPack
     {
-        std::string_view name;      // debug 日志用："填充槽位包 core, events, ..."
+        std::string_view name;      // Appears in the debug line listing slot packs.
         void (*fill)(PierApi& api);
     };
     void addSlotPack(SlotPack pack);
 
-    /** 静态注册用：`static spi::SlotPackReg reg{{"core", &fillCore}};` */
+    /** For static registration: `static spi::SlotPackReg reg{{"core", &fillCore}};` */
     struct SlotPackReg
     {
         explicit SlotPackReg(SlotPack p) { addSlotPack(p); }
     };
 
-    /*  2. 引导步骤：表填好之后、任何模组装载之前，按 stage 升序
-     * 给需要「宿主起来就干活」的包用（dimensions 读配置并布 hook、
-     * hooks 预热引擎）。放 SPI 而不放各包的静态构造里，是因为这些工作
-     * 需要 LL 环境就绪（logger、配置目录），静态构造期太早。 */
+    /*  2. Bootstrap steps, run in ascending stage order after the table is filled
+     *     and before any mod is loaded
+     * For packages that must do work as soon as the host is up, such as dimensions
+     * reading its config and installing hooks, or hooks warming up the engine. They
+     * live in the SPI and not in package static constructors because the work needs
+     * the LL environment to be ready, including the logger and the config directory,
+     * and static construction is too early for that. */
     struct Bootstrap
     {
-        int stage;                  // 升序执行；同 stage 顺序不保证
+        int stage;                  // Ascending execution order. Ties are unordered.
         std::string_view name;
         void (*run)();
     };
@@ -63,10 +72,11 @@ namespace pier::spi
         explicit BootstrapReg(Bootstrap b) { addBootstrap(b); }
     };
 
-    /*  3. 卸载否决：unload 之前逐个问「现在能卸它吗」
-     * 返回 nullptr = 放行；返回原因字符串（静态存续期）= 否决。
-     * lane 用它挡「还有别的模组正拿着这个提供方的车道」；未来的包
-     * 有同类不变量也走这里，宿主一行不用改。 */
+    /*  3. Unload vetoes, asked one by one before an unload
+     * Returning nullptr allows the unload. Returning a reason string of static
+     * storage duration vetoes it. lane uses this to block an unload while another
+     * mod still holds a lane of this provider. A future package with a similar
+     * invariant registers here and the host needs no change. */
     struct UnloadVeto
     {
         std::string_view name;
@@ -79,16 +89,18 @@ namespace pier::spi
         explicit UnloadVetoReg(UnloadVeto v) { addUnloadVeto(v); }
     };
 
-    /*  4. 拆除步骤：模组死亡时按 stage 升序清资源
-     * 「死亡」= 主动卸载、装载中途失败回滚、服务器关停 —— 三条路都走
-     * 这里，所以每个持有模组资源的包只需要写一次清理。
+    /*  4. Teardown steps, releasing resources in ascending stage order on mod death
+     * A mod dies on an explicit unload, on rollback from a failed load and on server
+     * shutdown. All three paths run these steps, so a package holding mod resources
+     * writes its cleanup once.
      *
-     * stage 约定（间距留给后来者插队）：
-     *   10 计划任务   20 总线   30 服务   40 车道   50 命令回调
-     *   60 表单票据   70 KvDb   80 合成事件   90 数据包 hook
-     *  100 经济回调  110 客户端资源
-     * 顺序背后的不变量：先停「会再进模组代码」的东西（任务/事件），
-     * 再撤「别人可能正引用」的注册（服务/车道），最后清纯数据。 */
+     * Stage assignment, spaced to leave room for later insertions:
+     *   10 scheduled tasks  20 bus  30 services  40 lanes  50 command callbacks
+     *   60 form tickets  70 KvDb  80 synthetic events  90 packet hooks
+     *  100 economy callbacks  110 client resources
+     * The invariant behind the order is to first stop what can re-enter mod code,
+     * meaning tasks and events, then withdraw registrations others may still hold,
+     * meaning services and lanes, and clear plain data last. */
     struct Teardown
     {
         int stage;
@@ -102,39 +114,48 @@ namespace pier::spi
         explicit TeardownReg(Teardown t) { addTeardown(t); }
     };
 
-    /*  5. 事件提供方：合成事件接进 subscribe_event 的解析
-     * hooks（原生 detour 合成）和命令事件都不在 LL 的动态事件注册表里；
-     * 它们以提供方身份挂进来，由 pier-api 的 Events 按契约 §六 的顺序
-     * 解析。认领判定必须走 idMatches —— 匹配器只有一个。 */
+    /*  5. Event providers, splicing synthetic events into subscribe_event resolution
+     * Neither hooks, which are synthesized by native detours, nor command events
+     * appear in the LL dynamic event registry. They attach as providers and Events in
+     * pier-api resolves them in the order given by contract §6. A claim decision goes
+     * through idMatches, which is the only matcher. */
     struct EventProvider
     {
         std::string_view name;
 
-        /** 本提供方的 id 是否对应注册表里的同名条目。
+        /** Whether the id of this provider corresponds to an entry of the same name
+         *  in the registry.
          *
-         *  true  —— 命令事件这类：注册表里躺着同一个事件的发射器条目，但
-         *           LL 只派发给类型化监听器，动态路径接不到 —— 提供方替换
-         *           注册表路径是修复，不是遮蔽，解析时不告警。
-         *  false —— hooks 这类纯合成事件：注册表出现同后缀 id 意味着上游
-         *           新增了真事件而合成名撞了 —— 必须打 warn 让人看见
-         *          （契约 §六：遮蔽必须可见）。 */
+         *  true covers cases such as command events. The registry holds an emitter
+         *  entry for the same event, but LL dispatches only to typed listeners and
+         *  the dynamic path never receives it. A provider replacing the registry path
+         *  repairs that rather than shadowing it, so resolution does not warn.
+         *  false covers purely synthetic events such as hooks. An id with the same
+         *  suffix appearing in the registry means upstream introduced a real event
+         *  whose name collides, and that must be warned about (contract §6, shadowing
+         *  is always visible). */
         bool covers_registry;
 
-        /** wanted 是否属于本提供方（精确名或带分隔符的后缀）。 */
+        /** Whether `wanted` belongs to this provider, by exact name or by a suffix
+         *  preceded by a separator. */
         bool (*claims)(std::string_view wanted);
 
-        /** 认领后订阅。失败返回 NULL —— 调用方（Events）负责报错，
-         *  不会下落到别的解析路径（认领即负责，契约 §六）。 */
+        /** Subscribes after claiming. Returns NULL on failure. The caller, Events,
+         *  reports the error and does not fall through to another resolution path.
+         *  Claiming means owning the outcome (contract §6). */
         PierListenerHandle (*subscribe)(
             HostedMod* mod, std::string_view wanted, int32_t priority, PierEventCb cb, void* user);
 
-        /** 找到并退掉返回 true；不是本提供方的句柄返回 false（让下一家试）。 */
+        /** True when the handle was found and unsubscribed. False when the handle
+         *  does not belong to this provider, so the next one may try. */
         bool (*unsubscribe)(HostedMod* mod, PierListenerHandle handle);
 
-        /** 模组死亡：丢掉它名下的全部订阅（W-EV1 的提供方侧）。 */
+        /** Mod death. Drops every subscription held under that mod. This is the
+         *  provider side of removing listeners the host cannot reach. */
         void (*dropMod)(HostedMod* mod);
 
-        /** 把本提供方的全部事件 id 逐个喂给 sink（/pier events、报错提示用）。 */
+        /** Feeds every event id of this provider to the sink one at a time. Used by
+         *  /pier events and by error hints. */
         void (*list)(void* ctx, PierStrSink sink);
     };
     void addEventProvider(EventProvider provider);
@@ -144,40 +165,50 @@ namespace pier::spi
         explicit EventProviderReg(EventProvider p) { addEventProvider(p); }
     };
 
-    /*  6. 维度桥：dimensions 能力包的单槽扩展点
-     * api 的世界函数需要两件只有 dimensions 才知道的事：自定义 id 叫什么
-     * 名字、怎么把还没建出来的自定义维度逼出来。这不是列表而是单槽 ——
-     * 同时存在两套维度台账本身就是错误。包缺席时为空，api 按「只认原版」
-     * 降级并各自打一次 warn。诊断细节（注册台账、配置漂移）由实现方
-     * 在自己的失败路径里打日志 —— 它才知道台账长什么样。 */
+    /*  6. Dimension bridge, the single-slot extension point of the dimensions package
+     * The world functions in api need two things only dimensions knows, the name of a
+     * custom id and how to force a custom dimension that has not been built yet. It
+     * is a single slot and not a list. Two dimension ledgers existing at once is
+     * itself an error. It is empty when the package is absent, and api then degrades
+     * to recognizing vanilla dimensions only and warns once per function. Diagnostic
+     * detail such as the registration ledger and config drift is logged by the
+     * implementation on its own failure paths, which is the only side that knows what
+     * the ledger looks like. */
     struct DimensionBridge
     {
-        /** `/execute in` 认的维度名；未注册返回空串（并自打诊断）。 */
+        /** The dimension name accepted by `/execute in`. An empty string when the
+         *  dimension is not registered, with a diagnostic logged by this side. */
         std::string (*selectorNameOf)(int32_t dim);
-        /** 强制建出自定义维度并取 BlockSource；失败 nullptr（自打诊断）。
+        /** Forces a custom dimension into existence and takes its BlockSource.
+         *  Returns nullptr on failure, with a diagnostic logged by this side.
          *
-         *  实现方必须校验建出的引擎实例 id == 请求的 dim，不一致时报错
-         *  并返回 nullptr。台账 id 与引擎 id 漂移时：方块写入会静默落进错
-         *  的维度；而把玩家传送进 dim 会让引擎在区块工作线程抛未捕获异常，
-         *  整个进程 fastfail(0xC0000409) —— 不是调用方一句「失败」能兜住
-         *  的。校验所需的知识（注册台账、按名建维度）只在 dimensions 包，
-         *  所以门必须设在实现方这一头；api 侧把「blockSourceOf 非空」当作
-         *  唯一的放行条件。 */
+         *  The implementation must check that the engine instance it built carries
+         *  the requested dim as its id, and must report an error and return nullptr
+         *  when they differ. Once the ledger id and the engine id drift apart, block
+         *  writes land silently in the wrong dimension, and teleporting a player into
+         *  dim makes the engine throw an uncaught exception on a chunk worker thread
+         *  and fastfail the process with 0xC0000409, which no failure return from the
+         *  caller can contain. The knowledge that check needs exists only in the
+         *  dimensions package, so the gate belongs on the implementation side. The
+         *  api side treats a non-null blockSourceOf as its only condition to go
+         *  ahead. */
         ::BlockSource* (*blockSourceOf)(int32_t dim);
     };
     void setDimensionBridge(DimensionBridge const* bridge);
     [[nodiscard]] DimensionBridge const* dimensionBridge() noexcept;
 
-    /*  宿主消费面（pier-host 和 pier-api 的 Events 用） */
+    /*  Host consumption surface, used by pier-host and by Events in pier-api */
 
-    /** 填表头 + 按注册顺序执行全部槽位包；debug 日志列出包名。
-     *  只在 load() 里调一次；之后表冻结。 */
+    /** Fills the table header and runs every slot pack in registration order, and
+     *  logs the pack names at debug level. Called once from load(), after which the
+     *  table is frozen. */
     void buildApi(PierApi& api, ll::io::Logger& log);
 
-    /** 按 stage 升序跑全部拆除步骤。 */
+    /** Runs every teardown step in ascending stage order. */
     void runTeardown(HostedMod* mod);
 
-    /** 逐个问否决者；第一个说不的返回 {包名, 原因}，全放行返回空。 */
+    /** Asks each veto in turn. Returns {package, reason} for the first refusal and
+     *  an empty optional when all of them allow the unload. */
     struct VetoAnswer
     {
         std::string_view who;
@@ -185,23 +216,27 @@ namespace pier::spi
     };
     std::optional<VetoAnswer> askUnloadVetoes(HostedMod* mod);
 
-    /** 按 stage 升序跑全部引导步骤（load() 里、buildApi 之后）。 */
+    /** Runs every bootstrap step in ascending stage order, from load() after
+     *  buildApi. */
     void runBootstrap(ll::io::Logger& log);
 
-    /** 遍历事件提供方。visit 返回 true 表示「处理完了，停止遍历」。 */
+    /** Iterates event providers. Returning true from visit means the entry was
+     *  handled and iteration stops. */
     bool forEachEventProvider(bool (*visit)(EventProvider const&, void* ctx), void* ctx);
 
-    /*  id 匹配（契约 §六：全仓库唯一的一份判定） */
+    /*  Id matching (contract §6, the only such decision in the repository) */
 
-    /** wanted 精确等于 canonical，或以「分隔符 + canonical」结尾
-     *（分隔符 ∈ {"::", ":", "."}）。永远不做子串匹配 —— 子串意味着
-     *  上游哪天新增一个含相同词干的事件，订阅就被静默劫持。 */
+    /** True when wanted equals canonical exactly, or ends with a separator followed
+     *  by canonical, where the separator is one of "::", ":" or ".". Never a
+     *  substring match. A substring match would let a future upstream event sharing
+     *  the same stem silently hijack the subscription. */
     [[nodiscard]] bool idMatches(std::string_view wanted, std::string_view canonical) noexcept;
 
-    /*  监听句柄的 id 空间（进程内单调，永不复用）
-     * 住在 SPI 是因为三个消费方（Events、hooks 提供方、命令事件提供方）
-     * 都要发句柄，而它们互不 include —— id 空间必须只有一个，否则两家
-     * 发出同一个「唯一」id 只是时间问题。 */
+    /*  Id space for listener handles, process-wide monotonic and never reused
+     * It lives in the SPI because three consumers issue handles, Events, the hooks
+     * provider and the command event provider, and none of them includes another.
+     * There must be exactly one id space, otherwise two of them issuing the same
+     * "unique" id is only a matter of time. */
     [[nodiscard]] std::uint64_t nextListenerId() noexcept;
 
     [[nodiscard]] inline PierListenerHandle handleOf(std::uint64_t id) noexcept

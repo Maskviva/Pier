@@ -1,17 +1,18 @@
-/** core/Enrich.cpp —— 事件载荷富化：把反射指针桩解成消费方读得懂的字段。
+/** core/Enrich.cpp: event payload enrichment, resolving reflection pointer stubs into
+ *  fields a consumer can read.
  *
- * LL 的 serializeRefObj 对每个不可序列化的引用字段发一个
- * {_type_:"Player", _pointer_:<i64>} 桩。桩对 ABI 另一侧毫无用处：指针只在进程内
- * 有效，类型名是 C++ 静态类型。这里把它们换成身份字段。
+ * serializeRefObj in LL emits a {_type_:"Player", _pointer_:<i64>} stub for every
+ * reference field it cannot serialize. Such a stub is useless across the ABI: the
+ * pointer is valid only in this process and the type name is a C++ static type.
  *
- * 判据按「Actor 形」而不是只认 "Player"。继承链决定 self 的静态类型：PlayerEvent
- * 发 Player，MobEvent 发 Mob，ActorEvent 发 Actor。于是 ActorHurtEvent、MobDieEvent
- * 这类挂在 ActorEvent 上的事件，即使当事人就是玩家，桩上写的也是 "Actor"；只认
- * "Player" 时 _player 与 dim 一个都不会注入，而消费方把缺失的 dim 当 0 之后，自定
- * 义维度里的每个事件都被当成发生在主世界，土地保护在别的维度全部放行且零日志。
- *
- * 只解引用活玩家表里的地址：生物随时可能在这一 tick 内被销毁，玩家指针则由在线表
- * 背书。不在表里的 Actor 桩一律不碰，宁可少一个字段也不解引用悬垂指针。
+ * The test matches any Actor shape, not "Player" alone. The inheritance chain decides
+ * the static type of self: PlayerEvent emits Player, MobEvent emits Mob, ActorEvent
+ * emits Actor. So ActorHurtEvent and MobDieEvent carry "Actor" in the stub even when
+ * the subject is a player. Matching "Player" alone would inject neither _player nor
+ * dim, and a consumer reading a missing dim as 0 treats every event in a custom
+ * dimension as the overworld, so land protection allows everything elsewhere and logs
+ * nothing. Only addresses in the live player table are dereferenced, because a mob may
+ * be destroyed within the same tick, so an Actor stub outside the table is left alone.
  */
 #include "pier/api/bridge.h"
 
@@ -41,7 +42,8 @@ namespace pier::bridge
 {
     namespace
     {
-        /** 在线玩家的地址表。只有出现在这里的指针才会被解引用。 */
+        /** Address table of online players. Only a pointer listed here is
+         *  dereferenced. */
         std::unordered_set<uintptr_t> livePlayerAddrs()
         {
             std::unordered_set<uintptr_t> addrs;
@@ -77,7 +79,8 @@ namespace pier::bridge
                 if (!typeVar.is_string() || !ptrVar.is_number()) continue;
 
                 auto addr = static_cast<uintptr_t>(static_cast<int64_t>(ptrVar));
-                // 明显不是合法对象地址的直接丢：空页附近、没按 8 对齐。
+                // Drop anything that is plainly not a valid object address, meaning
+                // near the null page or not 8-byte aligned.
                 if (addr < 0x10000 || (addr & 0x7) != 0) continue;
                 out.push_back({entry.first, std::string(std::string_view(typeVar)), addr});
             }
@@ -111,8 +114,9 @@ namespace pier::bridge
         bool changed = false;
         bool haveDim = copy.contains("dim");
 
-        // 只在真的有 Actor 桩时才建活玩家表：绝大多数事件根本没有玩家字段，
-        // 每个事件都建一次是纯浪费。
+        // The live player table is built only when an Actor stub is actually present.
+        // Most events have no player field at all and building it every time is pure
+        // waste.
         std::unordered_set<uintptr_t> live;
         bool liveReady = false;
         auto isLivePlayer = [&](uintptr_t addr) -> bool
@@ -125,15 +129,18 @@ namespace pier::bridge
             return live.find(addr) != live.end();
         };
 
-        // 桩解析不出来时必须留下痕迹。契约 §5.1：「问不出来」和
-        // 「答案是否」必须是不同的值 —— 缺席的 dim 会被消费方 unwrap_or(0)
-        // 当成主世界，这正是自定义维度土地保护被绕过的事故原型。
+        // An unresolved stub must leave a trace. Contract §5.1 requires that "cannot
+        // be determined" and "the answer is no" be different values. A consumer runs
+        // unwrap_or(0) on a missing dim and reads it as the overworld, which is the
+        // exact shape of the incident where land protection in a custom dimension was
+        // bypassed.
         std::vector<std::string> unresolved;
 
-        // 非玩家 Actor（ActorHurt/MobDie 等的当事人是生物）：只在运行时实体表
-        // 里找得到时才解引用 —— 事件是在引擎调用栈里同步派发的，此刻它一定
-        // 活着；表里没有的指针一律不碰。线性扫描、零分配，只在遇到非玩家桩
-        // 时才做。
+        // A non-player Actor, as in ActorHurt or MobDie where the subject is a mob,
+        // is dereferenced only when the runtime entity table lists it. Events are
+        // dispatched synchronously inside the engine call stack, so at that moment it
+        // is certainly alive. A pointer absent from the table is never touched. Linear
+        // scan, no allocation, and only when a non-player stub appears.
         std::vector<Actor*> actors;
         bool actorsReady = false;
         auto liveActor = [&](uintptr_t addr) -> Actor*
@@ -154,8 +161,9 @@ namespace pier::bridge
         {
             if (isActorLike(stub.type))
             {
-                // 只解引用当前在线玩家的指针；别的 Actor 指针只在运行时实体表
-                // 里命中时才碰（生物随时可能在这一 tick 内被销毁）。
+                // Only a pointer to a currently online player is dereferenced. Another
+                // Actor pointer is touched only on a hit in the runtime entity table,
+                // since a mob may be destroyed within this tick.
                 if (!isLivePlayer(stub.addr))
                 {
                     if (auto* actor = liveActor(stub.addr))
@@ -228,10 +236,11 @@ namespace pier::bridge
 
             if (stub.type == "ActorDamageSource")
             {
-                // 读公开成员而不是 getCause()，后者是 MCFOLD，不保证导出。mCause
-                // 是 TypedStorage<..., ActorDamageCause>，而 ActorDamageCause 是枚
-                // 举，按坍缩规则（见 tools/typed-storage.py）它就是那个枚举本身，
-                // 写 .get() 是编译错误 C2228。
+                // Reads the public member rather than getCause(), which is MCFOLD and
+                // not guaranteed to be exported. mCause is
+                // TypedStorage<..., ActorDamageCause> and ActorDamageCause is an enum,
+                // so by the collapse rules in tools/typed-storage.py it is that enum
+                // itself and writing .get() is compile error C2228.
                 if (auto* src = reinterpret_cast<ActorDamageSource*>(stub.addr))
                 {
                     copy["_" + stub.key] = CompoundTagVariant::object(
@@ -244,17 +253,21 @@ namespace pier::bridge
 
             if (stub.type == "BlockSource")
             {
-                // WorldEvent 那一族（SpawningMobEvent / FireSpreadEvent /
-                // BlockChangedEvent）没有玩家字段，dim 只能从这里来。
+                // The WorldEvent family, such as SpawningMobEvent, FireSpreadEvent and
+                // BlockChangedEvent, has no player field, so dim can only come from
+                // here.
                 if (!haveDim)
                 {
                     if (auto* bs = reinterpret_cast<BlockSource*>(stub.addr))
                     {
-                        // mDimension 装的是 Dimension&，TypedStorage 对引用有坍缩
-                        // 特化，写 .get() 是编译错误 C2039。先落一个具名引用而不
-                        // 用链式点号：装引用时不保证有 operator->。取 id 走
-                        // getDimensionId().value() 而不直接读 mId，后者的
-                        // TypedStorage 形状未经验证，省一次虚调用不划算。
+                        // mDimension holds a Dimension&, and TypedStorage has a
+                        // collapse specialization for references, so writing .get() is
+                        // compile error C2039. A named reference is taken first rather
+                        // than chaining member access, because operator-> is not
+                        // guaranteed when a reference is stored. The id comes from
+                        // getDimensionId().value() rather than mId directly, whose
+                        // TypedStorage shape is unverified and not worth one saved
+                        // virtual call.
                         Dimension& dim = bs->mDimension;
                         copy["dim"] = CompoundTagVariant(dim.getDimensionId().value());
                         haveDim = true;
@@ -291,7 +304,8 @@ namespace pier::bridge
 
         if (!unresolved.empty())
         {
-            // 显式标记：消费方据此 fail-closed，而不是把缺席当成主世界。
+            // An explicit marker, so a consumer fails closed instead of reading the
+            // absence as the overworld.
             ListTag list;
             for (auto const& k : unresolved) list.add(std::make_unique<StringTag>(k));
             copy["_unresolved"] = std::move(list);

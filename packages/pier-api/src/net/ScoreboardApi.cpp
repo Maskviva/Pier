@@ -1,7 +1,8 @@
-/** net/ScoreboardApi.cpp —— 计分板操作。
+/** net/ScoreboardApi.cpp: scoreboard operations.
  *
- * 读写都走原生 Scoreboard（Level::getScoreboard）。计分身份用「假玩家」名
- * —— 和原版 /scoreboard 同一个命名空间，结果与游戏内状态对得上。 */
+ * Reads and writes both go through the native Scoreboard from Level::getScoreboard.
+ * A scoring identity uses a fake player name, in the same namespace vanilla
+ * /scoreboard uses, so results line up with in-game state. */
 #ifndef PIER_BUILD_CLIENT
 
 #include <limits>
@@ -28,7 +29,7 @@ namespace pier::api_impl
 {
     namespace
     {
-        /** 取或建一个假玩家名的 ScoreboardId。 */
+        /** Gets or creates the ScoreboardId for a fake player name. */
         ScoreboardId const& idFor(Scoreboard& board, std::string const& name)
         {
             auto const& existing = board.getScoreboardId(name);
@@ -56,7 +57,7 @@ namespace pier::api_impl
                 auto& board = level->getScoreboard();
                 std::string sa = toString(a);
                 std::string sb = toString(b);
-                // 分数是 int，超出范围静默截断会把 2^32 变成 0。
+                // A score is an int, and silent truncation would turn 2^32 into 0.
                 if (n < std::numeric_limits<int>::min() || n > std::numeric_limits<int>::max()) return false;
 
                 switch (op)
@@ -137,20 +138,22 @@ namespace pier::api_impl
                 }
                 case PIER_SB_SET_DISPLAY:
                 {
-                    // 原生。早先走 /scoreboard 的理由是「让排序默认值留在引擎
-                    // 侧」，但 setDisplayObjective 本来就收 ObjectiveSortOrder，
-                    // 显式传 Ascending 就是命令不带 sortOrder 时的默认值 —— 绕
-                    // 命令并没有换来什么，反而丢了失败原因（目标不存在？槽位名
-                    // 拼错？）。
+                    // Native. setDisplayObjective already takes an ObjectiveSortOrder,
+                    // and passing Ascending explicitly is the default the command
+                    // applies when no sortOrder is given, so routing through
+                    // /scoreboard would buy nothing and would lose the failure reason,
+                    // such as a missing objective or a misspelled slot name.
                     //
-                    // sa = 槽位名（"sidebar"/"list"/"belowname"），sb = 目标名。
+                    // sa is the slot name, one of "sidebar", "list" or "belowname",
+                    // and sb is the objective name.
                     auto* obj = board.getObjective(sb);
                     if (!obj) return false;
                     return board.setDisplayObjective(sa, *obj, ObjectiveSortOrder::Ascending) != nullptr;
                 }
                 case PIER_SB_CLEAR_DISPLAY:
-                    // 返回被清掉的那个目标；本来就没有显示目标时返回 nullptr，
-                    // 那也算成功（幂等），所以不看返回值。
+                    // Returns the objective that was cleared, or nullptr when no
+                    // objective was displayed, which also counts as success because
+                    // the operation is idempotent. The return value is not read.
                     board.clearDisplayObjective(sa);
                     return true;
                 default:

@@ -1,13 +1,13 @@
-/** world/SpawnItemActorEvent.cpp —— 一个掉落物实体要被生成。
- *
- * 两个用途：
- *   - 反刷物 / 反卡服：掉落物是最容易堆出几千个实体的东西，取消掉一部分
- *     （比如某个区域里的、或者某种物品）比事后清理便宜得多；
- *   - 地皮内的掉落归属：知道「哪一格掉了什么」才能做「只有主人能捡」。
- *
- * 取消 = 不生成这个掉落物（返回 nullptr 是引擎自己的失败路径）。**注意物品
- * 会因此消失**，不是掉在地上不动 —— 想保留就别取消，改在拾取事件上判。
- */
+/** world/SpawnItemActorEvent.cpp: a dropped item actor is about to spawn.
+ * Two uses:
+ *   - Anti-duplication and anti-lag: dropped items are the easiest way to pile up
+ *     thousands of actors, and cancelling some of them, in one area or of one item type,
+ *     is far cheaper than cleaning up afterwards.
+ *   - Drop ownership inside a plot: knowing what dropped in which cell is what makes
+ *     only the owner may pick it up possible.
+ * Cancelling means the drop is not spawned, and returning nullptr is the engine's own
+ * failure path. The item disappears as a result and does not lie on the ground, so
+ * keeping it means not cancelling here and deciding in the pickup event instead. */
 #ifndef PIER_BUILD_CLIENT
 
 #include "pier/hooks/hook_events.h"
@@ -32,7 +32,7 @@ namespace pier::hooks
 {
     namespace
     {
-        HookEventDef& spawnItemDef(); // 前向
+        HookEventDef& spawnItemDef(); // Forward declaration
 
         LL_TYPE_INSTANCE_HOOK(
             SpawnerSpawnItemHook,
@@ -96,7 +96,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[SpawnItemActorEvent] Spawner::$spawnItem 的 detour 安装失败（code={}）。", r);
+                        "[hooks/SpawnItemActorEvent] the Spawner::$spawnItem detour failed to install with code={}", r);
                 }
                 return r == 0;
             }

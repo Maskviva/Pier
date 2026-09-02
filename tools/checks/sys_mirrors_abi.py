@@ -1,47 +1,54 @@
 # -*- coding: utf-8 -*-
-"""sys-mirrors-abi —— `pier-sys-rs` 的槽序与常量必须和 `abi.h` 逐格对上。
+"""sys-mirrors-abi: the slot order and constants of `pier-sys-rs` must match `abi.h` cell
+for cell.
 
-盯的是什么：这份镜像是**全手写**的（没有 bindgen，理由见 abi.h 的文件头 ——
-生成的绑定读不出「为什么」，而这份契约的注释就是产品的一部分）。手写镜像的
-失效方式只有一种，但它是最坏的那一种：
+What it watches: the mirror is written entirely by hand, with no bindgen, for the reason
+the file header of abi.h gives, that a generated binding cannot carry the reasons while
+the comments of this contract are part of the product. A hand-written mirror has one
+failure mode, and it is the worst one:
 
-    abi.h 在表尾追加了一个槽，镜像忘了跟 → 之后每一槽都错位一格 →
-    调用 `bus_publish` 实际打到别的函数指针上 → **无诊断的内存错乱**。
+    abi.h appends a slot at the end, the mirror does not follow, every slot after it is
+    off by one, a call to `bus_publish` lands on a different function pointer, and memory
+    is corrupted with no diagnostic.
 
-两侧各自都编得过。编译器看不见这件事，clippy 也看不见 —— 它正是 §九 说的
-「才值得写脚本」的那一类，而且是这张清单上后果最严重的一条。
+Both sides compile on their own. The compiler cannot see it and clippy cannot see it,
+which makes it the kind §9 calls worth a script, and the one with the worst consequence on
+that list.
 
-## 判据
+## The criteria
 
-1. **槽序逐格相同。** 名字和顺序都要对，不只是数量 —— 数量相同而两个槽调了
-   个个儿，是最难查的那种。
+1. The slot order matches cell for cell. Names and order both, not merely the count: an
+   equal count with two slots swapped is the hardest case to find.
+2. Every slot signature matches parameter by parameter. This was added after a real
+   compile, for a reason worth stating: `cargo check` catches only a spelling error such
+   as `int` not being a Rust type. It does not catch the mirror writing `i32` where
+   `abi.h` has `int64_t`, since both sides compile and half a number is read at runtime,
+   the low 32 bits on a little-endian target, whose value still looks plausible. That is
+   the same family of failure as a misaligned slot: no diagnostic, and the symptom far
+   from the cause. The comparison therefore has to reach down to the types.
+3. Every `PIER_*` constant matches. The values too: `PIER_DIMRULE_FIRE_SPREAD` differing
+   by one between the sides shows up as turning off mob spawning and stopping fire spread.
+4. Every `enum` member in `abi.h` has a constant of the same name and value in the mirror.
+   Reality forced this one: among the 33 members of `PierActorAction`,
+   `PIER_AACT_ADD_EFFECT` was missed during manual transcription because of a wrapped
+   comment, and a missing constant shows up as calling add_effect while remove_effect
+   runs, since downstream substitutes the adjacent value. This was originally meant to
+   rest on reading by hand, which missed one on the first try, so it became a machine
+   check.
+5. The mirror carries no conditional compilation. Contract §2.1: the layout is identical
+   on every target, so the mirror needs no `#[cfg]`. A cfg appearing means someone rebuilt
+   a fork inside the mirror, and a fork was the root cause of the seven-slot misalignment
+   in v1.
 
-2. **每个槽的签名逐参数相同。** 这一条是真机编译之后补的，理由值得写清楚：
-   `cargo check` 只逮得到「`int` 不是 Rust 类型」这种拼写错。它逮**不到**
-   镜像写 `i32` 而 `abi.h` 是 `int64_t` —— 两边各自都编得过，运行期读到的
-   是半个数（小端上是低 32 位，值看起来还挺合理）。那是和槽位错位同一个
-   家族的失效：无诊断、症状离根因很远。所以比对必须下到类型。
-2. **`PIER_*` 常量逐个相同。** 值也要对：`PIER_DIMRULE_FIRE_SPREAD` 在两侧
-   差一个数，症状是「关了刷怪，火焰蔓延停了」。
-4. **`abi.h` 里每一个 `enum` 成员，镜像里都要有同名同值的常量。**
-   这一条是被现实逼出来的：`PierActorAction` 的 33 个成员里，
-   `PIER_AACT_ADD_EFFECT` 因为注释换行而在人工搬运时被漏掉了一个 ——
-   而漏一个常量的症状是「调 add_effect 实际执行了 remove_effect」，
-   因为下游会拿相邻的那个值去顶。原本这一条打算靠「人工对读」保证，
-   一次就漏了，所以改成机器查。
+## What this check cannot prove
 
-5. **镜像里不许有条件编译。** 契约 §2.1：布局在所有目标下相同，镜像因此
-   不需要任何 `#[cfg]`。出现 cfg 就意味着有人在镜像里重建了分岔 ——
-   而分岔正是 v1 那次「两侧错位 7 槽」的根因。
+It compares text. Whether the mirror really compiles, and whether a load really succeeds,
+rest on `cargo check` and a real load. The signature comparison of criterion 2 works
+through a fixed one-to-one table from C spellings to Rust spellings and is not a C parser,
+so any equivalence that table cannot express is outside its coverage.
 
-## 这条检查**不**能证明什么
-
-它比对的是文本。「镜像真的能编过」「函数签名的类型真的一致」要靠
-`cargo check` 和一次真正的加载。签名比对没做，因为把 C 的函数指针类型和
-镜像里的写法做等价判断需要一个真正的 C 解析器 —— 那是另一个量级的工程，
-而槽序错位是实际发生过的失效，签名不一致目前只是理论风险。
-
-`pier-sys-rs` 还没落地时这条报 SKIP 而不是 PASS：**没有镜像不等于镜像正确**。
+While `pier-sys-rs` has not landed, this reports SKIP and not PASS: no mirror does not mean
+a correct mirror.
 """
 
 import os
@@ -56,8 +63,8 @@ from _abi import (  # noqa: E402
 SYS = os.path.join(ROOT, "bindings", "rust", "pier-sys-rs", "src")
 
 
-# C 类型 → 唯一正确的 Rust 拼写。**一对一**，没有「也可以写成」——
-# 允许两种拼法就等于允许它们哪天分叉。
+# A C type to the one correct Rust spelling. Strictly one to one, with no alternative
+# spelling: allowing two spellings allows them to diverge one day.
 CTYPE = {
     "void": "c_void", "bool": "bool", "char": "c_char",
     "int8_t": "i8", "int16_t": "i16", "int32_t": "i32", "int64_t": "i64",
@@ -67,12 +74,12 @@ CTYPE = {
 
 
 def _c_to_rust(ctype):
-    """把一个 C 参数/返回类型翻成它在镜像里应有的拼写。翻不了返回 None。"""
+    """Translates one C parameter or return type into the spelling the mirror should carry. Returns None when it cannot."""
     t = " ".join(ctype.split())
     stars = t.count("*")
     is_const = "const" in t
     base = t.replace("*", "").replace("const", "").strip()
-    base = CTYPE.get(base, base)  # 非基本类型 = ABI 自己的类型名，原样
+    base = CTYPE.get(base, base)  # A non-fundamental type is an ABI type name, kept as is
     if stars == 0:
         return base
     for _ in range(stars):
@@ -98,7 +105,7 @@ def _split_params(p):
 
 
 def _c_slot_signature(decl):
-    """从 `ret (*name)(args)` 得到 (槽名, 期望的 Rust 签名字符串)。"""
+    """From `ret (*name)(args)`, returns (slot name, the expected Rust signature string)."""
     decl = " ".join(decl.split())
     m = re.match(r"^(.*?)\(\s*\*\s*(\w+)\s*\)\s*\((.*)\)$", decl)
     if not m:
@@ -127,7 +134,7 @@ def _c_slot_signature(decl):
 
 
 def _rust_field_types(text, name):
-    """镜像里 `pub struct <name>` 的 字段名 -> 类型文本。"""
+    """Maps a field name to its type text for `pub struct <name>` in the mirror."""
     m = re.search(r"pub\s+struct\s+%s\s*\{(.*?)\n\}" % name, text, re.S)
     if not m:
         return None
@@ -145,7 +152,7 @@ def _rust_field_types(text, name):
 
 
 def _rust_struct_fields(text, name):
-    """取出镜像里 `pub struct <name> { ... }` 的字段名，按声明顺序。"""
+    """Returns the field names of `pub struct <name> { ... }` in the mirror, in declaration order."""
     m = re.search(r"pub\s+struct\s+%s\s*\{(.*?)\n\}" % name, text, re.S)
     if not m:
         return None
@@ -166,9 +173,10 @@ def run():
     r = Result("sys-mirrors-abi")
 
     if not os.path.isdir(SYS):
-        # 故意不是 PASS。没有镜像时这条性质**无从谈起**，而 PASS 会让
-        # 交付说明里出现一个骗人的 ✓（契约 §九 的「脚本先行」正是防这个）。
-        r.fail("bindings/rust/pier-sys-rs/ 还不存在 —— 镜像尚未落地，这条性质无从检查")
+        # Deliberately not a PASS. Without a mirror the property cannot be spoken of at
+        # all, and a PASS would put a lying checkmark in a delivery note, which is exactly
+        # what scripts-come-first in contract §9 prevents.
+        r.fail("bindings/rust/pier-sys-rs/ does not exist yet, so the mirror has not landed and this property cannot be checked")
         return r
 
     text = ""
@@ -179,29 +187,29 @@ def run():
 
     src = read_abi()
 
-    # ── 1. 槽序 ────────────────────────────────────────────────────
+    # 1. The slot order
     want = slots_of(src, "PierApi")
     got = _rust_struct_fields(text, "PierApi")
     if got is None:
-        r.fail("镜像里找不到 `pub struct PierApi`")
+        r.fail("`pub struct PierApi` was not found in the mirror")
     else:
-        r.note("abi.h %d 槽 vs 镜像 %d 槽" % (len(want), len(got)))
+        r.note("abi.h has %d slot(s) against %d in the mirror" % (len(want), len(got)))
         n = min(len(want), len(got))
         drift = 0
         for i in range(n):
             if want[i] != got[i]:
-                r.fail("第 %d 槽错位：abi.h 是 %r，镜像是 %r —— "
-                       "从这一槽起后面全部打到错误的函数指针上" % (i, want[i], got[i]))
+                r.fail("slot %d is misaligned: abi.h has %r and the mirror has %r, so from this "
+                       "slot onward every call lands on the wrong function pointer" % (i, want[i], got[i]))
                 drift += 1
                 if drift >= 5:
-                    r.fail("… 后续错位不再逐条列出（前面某一槽漏了才是根因）")
+                    r.fail("... further misalignments are not listed; the root cause is one earlier slot being missing")
                     break
         if not drift and len(want) != len(got):
-            side = "镜像少了" if len(got) < len(want) else "镜像多了"
-            r.fail("%s %d 槽（前 %d 槽一致）—— 追加之后必须同步镜像"
+            side = "the mirror is short by" if len(got) < len(want) else "the mirror has an extra"
+            r.fail("%s %d slot(s), with the first %d matching. The mirror has to follow an append"
                    % (side, abs(len(want) - len(got)), n))
 
-    # ── 1b. 每个槽的签名逐参数相同 ─────────────────────────────────
+    # 2. Every slot signature matches parameter by parameter
     got_types = _rust_field_types(text, "PierApi") or {}
     body = strip_comments(struct_body(src, "PierApi"))
     sig_bad = 0
@@ -212,50 +220,50 @@ def run():
             continue
         name, want_sig = _c_slot_signature(decl)
         if name is None:
-            continue  # 表头那四个标量，上面已按名字比过
+            continue  # The four scalars in the header, already compared by name above
         have = got_types.get(name)
         if have is None:
-            continue  # 槽序那一步已经报过了
+            continue  # The slot-order step already reported this
         if " ".join(have.split()) != want_sig:
-            r.fail("槽 %s 的签名不一致：\n        abi.h  → %s\n        镜像   → %s\n"
-                   "      （类型宽度不同时两边都编得过，运行期读到半个数）"
+            r.fail("the signature of slot %s disagrees:\n        abi.h  -> %s\n        mirror -> %s\n"
+                   "      With differing type widths both sides compile and half a number is read at runtime"
                    % (name, want_sig, have))
             sig_bad += 1
             if sig_bad >= 8:
-                r.fail("… 后续签名差异不再逐条列出")
+                r.fail("... further signature differences are not listed")
                 break
         else:
             sig_ok += 1
     if not sig_bad:
-        r.note("%d 个槽的签名逐参数对上" % sig_ok)
+        r.note("the signatures of %d slot(s) match parameter by parameter" % sig_ok)
 
-    # ── 2. 两个握手结构体 ─────────────────────────────────────────
+    # The two handshake structs
     for struct in ("PierModVTable", "PierStr", "PierLaneDesc"):
         want_f = slots_of(src, struct)
         got_f = _rust_struct_fields(text, struct)
         if got_f is None:
-            r.fail("镜像里找不到 `pub struct %s`" % struct)
+            r.fail("`pub struct %s` was not found in the mirror" % struct)
             continue
         if want_f != got_f:
-            r.fail("%s 字段不一致：abi.h %s，镜像 %s" % (struct, want_f, got_f))
+            r.fail("the fields of %s disagree: abi.h has %s and the mirror has %s" % (struct, want_f, got_f))
 
-    # ── 3. 常量 ───────────────────────────────────────────────────
+    # 3. The constants
     want_d = defines(src)
     bad = 0
     for name, val in sorted(want_d.items()):
-        # 类型写法不限：u32 / i32 / &str 都合法，所以类型那一段不能是 `\w+`。
+        # The type spelling is unconstrained, since u32, i32 and &str are all valid, so that part of the pattern cannot be `\w+`.
         m = re.search(r"pub\s+const\s+%s\s*:\s*[^=]+=\s*([^;]+);" % name, text)
         if not m:
-            r.fail("镜像里缺常量 %s" % name)
+            r.fail("the mirror is missing the constant %s" % name)
             bad += 1
             continue
         if not same_value(val, m.group(1)):
-            r.fail("常量 %s 值不同：abi.h=%r 镜像=%r" % (name, val, m.group(1).strip()))
+            r.fail("the constant %s has different values: abi.h=%r and the mirror=%r" % (name, val, m.group(1).strip()))
             bad += 1
     if not bad:
-        r.note("%d 个 PIER_* 常量逐个对上" % len(want_d))
+        r.note("all %d PIER_* constant(s) match one by one" % len(want_d))
 
-    # ── 4. 枚举成员逐个同名同值 ────────────────────────────────────
+    # 4. Every enum member matches by name and by value
     enum_names = re.findall(r"^enum\s+(\w+)\s*\{", src, re.M)
     enum_names += re.findall(r"typedef\s+enum\s+(\w+)\s*\{", src)
     missing = 0
@@ -277,23 +285,25 @@ def run():
             checked += 1
             mm = re.search(r"pub\s+const\s+%s\s*:\s*[^=]+=\s*([^;]+);" % re.escape(k), text)
             if not mm:
-                r.fail("枚举 %s 的成员 %s 在镜像里没有对应常量 —— "
-                       "下游会拿相邻的值去顶，症状是调了 A 却执行了 B" % (en, k))
+                r.fail("enum %s has a member %s with no matching constant in the mirror. "
+                       "Downstream substitutes the adjacent value and the symptom is calling A "
+                       "while B runs" % (en, k))
                 missing += 1
             elif v and not same_value(v, mm.group(1)):
-                r.fail("枚举 %s 的成员 %s 值不同：abi.h=%r 镜像=%r"
+                r.fail("enum %s has a member %s with different values: abi.h=%r and the mirror=%r"
                        % (en, k, v, mm.group(1).strip()))
                 missing += 1
     if not missing:
-        r.note("%d 个枚举成员逐个同名同值" % checked)
+        r.note("all %d enum member(s) match by name and by value" % checked)
 
-    # ── 5. 镜像里不许有条件编译 ────────────────────────────────────
+    # 5. The mirror carries no conditional compilation
     for i, line in enumerate(text.splitlines(), 1):
         if re.search(r"#\[cfg\(", line) and "test" not in line:
-            r.fail("镜像第 %d 行有条件编译：%s —— 契约 §2.1 要求布局在所有目标下相同，"
-                   "镜像出现分岔就是 v1「两侧错位 7 槽」的根因" % (i, line.strip()[:70]))
+            r.fail("line %d of the mirror carries conditional compilation: %s. Contract §2.1 "
+                   "requires the layout to be identical on every target, and a fork in the mirror "
+                   "was the root cause of the seven-slot misalignment in v1" % (i, line.strip()[:70]))
     if not any("#[cfg(" in l for l in text.splitlines()):
-        r.note("镜像里零条件编译（布局无分岔）")
+        r.note("the mirror carries no conditional compilation, so the layout has no fork")
 
     return r
 

@@ -1,7 +1,7 @@
 #pragma once
-// PierStr ↔ std::string_view 的零拷贝互转。
-// 这是契约「不许有语言类型」的另一半：abi.h 里只有 {ptr,len}，
-// C++ 的便利留在这里（契约 §一 规则五）。
+// Zero-copy conversion between PierStr and std::string_view.
+// This is the other half of the contract rule that forbids language types. abi.h
+// carries only {ptr,len} and the C++ convenience stays here (contract §1 rule 5).
 #include <string>
 #include <string_view>
 
@@ -19,14 +19,16 @@ namespace pier
         return PierStr{s.data(), s.size()};
     }
 
-    /** 要跨出当前调用帧就拷贝 —— 视图只在回调期间有效（契约 §三）。 */
+    /** Copy before leaving the current call frame. The view is valid only for the
+     *  duration of the callback (contract §3). */
     [[nodiscard]] inline std::string toString(PierStr s)
     {
         return std::string{s.ptr, s.len};
     }
 
-    // 布局哨兵：abi.h 自己定义布局，不需要运行时验证；这两行只是把
-    // 「有人往 PierStr 里加字段」在编译期变成一个明确的错误。
+    // Layout sentinels. abi.h defines the layout itself and needs no runtime check.
+    // These two lines only turn a field added to PierStr into an explicit compile
+    // time error.
     static_assert(sizeof(PierStr) == sizeof(void*) + sizeof(size_t));
     static_assert(offsetof(PierStr, ptr) == 0);
 } // namespace pier
