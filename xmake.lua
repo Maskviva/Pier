@@ -12,34 +12,37 @@ option_end()
 
 local is_client = (get_config("target_type") or "server") == "client"
 
--- Global compile definitions belong in the root scope and in no target. The final
--- target only aggregates and compiles no TU of its own, so definitions attached
--- there reach nothing, and the symptom is every package missing NOMINMAX and the
--- target macro.
-add_defines("NOMINMAX", "UNICODE", "_HAS_CXX23=1")
-
--- Tells MSVC that source files are UTF-8, so neither parsing nor string encoding
--- depends on the machine's active code page.
+-- The compile environment every package shares.
 --
--- Without it, any file holding a byte outside the active code page, 936 on a
--- Simplified Chinese Windows, raises `C4819: file contains a character that cannot be
--- represented in the current code page` once per file. It is a warning and not an
--- error, but a full build emits
--- hundreds of them and buries the real warnings, and it becomes a hard error the
--- moment anyone adds `/WX`.
+-- It is a function called from each package rather than root-scope `add_defines`,
+-- `add_cxflags` and `set_languages`. xmake folds root-scope build settings into the
+-- install hash it computes for a required package: with them at root scope,
+-- `levilamina 26.20.4` resolved to a different hash than the identical requirement in
+-- a project without them, no prebuilt install matched, and xmake cloned and compiled
+-- LeviLamina from source on every clean machine. That build does not finish inside a
+-- CI timeout, so the failure presents as a hang rather than as a configuration
+-- problem.
 --
--- Both halves are needed. `/source-charset` governs how bytes are read and
--- `/execution-charset` governs how string literals are encoded. Setting only the
--- first leaves non-ASCII literals mangled at runtime, which is harder to trace than
--- a warning because it appears only once the server runs. `/utf-8` sets both.
-add_cxflags("/utf-8", {tools = {"cl"}})
-if is_client then
-    -- The implementation-side target macro. abi.h does not know it, since the layout
-    -- is identical on every target (contract §2.1). It only selects the server or
-    -- client implementation branch inside the few shared TUs.
-    add_defines("PIER_BUILD_CLIENT")
+-- The final target aggregates object packages and compiles no TU of its own, so
+-- attaching these to it would reach nothing. Each package calls this instead.
+--
+-- `/utf-8` tells MSVC that sources are UTF-8, so neither parsing nor string encoding
+-- depends on the machine's active code page. Without it, a file holding a byte outside
+-- that code page raises C4819 once per file, which buries the real warnings and turns
+-- into a hard error the moment anyone adds `/WX`. It sets both `/source-charset` and
+-- `/execution-charset`; setting only the first leaves non-ASCII literals mangled at
+-- runtime, which is harder to trace because it appears only once the server runs.
+function pier_common()
+    add_defines("NOMINMAX", "UNICODE", "_HAS_CXX23=1")
+    add_cxflags("/utf-8", {tools = {"cl"}})
+    set_languages("c++20")
+    if is_client then
+        -- The implementation-side target macro. abi.h does not know it, since the
+        -- layout is identical on every target (contract §2.1). It only selects the
+        -- server or client implementation branch inside the few shared TUs.
+        add_defines("PIER_BUILD_CLIENT")
+    end
 end
-set_languages("c++20")
 
 if is_client then
     add_requires("levilamina 26.20.4", {configs = {target_type = "client"}})
@@ -83,6 +86,7 @@ end
 -- are two targets of one host, and mods, commands and logs all say pier
 -- (contract §7).
 target("Pier")
+    pier_common()
     add_rules("@levibuildscript/linkrule")
     add_rules("@levibuildscript/modpacker")
     set_kind("shared")

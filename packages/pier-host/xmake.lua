@@ -3,6 +3,7 @@
 -- it fills back in, and whatever capability packages register through spi.h. It knows
 -- no concrete capability.
 target("pier-host")
+    pier_common()
     set_kind("object")
     add_deps("pier-abi", "pier-support")
     add_includedirs("include", {public = true})

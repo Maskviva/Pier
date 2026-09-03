@@ -3,6 +3,7 @@
 -- no privilege. Its includes are private and every sideways collaboration goes
 -- through the pier-host SPI.
 target("pier-api")
+    pier_common()
     set_kind("object")
     add_deps("pier-abi", "pier-support", "pier-host")
     add_includedirs("include")            -- Private. No other package may include it.

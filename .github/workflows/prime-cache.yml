@@ -1,0 +1,52 @@
+name: Prime the xmake cache
+
+# Run this by hand once, and again whenever xmake.lua or a package xmake.lua changes
+# the cache key.
+#
+# Why it exists: installing the levilamina package copies roughly 20,000 header files,
+# and on a Windows runner that is slow enough to exceed the timeout of a normal build
+# job. actions/cache only saves at the end of a successful job, so a job that times out
+# can never populate the cache that would have made it fast. That is a deadlock, and
+# this job breaks it by doing the install once with a timeout long enough to finish and
+# saving the result explicitly.
+#
+# It configures only. Compiling is not needed to populate the package cache, and
+# leaving it out keeps this job as short as the install allows.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prime:
+    name: Prime the ${{ matrix.target_type }} cache
+    runs-on: windows-2022
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        target_type: [server, client]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+
+      - run: xmake repo -u
+
+      # Restore first: a re-run after a partial failure then only installs what is
+      # still missing rather than starting over.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/AppData/Local/.xmake/packages
+          key: xmake-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          restore-keys: xmake-${{ matrix.target_type }}-
+
+      - run: xmake f -a x64 -m release -p windows --target_type=${{ matrix.target_type }} -y -v
+
+      - name: Report what was installed
+        run: xmake require --list
+
+      - uses: actions/cache/save@v6
+        with:
+          path: ~/AppData/Local/.xmake/packages
+          key: xmake-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}

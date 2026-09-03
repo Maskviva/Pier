@@ -29,7 +29,8 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/AppData/Local/.xmake/packages
-          key: xmake-v1-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          key: xmake-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          restore-keys: xmake-${{ matrix.target_type }}-
 
       # The modpacker reads git for a version number at the packaging stage, so a
       # checkout without tags packages as a bare commit hash.

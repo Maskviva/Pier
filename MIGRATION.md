@@ -350,6 +350,7 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `docs/zh/rust/threads.md` | ✔ added: Chinese: threads |
 | `.github/workflows/build.yml` | ✔ added: builds the host, runs the contract checks of §9, and builds and tests the bindings |
 | `.github/workflows/release.yml` | ✔ added: builds and flattens the release archive that lip places into plugins/pier/ |
+| `.github/workflows/prime-cache.yml` | ✔ added: installs the packages once with a timeout long enough to finish and saves the cache explicitly. A normal build job times out during the levilamina install, and actions/cache only saves after a successful job, so the cache it needs can never be built by the build jobs |
 | `docs/.vitepress/config.mts` | ✔ added: the navigation and sidebar; the site runs general to specific, /guide/ for Pier itself and /rust/ for the first official binding |
 | `docs/guide/abi.md` | ✔ added: the shape of the ABI, the two gates, ownership and evolution |
 | `docs/guide/adding-a-language.md` | ✔ added: the four steps of contract §10, for a binding in any language |

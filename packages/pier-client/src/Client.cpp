@@ -21,6 +21,7 @@
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/game/IClientInstance.h"
 #include "mc/deps/input/enums/FocusImpact.h"
+#include "mc/client/player/LocalPlayer.h"
 #include "mc/world/actor/player/Player.h"
 
 #include "sdk/abi.h"
@@ -133,16 +134,14 @@ namespace pier::api_impl
                 entry->alive = std::make_shared<bool>(true);
 
                 std::vector<int> keys(keyCodes, keyCodes + keyCount);
-                // KeyRegistry wants a weak_ptr to an ll::mod::Mod for attribution. A
-                // hosted mod is not an LL mod, it is a child of the host, so the host
-                // NativeMod named pier is reported instead. To LL the key is
+                // The fourth argument, the owning mod, is left at its default, which
+                // KeyRegistry declares as mod::NativeMod::current(). That is the host
+                // NativeMod named pier, which is what attribution should say: a hosted
+                // mod is not an LL mod, it is a child of the host. To LL the key is
                 // registered by pier, while cleanup per hosted mod is this package's
                 // job through liveEntries and owner.
-                auto modWeak =
-                    std::weak_ptr<ll::mod::Mod>(ll::mod::NativeMod::current()->shared_from_this());
-
                 auto& handle = ll::input::KeyRegistry::getInstance().getOrCreateKey(
-                    entry->name, keys, allowRemap, modWeak
+                    entry->name, keys, allowRemap
                 );
                 entry->handle = &handle;
 

@@ -5,14 +5,13 @@
 -- leaving NULL slots. This direction goes into its own package, so the client loader
 -- target links one more package and the server target never sees it.
 target("pier-client")
+    pier_common()
     set_kind("object")
     -- object and not static. Every TU in this package registers itself into the host
     -- SPI through a file-level static object and no external symbol references them.
     -- Inside a static library the linker drops such an object entirely, and the
     -- symptom is a capability that disappears silently (contract §1 rule 4). The
     -- `object-kind` check guards this.
-    set_languages("c++20")
-    add_defines("PIER_BUILD_CLIENT")
     add_files("src/**.cpp")
     add_deps("pier-abi", "pier-support", "pier-host")
     -- The package name is `levilamina`. The client and server difference lives in

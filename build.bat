@@ -12,6 +12,8 @@ set VCPKG_ROOT=
 set CONAN_HOME=
 set HTTPS_PROXY=http://127.0.0.1:7890
 set HTTP_PROXY=http://127.0.0.1:7890
+set "LLVM_BIN=D:\Compiler\clang+llvm-21.1.8-x86_64-pc-windows-msvc\bin"
+set "PATH=%LLVM_BIN%;%PATH%"
 
 @REM echo xmake.exe repo -u
 @REM xmake.exe repo -u

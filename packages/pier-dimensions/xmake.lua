@@ -11,13 +11,13 @@
 -- absent, the api side recognizes only the three vanilla dimensions and warns once per
 -- function, which is a deliberate degradation and not a failure.
 target("pier-dimensions")
+    pier_common()
     set_kind("object")
     -- object and not static. Every TU in this package registers itself into the host
     -- SPI through a file-level static object and no external symbol references them.
     -- Inside a static library the linker drops such an object entirely, and the
     -- symptom is a capability that disappears silently (contract §1 rule 4). The
     -- `object-kind` check guards this.
-    set_languages("c++20")
     -- No dependency on pier-api. This package is its sibling capability package. When
     -- the api side needs to ask about a custom dimension it goes through the host's
     -- spi::DimensionBridge, which this package registers in rt/Bridge.cpp. The
