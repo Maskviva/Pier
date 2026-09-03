@@ -4,8 +4,8 @@ version = "26.20.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Raw FFI declarations for Pier, cell for cell against packages/pier-abi/include/sdk/abi.h (ABI v1)."
-repository = "https://github.com/Maskviva/Pier"
 readme = "../../../README.md"
+repository = "https://github.com/Maskviva/Pier"
 keywords = ["levilamina", "minecraft", "bedrock", "ffi"]
 categories = ["external-ffi-bindings", "game-development"]
 

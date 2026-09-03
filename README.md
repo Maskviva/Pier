@@ -12,6 +12,11 @@
   <img src="https://img.shields.io/badge/LeviLamina-26.20.4-8B5CF6" alt="LeviLamina 26.20.4">
 </p>
 
+<p align="center">
+  <a href="README.md">English</a> ·
+  <a href="README.zh.md">简体中文</a>
+</p>
+
 Pier exposes the Bedrock server through one C ABI. A mod is a dynamic library that speaks
 that ABI, so the language it is written in is the author's choice rather than the
 platform's.
@@ -125,7 +130,7 @@ The rules themselves are in [`CONTRACT.md`](CONTRACT.md), with the reasoning for
 
 ## Writing a mod
 
-**[Rust](https://maskviva.github.io/pier/rust/)** is the first official binding and is
+**[Rust](docs/rust/index.md)** is the first official binding and is
 what to reach for today.
 
 ```rust
@@ -143,7 +148,7 @@ impl LeviMod for MyMod {
 levilamina::register_mod!(MyMod);
 ```
 
-- [Your first mod](https://maskviva.github.io/pier/rust/first-mod) walks through building
+- [Your first mod](docs/rust/first-mod.md) walks through building
   and installing one.
 - [pier-mod-template](https://github.com/Maskviva/pier-mod-template) is a working starting
   point rather than an empty skeleton.
@@ -161,7 +166,7 @@ it returns on failure, and what it requires of threads.
    not NULL.
 
 `bindings/rust/pier-sys-rs` is the reference implementation.
-[Adding a language](https://maskviva.github.io/pier/guide/adding-a-language) has the
+[Adding a language](docs/guide/adding-a-language.md) has the
 details, and section 10 of [`CONTRACT.md`](CONTRACT.md) is the authoritative version.
 
 ## Installing

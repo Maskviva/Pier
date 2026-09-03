@@ -328,6 +328,26 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `packages/pier-support/src/Module.cpp` | ✔ done, added: addressOwnedBy sank here from pier-api |
 | `packages/pier-support/src/Snbt.cpp` | ✔ done, added: SNBT escaping and number formatting, which were spread everywhere in the old repository |
 | `packages/pier-support/xmake.lua` | ✔ done, added: the whole pier-support package is a layer the new architecture introduced, since the logging entry point has to live below host (contract §1) |
+| `CHANGELOG.md` | ✔ added: the release notes, in Keep a Changelog form; the release workflow extracts the current section from it |
+| `README.zh.md` | ✔ added: the Chinese README, marked as such. Contract §7 governs comments and not a translated document |
+| `docs/zh/guide/abi.md` | ✔ added: Chinese: the ABI |
+| `docs/zh/guide/adding-a-language.md` | ✔ added: Chinese: adding a language |
+| `docs/zh/guide/compatibility.md` | ✔ added: Chinese: compatibility |
+| `docs/zh/guide/design.md` | ✔ added: Chinese: how the C++ side is designed |
+| `docs/zh/guide/installation.md` | ✔ added: Chinese: installing |
+| `docs/zh/guide/manifest.md` | ✔ added: Chinese: the manifest |
+| `docs/zh/guide/what-is-pier.md` | ✔ added: Chinese: what Pier is |
+| `docs/zh/guide/why.md` | ✔ added: Chinese: where Pier came from |
+| `docs/zh/index.md` | ✔ added: the Chinese landing page |
+| `docs/zh/rust/api.md` | ✔ added: Chinese: the API map |
+| `docs/zh/rust/commands.md` | ✔ added: Chinese: commands |
+| `docs/zh/rust/cross-mod.md` | ✔ added: Chinese: talking to other mods |
+| `docs/zh/rust/errors.md` | ✔ added: Chinese: errors and logging |
+| `docs/zh/rust/events.md` | ✔ added: Chinese: events |
+| `docs/zh/rust/first-mod.md` | ✔ added: Chinese: a first mod |
+| `docs/zh/rust/index.md` | ✔ added: Chinese: the Rust binding overview |
+| `docs/zh/rust/lifecycle.md` | ✔ added: Chinese: the mod lifecycle |
+| `docs/zh/rust/threads.md` | ✔ added: Chinese: threads |
 | `.github/workflows/build.yml` | ✔ added: builds the host, runs the contract checks of §9, and builds and tests the bindings |
 | `.github/workflows/release.yml` | ✔ added: builds and flattens the release archive that lip places into plugins/pier/ |
 | `docs/.vitepress/config.mts` | ✔ added: the navigation and sidebar; the site runs general to specific, /guide/ for Pier itself and /rust/ for the first official binding |

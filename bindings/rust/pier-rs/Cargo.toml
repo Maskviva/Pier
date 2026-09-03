@@ -1,11 +1,11 @@
 [package]
 name = "pier-rs"
-version = "26.20.1"
+version = "1.0.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Writing LeviLamina mods in safe Rust. Pier ABI v1 / BDS 1.26.20 / LeviLamina 26.20.4."
-repository = "https://github.com/Maskviva/Pier"
 readme = "../../../README.md"
+repository = "https://github.com/Maskviva/Pier"
 keywords = ["levilamina", "minecraft", "bedrock", "mod", "bds"]
 categories = ["game-development", "api-bindings"]
 
