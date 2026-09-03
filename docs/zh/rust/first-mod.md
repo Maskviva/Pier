@@ -5,7 +5,7 @@
 ## 从模板开始
 
 ```bash
-cargo generate --git https://github.com/Maskviva/pier-mod-template
+cargo generate --git https://github.com/Maskviva/pier-rs-mod-template
 ```
 
 模板是一个能跑的模组，不是空壳：它打日志、订阅聊天并拦下一条消息、注册一条命令、

@@ -188,7 +188,7 @@ levilamina::register_mod!(MyMod);
 ```
 
 - [写你的第一个模组](docs/zh/rust/first-mod.md) 从构建到装上服务器走一遍。
-- [pier-mod-template](https://github.com/Maskviva/pier-mod-template) 是一个能跑的起手模板，
+- [pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template) 是一个能跑的起手模板，
   不是空壳。
 
 ## 绑定另一门语言

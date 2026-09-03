@@ -150,7 +150,7 @@ levilamina::register_mod!(MyMod);
 
 - [Your first mod](docs/rust/first-mod.md) walks through building
   and installing one.
-- [pier-mod-template](https://github.com/Maskviva/pier-mod-template) is a working starting
+- [pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template) is a working starting
   point rather than an empty skeleton.
 
 ## Binding another language

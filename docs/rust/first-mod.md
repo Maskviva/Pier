@@ -6,7 +6,7 @@ This is the Rust binding. Pier itself has to be on the server first;
 ## Start from the template
 
 ```bash
-cargo generate --git https://github.com/Maskviva/pier-mod-template
+cargo generate --git https://github.com/Maskviva/pier-rs-mod-template
 ```
 
 The template is a working mod, not an empty skeleton. It logs, subscribes to chat and

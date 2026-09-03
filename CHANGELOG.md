@@ -43,7 +43,7 @@ mods written for the loader do not carry over. See **Migrating from the loader**
 - **19 machine checks**, run by `python3 tools/run-checks.py` on every push. Each states
   what it covers and what it cannot see.
 - **Documentation** at `docs/`, and
-  [pier-mod-template](https://github.com/Maskviva/pier-mod-template) as a working starting
+  [pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template) as a working starting
   point.
 
 ### Design decisions worth knowing

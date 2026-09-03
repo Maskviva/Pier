@@ -72,5 +72,5 @@ failure is an `Err` that says why and never quietly becomes a default.
 - [Threads](./threads), which thread you are on and how to get back
 - [API map](./api), the tour, with rustdoc holding the detail
 
-[pier-mod-template](https://github.com/Maskviva/pier-mod-template) is a working starting
+[pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template) is a working starting
 point rather than an empty skeleton.

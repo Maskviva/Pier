@@ -66,5 +66,5 @@ levilamina::register_mod!(MyMod);
 - [线程](./threads)：你在哪条线程上，怎么回到服务器线程
 - [API 地图](./api)：全景，细节在 rustdoc 里
 
-[pier-mod-template](https://github.com/Maskviva/pier-mod-template)
+[pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template)
 是一个能跑的起手模板，不是空壳。
