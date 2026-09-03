@@ -7,8 +7,18 @@ on:
 
 jobs:
   build:
-    name: Build the host
-    runs-on: windows-latest
+    name: Build the ${{ matrix.target_type }} host
+    # Pinned rather than windows-latest: that label moved to Visual Studio 2026 in
+    # June 2026, no precompiled LeviLamina matches that toolset, and the job falls back
+    # to compiling LeviLamina from source. A LeviLamina mod also has to be built with a
+    # toolset ABI-compatible with BDS, so this pin is correctness and not just speed.
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target_type: [server, client]
+
     steps:
       - uses: actions/checkout@v7
         with:
@@ -19,12 +29,23 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/AppData/Local/.xmake
-          key: xmake-release-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
-          restore-keys: xmake-release-
+          key: xmake-release-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          restore-keys: xmake-release-${{ matrix.target_type }}-
 
       - run: xmake repo -u
 
-      - run: xmake f -a x64 -m release -p windows --target_type=server -y
+      # modpacker copies manifest.json into the package as it is, so the field has to
+      # say which target this archive is for. Installing a client archive on a server
+      # is refused during the handshake, on bit 0 of mod_flags, but the manifest should
+      # not claim otherwise in the first place.
+      - name: Set the manifest platform
+        shell: pwsh
+        run: |
+          $m = Get-Content manifest.json -Raw | ConvertFrom-Json
+          $m.platform = '${{ matrix.target_type }}'
+          $m | ConvertTo-Json -Depth 10 | Set-Content manifest.json -Encoding utf8
+
+      - run: xmake f -a x64 -m release -p windows --target_type=${{ matrix.target_type }} -y
 
       - run: xmake -w -y
 
@@ -33,7 +54,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pier-${{ github.sha }}-windows-x64
+          name: pier-${{ matrix.target_type }}-${{ github.sha }}-windows-x64
           path: bin/
 
   release-notes:
@@ -52,7 +73,7 @@ jobs:
           body: ${{ steps.notes.outputs.release_notes }}
 
   upload:
-    name: Upload the archive
+    name: Upload the archives
     needs:
       - build
       - release-notes
@@ -64,27 +85,30 @@ jobs:
 
       - uses: actions/download-artifact@v7
         with:
-          name: pier-${{ github.sha }}-windows-x64
-          path: artifact
+          name: pier-server-${{ github.sha }}-windows-x64
+          path: server
 
-      # The modpacker writes bin/pier/*, and lip places the archive contents directly
-      # into plugins/pier/, so the archive has to be flat.
-      - name: Flatten the package
+      - uses: actions/download-artifact@v7
+        with:
+          name: pier-client-${{ github.sha }}-windows-x64
+          path: client
+
+      # lip places the archive contents directly into plugins/pier/, so each archive
+      # has to be flat: no wrapping bin/ or pier/ directory.
+      - name: Flatten and archive
         shell: bash
         run: |
-          cp LICENSE README.md artifact/
-          if [ -d artifact/pier ]; then
-            mv artifact/pier/* artifact/ && rmdir artifact/pier
-          fi
-          if [ -d artifact/bin ]; then
-            mv artifact/bin/* artifact/ && rmdir artifact/bin
-          fi
-          find artifact
-
-      - name: Create the archive
-        working-directory: artifact
-        run: zip -r ../pier-windows-x64.zip .
+          for t in server client; do
+            cp LICENSE README.md "$t/"
+            if [ -d "$t/pier" ]; then mv "$t"/pier/* "$t/" && rmdir "$t/pier"; fi
+            if [ -d "$t/bin" ];  then mv "$t"/bin/*  "$t/" && rmdir "$t/bin";  fi
+            echo "--- $t"
+            find "$t"
+            ( cd "$t" && zip -r "../pier-$t-windows-x64.zip" . )
+          done
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: pier-windows-x64.zip
+          files: |
+            pier-server-windows-x64.zip
+            pier-client-windows-x64.zip

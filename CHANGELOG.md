@@ -78,7 +78,16 @@ a server without it starts normally and only the economy calls return failure va
 lip install github.com/Maskviva/pier
 ```
 
-Or unpack `pier-windows-x64.zip` into `plugins/pier/`.
+Two archives are attached to this release:
+
+| | For |
+|---|---|
+| `pier-server-windows-x64.zip` | Bedrock Dedicated Server. This is what lip installs. |
+| `pier-client-windows-x64.zip` | The Minecraft client, through LeviLamina client. |
+
+Unpack the matching one into `plugins/pier/`. They are not interchangeable: bit 0 of
+`mod_flags` differs, and a mod built for one target is refused during the handshake with a
+message saying so rather than being allowed to fail later.
 
 ### Migrating from the loader
 
@@ -96,6 +105,10 @@ The ABI is not compatible and no attempt is made to load a loader mod.
 ### Known limitations
 
 - **Windows x64 only.** That is what BDS ships for.
+- **The client build is new and less exercised than the server one.** The 19 machine
+  checks all evaluate the server configuration, and the client target excludes
+  `pier-hooks` and `pier-dimensions`, so the synthetic events and custom dimensions are
+  absent there and their slots are NULL. Report anything that looks wrong.
 - **A command cannot be deregistered.** Bedrock has no route for it, so a command
   registered by a mod lives until the server stops. While the mod is disabled the host
   mutes its callback and re-enabling resumes it.

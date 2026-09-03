@@ -7,8 +7,18 @@ on:
 
 jobs:
   host:
-    name: Build the host
-    runs-on: windows-latest
+    name: Build the ${{ matrix.target_type }} host
+    # Pinned rather than windows-latest: that label moved to Visual Studio 2026 in
+    # June 2026, no precompiled LeviLamina matches that toolset, and the job falls back
+    # to compiling LeviLamina from source. A LeviLamina mod also has to be built with a
+    # toolset ABI-compatible with BDS, so this pin is correctness and not just speed.
+    runs-on: windows-2022
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target_type: [server, client]
+
     steps:
       - uses: actions/checkout@v7
 
@@ -19,19 +29,19 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/AppData/Local/.xmake/packages
-          key: xmake-v1-${{ runner.os }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          key: xmake-v1-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
 
       # The modpacker reads git for a version number at the packaging stage, so a
       # checkout without tags packages as a bare commit hash.
       - run: git fetch --tags --force
 
-      - run: xmake f -a x64 -m release -p windows --target_type=server -v -y --policies=package.precompiled:n
+      - run: xmake f -a x64 -m release -p windows --target_type=${{ matrix.target_type }} -v -y
 
       - run: xmake -v -y
 
       - uses: actions/upload-artifact@v7
         with:
-          name: pier-${{ github.sha }}-windows-x64
+          name: pier-${{ matrix.target_type }}-${{ github.sha }}-windows-x64
           path: bin/
 
   contract:
