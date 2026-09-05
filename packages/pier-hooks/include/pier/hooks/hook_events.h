@@ -66,6 +66,9 @@ namespace pier::hooks
         bool (*install)();
         bool installed = false;
         std::vector<std::unique_ptr<HookSub>> subs;
+        /** `name` as an owned string, filled by the registrar, so a dispatch hands the id
+         *  over without allocating one per event. */
+        std::string idText;
 
         /** The fast-routing test inside a hook body. */
         bool live() const { return !subs.empty(); }

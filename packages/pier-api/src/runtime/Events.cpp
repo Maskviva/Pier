@@ -241,10 +241,9 @@ namespace pier::api_impl
                         struct WriteCtx
                         {
                             CompoundTag* data;
-                            std::string const* snapshot; // Exactly what was handed to cb
                             HostedMod* mod;
                             std::string const* eventId;
-                        } wctx{&data, &snbt, owner.get(), &idName};
+                        } wctx{&data, owner.get(), &idName};
 
                         cb(
                             user,
@@ -270,30 +269,26 @@ namespace pier::api_impl
                                     return;
                                 }
 
-                                // Only fields this caller changed relative to its own
-                                // snapshot are written. Replacing the whole tree loses
-                                // updates when two mods subscribe to one event: the
-                                // second callback sees the state from before the first
-                                // edit and writing it back reverts that edit, with no
-                                // error and no log line. Diffing keeps them independent
-                                // and never writes an untouched field; a conflict on one
-                                // field is still last-writer-wins.
-                                auto base = CompoundTag::fromSnbt(*w->snapshot);
-                                if (!base)
-                                {
-                                    // The snapshot failed to parse, which is close to
-                                    // impossible since it came from toSnbt. Falling back
-                                    // to whole-tree semantics beats dropping the edit.
-                                    *w->data = std::move(*edited);
-                                    return;
-                                }
-
+                                // Only fields this caller changed are written, so two
+                                // mods on one event do not revert each other. The diff
+                                // runs against the live tag, which equals the snapshot
+                                // this callback was handed because listeners run one
+                                // after another, and that saves a second parse per edit.
+                                // Enrichment keys (`_player`, `dim`, any `_` prefix)
+                                // are not in the engine tag and are skipped when absent:
+                                // they came from this side and mean nothing to LL.
                                 for (auto const& [key, value] : edited->mTags)
                                 {
-                                    auto it = base->mTags.find(key);
-                                    if (it == base->mTags.end() || !(it->second == value))
+                                    auto it = w->data->mTags.find(key);
+                                    if (it == w->data->mTags.end())
                                     {
-                                        w->data->mTags[key] = value;
+                                        bool const enrichment =
+                                            !key.empty() && (key[0] == '_' || key == "dim");
+                                        if (!enrichment) w->data->mTags[key] = value;
+                                    }
+                                    else if (!(it->second == value))
+                                    {
+                                        it->second = value;
                                     }
                                 }
                                 // A key present in the snapshot and absent from the

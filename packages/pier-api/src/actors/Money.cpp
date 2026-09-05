@@ -153,10 +153,11 @@ namespace pier::api_impl
         {
             auto* host = ModHost::instance();
             if (!host) return nullptr;
+            void const* owner = moduleContaining(reinterpret_cast<void const*>(cb));
+            if (!owner) return nullptr;
             for (auto const& hosted : host->hostedMods())
             {
-                void const* base = hosted->lib.handle();
-                if (base && addressOwnedBy(base, reinterpret_cast<void const*>(cb))) return base;
+                if (hosted->lib.handle() == owner) return owner;
             }
             return nullptr;
         }

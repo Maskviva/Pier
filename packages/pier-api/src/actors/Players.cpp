@@ -6,10 +6,12 @@
  */
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -110,6 +112,42 @@ namespace pier::api_impl
             }
         }
 
+        /**
+         * What each player's client currently shows per objective: the title and the
+         * rows. Knowing it, an unchanged call sends nothing, a changed row sends one
+         * SetScore for that row, and only a change in the row count rebuilds the
+         * objective, so a per-second refresh costs neither three packets nor a visible
+         * flicker. Keyed by unique id and objective name, server thread only. An entry
+         * is dropped on clear and the table is bounded, since a departed player leaves
+         * one behind.
+         */
+        struct SidebarState
+        {
+            /** The Player object the rows were sent to. A rejoin creates a new object
+             *  for the same unique id, and its client starts empty, so a state recorded
+             *  for the old object must not count as already shown. */
+            Player const* owner = nullptr;
+            std::string title;
+            std::vector<std::string> rows;
+        };
+        using SidebarKey = std::pair<int64_t, std::string>;
+        struct SidebarKeyHash
+        {
+            size_t operator()(SidebarKey const& k) const noexcept
+            {
+                return std::hash<int64_t>{}(k.first) ^ (std::hash<std::string>{}(k.second) << 1);
+            }
+        };
+        std::unordered_map<SidebarKey, SidebarState, SidebarKeyHash> gSidebars;
+
+        /** Drops every entry at once past a bound. Nothing tells this file that a player
+         *  left, so without it the table grows by one entry per visitor for the lifetime
+         *  of the process. Losing an entry costs one full rebuild of that sidebar. */
+        void forgetOldSidebars()
+        {
+            if (gSidebars.size() > 4096) gSidebars.clear();
+        }
+
         void api_list_players(void* ctx, PierStrSink snbtSink)
         {
             PIER_API_GUARD_BEGIN
@@ -156,18 +194,37 @@ namespace pier::api_impl
                 if (type >= 0 && type <= 11)
                     ptype = static_cast<TextPacketType>(static_cast<uchar>(type));
 
-                // Builds a TextPacket with a MessageOnly body, the shape
-                // createRawMessage uses, with the type the caller supplied. That covers
-                // every single-string kind, including Tip, Popup, JukeboxPopup,
-                // SystemMessage and Announcement. Kinds carrying an author or
-                // parameters, namely Chat, Whisper and Translate, are also sent as a
-                // plain message here, the same simplification LSE's tell(msg, type)
-                // makes.
+                // The body shape has to match the type on the wire: Chat and Whisper
+                // carry an author, Translate carries parameters, and everything else is
+                // a bare message. A MessageOnly body under a Chat type makes the client
+                // read the message as the author and the next field as the text.
                 TextPacket pkt{};
-                TextPacketPayload::MessageOnly body;
-                body.mType = ptype;
-                body.mMessage->assign(sv(msg));
-                pkt.mBody = body;
+                switch (ptype)
+                {
+                case TextPacketType::Chat:
+                case TextPacketType::Whisper:
+                {
+                    // No author was given, so the server speaks; the client shows
+                    // "<Server> text" for Chat and the whisper form for Whisper.
+                    TextPacketPayload::AuthorAndMessage body{ptype, std::string{"Server"}, toString(msg)};
+                    pkt.mBody = body;
+                    break;
+                }
+                case TextPacketType::Translate:
+                {
+                    TextPacketPayload::MessageAndParams body{ptype, toString(msg), std::vector<std::string>{}};
+                    pkt.mBody = body;
+                    break;
+                }
+                default:
+                {
+                    TextPacketPayload::MessageOnly body;
+                    body.mType = ptype;
+                    body.mMessage->assign(sv(msg));
+                    pkt.mBody = body;
+                    break;
+                }
+                }
 
                 p->sendNetworkPacket(pkt);
                 return true;
@@ -820,26 +877,40 @@ namespace pier::api_impl
                         return false;
                     }
 
-                    // Rebuilt from scratch every time. The client keys entries by
-                    // scoreboard id, and reusing ids after the row set changed is
-                    // exactly where stale rows come from.
-                    if (auto gone = MinecraftPackets::createPacket(MinecraftPacketIds::RemoveObjective))
+                    // The client keys rows by scoreboard id, so a row set of the same
+                    // size can be updated in place and only a changed size needs the
+                    // teardown, since stale ids are exactly where leftover rows come from.
+                    SidebarKey const skey{static_cast<int64_t>(p->getOrCreateUniqueID().rawID), objective};
+                    auto known = gSidebars.find(skey);
+                    bool const sameShape = known != gSidebars.end() && known->second.owner == p
+                        && known->second.rows.size() == lines.size() - 2;
+                    if (sameShape && known->second.title == lines[1]
+                        && std::equal(lines.begin() + 2, lines.end(), known->second.rows.begin()))
                     {
-                        static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = objective;
-                        p->sendNetworkPacket(*gone);
-                    }
-                    else
-                    {
-                        hostLogger().error("[api] sidebar createPacket(RemoveObjective) returned null");
+                        return true; // Nothing changed since the last send
                     }
 
-                    auto shown = MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective);
-                    if (!shown)
+                    if (!sameShape)
                     {
-                        hostLogger().error("[api] sidebar createPacket(SetDisplayObjective) returned null");
-                        return false;
+                        if (auto gone = MinecraftPackets::createPacket(MinecraftPacketIds::RemoveObjective))
+                        {
+                            static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = objective;
+                            p->sendNetworkPacket(*gone);
+                        }
+                        else
+                        {
+                            hostLogger().error("[api] sidebar createPacket(RemoveObjective) returned null");
+                        }
                     }
+
+                    if (!sameShape || known->second.title != lines[1])
                     {
+                        auto shown = MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective);
+                        if (!shown)
+                        {
+                            hostLogger().error("[api] sidebar createPacket(SetDisplayObjective) returned null");
+                            return false;
+                        }
                         auto* d = static_cast<SetDisplayObjectivePacket*>(shown.get());
                         d->mDisplaySlotName = std::string{"sidebar"};
                         d->mObjectiveName = objective;
@@ -849,7 +920,12 @@ namespace pier::api_impl
                         p->sendNetworkPacket(*shown);
                     }
 
-                    if (lines.size() == 2) return true;
+                    if (lines.size() == 2)
+                    {
+                        forgetOldSidebars();
+                        gSidebars[skey] = SidebarState{p, lines[1], {}};
+                        return true;
+                    }
 
                     // ScoreboardId bands are separated by a hash of the objective name.
                     // With one fixed base, row 1 of two plugins lands on the same entry
@@ -866,6 +942,8 @@ namespace pier::api_impl
                     int score = static_cast<int>(lines.size()) - 2;
                     for (size_t i = 2; i < lines.size(); ++i, --score)
                     {
+                        // Same shape: only the rows whose text changed go out.
+                        if (sameShape && known->second.rows[i - 2] == lines[i]) continue;
                         ScorePacketInfo info{};
                         info.mScoreboardId->mRawID = kSidebarIdBase + static_cast<int64_t>(i - 1);
                         info.mObjectiveName = objective;
@@ -875,17 +953,23 @@ namespace pier::api_impl
                         infos.push_back(std::move(info));
                     }
 
-                    auto scores = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
-                    if (!scores)
-                    {
-                        hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
-                        return false;
-                    }
-                    auto* sp = static_cast<SetScorePacket*>(scores.get());
                     auto const rows = infos.size();
-                    sp->mType = ScorePacketType::Change;
-                    sp->mScoreInfo = std::move(infos);
-                    p->sendNetworkPacket(*scores);
+                    if (!infos.empty())
+                    {
+                        auto scores = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
+                        if (!scores)
+                        {
+                            hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                            return false;
+                        }
+                        auto* sp = static_cast<SetScorePacket*>(scores.get());
+                        sp->mType = ScorePacketType::Change;
+                        sp->mScoreInfo = std::move(infos);
+                        p->sendNetworkPacket(*scores);
+                    }
+                    forgetOldSidebars();
+                    gSidebars[skey] = SidebarState{
+                        p, lines[1], std::vector<std::string>(lines.begin() + 2, lines.end())};
 
                     // Proof of delivery, logged once per objective rather than once
                     // globally. When two sidebars overwrite each other, the only thing
@@ -929,6 +1013,7 @@ namespace pier::api_impl
                     if (!gone) return false;
                     static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = toString(sarg);
                     p->sendNetworkPacket(*gone);
+                    gSidebars.erase(SidebarKey{static_cast<int64_t>(p->getOrCreateUniqueID().rawID), toString(sarg)});
 
                     hostLogger().debug("[api] sidebar '{}' cleared, slot unbound and objective removed", sv(sarg));
                     return true;

@@ -1,6 +1,6 @@
 [package]
 name = "pier-rs"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Writing LeviLamina mods in safe Rust. Pier ABI v1 / BDS 1.26.20 / LeviLamina 26.20.4."
@@ -28,7 +28,7 @@ path = "src/lib.rs"
 # is optional and business code enables it itself.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-pier-sys-rs = { version = "26.20.1", path = "../pier-sys-rs", default-features = false }
+pier-sys-rs = { version = "26.20.2", path = "../pier-sys-rs", default-features = false }
 
 # One feature remains and it changes no layout.
 #

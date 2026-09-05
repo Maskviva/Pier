@@ -15,6 +15,7 @@
  * to origin on one atomic read while idle. */
 #ifndef PIER_BUILD_CLIENT
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -49,6 +50,25 @@ namespace pier::api_impl
     {
         /*  Registry  */
 
+        /** 1024 packet ids, one bit each. The header carries the id in ten bits, so
+         *  this covers every value the wire can express. */
+        struct IdSet
+        {
+            std::array<uint64_t, 16> words{};
+
+            void set(int32_t id) noexcept
+            {
+                if (id < 0 || id >= 1024) return;
+                words[static_cast<size_t>(id) >> 6] |= uint64_t{1} << (id & 63);
+            }
+            bool has(int32_t id) const noexcept
+            {
+                if (id < 0 || id >= 1024) return false;
+                return (words[static_cast<size_t>(id) >> 6] >> (id & 63)) & 1u;
+            }
+            void fill() noexcept { words.fill(~uint64_t{0}); }
+        };
+
         struct PacketSub
         {
             HostedMod* mod;
@@ -57,6 +77,10 @@ namespace pier::api_impl
              *  FreeLibrary, so it is rechecked through this before dispatch. */
             std::weak_ptr<HostedMod> owner;
             int32_t dirMask;
+            /** Which packet ids this subscriber wants. The legacy register slot sets
+             *  every bit, so such a subscriber is called for every packet;
+             *  packet_hook_register_ids sets only the listed ones. */
+            IdSet ids;
             PierPacketCb cb;
             void* user;
         };
@@ -78,9 +102,9 @@ namespace pier::api_impl
             skip = false;
             if (!sub.mod) return {};
             auto mod = sub.owner.lock();
-            if (!mod || mod.get() != sub.mod)
+            if (!mod || mod.get() != sub.mod || mod->unloading.load(std::memory_order_acquire))
             {
-                skip = true; // Unloaded: the entry is in the snapshot, the code is not
+                skip = true; // Unloaded or unloading: the entry is in the snapshot, the code is not
                 return {};
             }
             return mod;
@@ -116,14 +140,46 @@ namespace pier::api_impl
         std::atomic<bool> gOutboundLive{false};
         std::atomic<bool> gConnLive{false};
 
+        /**
+         * The union of every subscriber's id set, per direction, read lock-free on the
+         * hot path. A packet whose id no subscriber wants is passed through before any
+         * lock, snapshot or address lookup. The same staleness argument as the gates
+         * applies: one packet may be missed or one empty snapshot taken on the tick a
+         * subscription changes.
+         */
+        std::array<std::atomic<uint64_t>, 16> gInboundIds{};
+        std::array<std::atomic<uint64_t>, 16> gOutboundIds{};
+
+        bool anyoneWants(int32_t direction, int32_t packetId) noexcept
+        {
+            if (packetId < 0 || packetId >= 1024) return false;
+            auto const& words = direction == PIER_PKT_INBOUND ? gInboundIds : gOutboundIds;
+            uint64_t const w = words[static_cast<size_t>(packetId) >> 6].load(std::memory_order_relaxed);
+            return (w >> (packetId & 63)) & 1u;
+        }
+
         void refreshGatesLocked()
         {
             bool in = false;
             bool out = false;
+            IdSet inIds, outIds;
             for (auto const& s : packetSubs())
             {
-                if (s->dirMask & PIER_PKT_MASK_INBOUND) in = true;
-                if (s->dirMask & PIER_PKT_MASK_OUTBOUND) out = true;
+                if (s->dirMask & PIER_PKT_MASK_INBOUND)
+                {
+                    in = true;
+                    for (size_t i = 0; i < inIds.words.size(); ++i) inIds.words[i] |= s->ids.words[i];
+                }
+                if (s->dirMask & PIER_PKT_MASK_OUTBOUND)
+                {
+                    out = true;
+                    for (size_t i = 0; i < outIds.words.size(); ++i) outIds.words[i] |= s->ids.words[i];
+                }
+            }
+            for (size_t i = 0; i < 16; ++i)
+            {
+                gInboundIds[i].store(inIds.words[i], std::memory_order_relaxed);
+                gOutboundIds[i].store(outIds.words[i], std::memory_order_relaxed);
             }
             gInboundLive.store(in, std::memory_order_relaxed);
             gOutboundLive.store(out, std::memory_order_relaxed);
@@ -290,7 +346,7 @@ namespace pier::api_impl
             ~DepthGuard() { --tlDispatchDepth; }
         };
 
-        PacketSubs snapshotFor(int32_t direction)
+        PacketSubs snapshotFor(int32_t direction, int32_t packetId)
         {
             int32_t const mask = 1 << direction;
             PacketSubs out;
@@ -298,7 +354,7 @@ namespace pier::api_impl
             out.reserve(packetSubs().size());
             for (auto const& s : packetSubs())
             {
-                if (s->dirMask & mask) out.push_back(s);
+                if ((s->dirMask & mask) && s->ids.has(packetId)) out.push_back(s);
             }
             return out;
         }
@@ -347,7 +403,12 @@ namespace pier::api_impl
                 return Verdict::Pass;
             }
 
-            auto subs = snapshotFor(direction);
+            // The lock-free id gate. Most packets on a busy server are movement,
+            // chunk and entity data that no subscriber asked for, and they leave here
+            // without touching the registry lock or the address cache.
+            if (!anyoneWants(direction, header.packetId)) return Verdict::Pass;
+
+            auto subs = snapshotFor(direction, header.packetId);
             if (subs.empty()) return Verdict::Pass;
 
             AddressPtr const address = addressOf(id);
@@ -496,6 +557,13 @@ namespace pier::api_impl
             {
                 expectedId = -1;
             }
+            // The packet object already knows its id, so the id gate runs before the
+            // header is even decoded. When the id cannot be read the decode path below
+            // applies the same gate.
+            if (expectedId >= 0 && !anyoneWants(PIER_PKT_OUTBOUND, expectedId))
+            {
+                return origin(id, packet, data);
+            }
 
             std::string rewritten;
             switch (dispatch(PIER_PKT_OUTBOUND, id, data, rewritten, expectedId))
@@ -616,37 +684,73 @@ namespace pier::api_impl
 
         /*  ABI entry points  */
 
+        PierPacketHookHandle registerPacketSub(
+            PierModHandle mod, int32_t dirMask, IdSet ids, PierPacketCb cb, void* user)
+        {
+            if (!cb) return nullptr;
+            // A zero mask registers something that can never fire. It is refused
+            // rather than answered with a handle that does nothing.
+            if ((dirMask & (PIER_PKT_MASK_INBOUND | PIER_PKT_MASK_OUTBOUND)) == 0) return nullptr;
+
+            auto* raw = asMod(mod);
+            std::weak_ptr<HostedMod> owner;
+            if (raw)
+            {
+                try
+                {
+                    owner = raw->shared_from_this();
+                }
+                catch (...)
+                {
+                    return nullptr; // Refuse a mod not yet owned by a shared_ptr, as in Bus
+                }
+            }
+            auto sub = std::make_shared<PacketSub>(PacketSub{raw, std::move(owner), dirMask, ids, cb, user});
+            PacketSub* rawSub = sub.get();
+            {
+                std::unique_lock<std::shared_mutex> g{registryLock()};
+                packetSubs().push_back(std::move(sub));
+                refreshGatesLocked();
+            }
+            ensureInstalled();
+            return static_cast<PierPacketHookHandle>(rawSub);
+        }
+
         PierPacketHookHandle
         api_packet_hook_register(PierModHandle mod, int32_t dirMask, PierPacketCb cb, void* user)
         {
             PIER_API_GUARD_BEGIN
-                if (!cb) return nullptr;
-                // A zero mask registers something that can never fire. It is refused
-                // rather than answered with a handle that does nothing.
-                if ((dirMask & (PIER_PKT_MASK_INBOUND | PIER_PKT_MASK_OUTBOUND)) == 0) return nullptr;
+                // The legacy shape: every id, which is one callback per packet in that
+                // direction. A caller that knows its ids uses packet_hook_register_ids.
+                IdSet all;
+                all.fill();
+                return registerPacketSub(mod, dirMask, all, cb, user);
+            PIER_API_GUARD_END
+        }
 
-                auto* raw = asMod(mod);
-                std::weak_ptr<HostedMod> owner;
-                if (raw)
+        PierPacketHookHandle api_packet_hook_register_ids(
+            PierModHandle mod, int32_t dirMask, int32_t const* ids, size_t count, PierPacketCb cb, void* user)
+        {
+            PIER_API_GUARD_BEGIN
+                // An empty list is refused for the reason a zero mask is: a subscription
+                // that can never fire is a bug at the call site, not a request.
+                if (!ids || count == 0) return nullptr;
+                IdSet set;
+                bool any = false;
+                for (size_t i = 0; i < count; ++i)
                 {
-                    try
+                    if (ids[i] < 0 || ids[i] >= 1024)
                     {
-                        owner = raw->shared_from_this();
+                        hostLogger().warn(
+                            "[packet] packet_hook_register_ids: id {} is outside the ten-bit "
+                            "range of the wire header and is ignored", ids[i]);
+                        continue;
                     }
-                    catch (...)
-                    {
-                        return nullptr; // Refuse a mod not yet owned by a shared_ptr, as in Bus
-                    }
+                    set.set(ids[i]);
+                    any = true;
                 }
-                auto sub = std::make_shared<PacketSub>(PacketSub{raw, std::move(owner), dirMask, cb, user});
-                PacketSub* rawSub = sub.get();
-                {
-                    std::unique_lock<std::shared_mutex> g{registryLock()};
-                    packetSubs().push_back(std::move(sub));
-                    refreshGatesLocked();
-                }
-                ensureInstalled();
-                return static_cast<PierPacketHookHandle>(rawSub);
+                if (!any) return nullptr;
+                return registerPacketSub(mod, dirMask, set, cb, user);
             PIER_API_GUARD_END
         }
 
@@ -741,6 +845,7 @@ namespace pier::api_impl
         void fill(PierApi& api)
         {
             api.packet_hook_register = &api_packet_hook_register;
+            api.packet_hook_register_ids = &api_packet_hook_register_ids;
             api.packet_hook_unregister = &api_packet_hook_unregister;
             api.packet_conn_hook_register = &api_packet_conn_hook_register;
             api.packet_conn_hook_unregister = &api_packet_conn_hook_unregister;

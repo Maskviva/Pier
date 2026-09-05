@@ -17,9 +17,42 @@ use crate::rt::ffi::{call_out_str, s};
 use crate::sys;
 
 /// An SNBT snapshot of one item.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// The fields the snapshot itself carries, `Name`, `Count`, `Damage` and the `tag`
+/// compound, are read locally from a parse cached on first use; only properties that need
+/// the item registry, such as the stack limit or the attack damage, cross the ABI, where the
+/// host parses the SNBT and builds an engine ItemStack for every call.
 pub struct ItemStack {
     snbt: String,
+    /// The parse of `snbt`, made on the first local read. `None` inside means the text did
+    /// not parse, in which case every local read falls back to the host.
+    parsed: std::cell::OnceCell<Option<NbtValue>>,
+}
+
+impl Clone for ItemStack {
+    fn clone(&self) -> ItemStack {
+        ItemStack::from_snbt(self.snbt.clone())
+    }
+}
+
+impl PartialEq for ItemStack {
+    fn eq(&self, other: &ItemStack) -> bool {
+        self.snbt == other.snbt
+    }
+}
+
+impl Eq for ItemStack {}
+
+impl std::hash::Hash for ItemStack {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(&self.snbt, state)
+    }
+}
+
+impl std::fmt::Debug for ItemStack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ItemStack").field("snbt", &self.snbt).finish()
+    }
 }
 
 /// One enchantment.
@@ -36,7 +69,10 @@ impl ItemStack {
     /// ABI once and this constructor sits on a hot path.
     /// A wrong shape reports an error at the first call that really uses it.
     pub fn from_snbt(snbt: impl Into<String>) -> ItemStack {
-        ItemStack { snbt: snbt.into() }
+        ItemStack {
+            snbt: snbt.into(),
+            parsed: std::cell::OnceCell::new(),
+        }
     }
 
     /// Builds one from a type name and a count.
@@ -57,7 +93,7 @@ impl ItemStack {
             ("Name", NbtValue::from(type_name)),
             ("Count", NbtValue::Byte(count.min(127) as i8)),
         ]);
-        ItemStack { snbt: v.to_snbt() }
+        ItemStack::from_snbt(v.to_snbt())
     }
 
     /// Air. An empty slot in a container reads back as this.
@@ -72,7 +108,24 @@ impl ItemStack {
 
     /// Parses into an NBT tree, for reading a field the ABI gives no named accessor for.
     pub fn to_nbt(&self) -> Result<NbtValue> {
-        NbtValue::parse(&self.snbt).map_err(|e| Error(format!("parsing the item SNBT failed: {e}")))
+        match self.local() {
+            Some(v) => Ok(v.clone()),
+            None => NbtValue::parse(&self.snbt)
+                .map_err(|e| Error(format!("parsing the item SNBT failed: {e}"))),
+        }
+    }
+
+    /// The cached parse, or `None` when the text does not parse. A local reader that gets
+    /// `None` asks the host instead, which reports the malformed item as an `Err`.
+    fn local(&self) -> Option<&NbtValue> {
+        self.parsed
+            .get_or_init(|| NbtValue::parse(&self.snbt).ok())
+            .as_ref()
+    }
+
+    /// The `tag` compound, the custom NBT, when the snapshot parses and carries one.
+    fn local_tag(&self) -> Option<&NbtValue> {
+        self.local()?.get("tag")
     }
 
     // Numeric properties
@@ -103,6 +156,9 @@ impl ItemStack {
     }
 
     pub fn count(&self) -> Result<u8> {
+        if let Some(n) = self.local().and_then(|v| v.get("Count")).and_then(NbtValue::as_i64) {
+            return Ok(n.clamp(0, 255) as u8);
+        }
         self.num(sys::PIER_IPROP_COUNT)
             .map(|v| v.clamp(0.0, 255.0) as u8)
     }
@@ -117,6 +173,9 @@ impl ItemStack {
         self.num_i32(sys::PIER_IPROP_ID)
     }
     pub fn damage(&self) -> Result<i32> {
+        if let Some(n) = self.local().and_then(|v| v.get("Damage")).and_then(NbtValue::as_i64) {
+            return Ok(n as i32);
+        }
         self.num_i32(sys::PIER_IPROP_DAMAGE)
     }
     pub fn max_damage(&self) -> Result<i32> {
@@ -126,6 +185,13 @@ impl ItemStack {
         self.num_i32(sys::PIER_IPROP_ATTACK_DAMAGE)
     }
     pub fn repair_cost(&self) -> Result<i32> {
+        if let Some(v) = self.local() {
+            // Absent means never repaired, which the engine reports as 0.
+            return Ok(v
+                .path("tag.RepairCost")
+                .and_then(NbtValue::as_i64)
+                .unwrap_or(0) as i32);
+        }
         self.num_i32(sys::PIER_IPROP_REPAIR_COST)
     }
     pub fn enchant_value(&self) -> Result<i32> {
@@ -135,12 +201,24 @@ impl ItemStack {
         self.num_i32(sys::PIER_IPROP_USE_DURATION)
     }
     pub fn is_null(&self) -> Result<bool> {
+        if let Some(v) = self.local() {
+            let name = v.get("Name").and_then(NbtValue::as_str).unwrap_or("");
+            let count = v.get("Count").and_then(NbtValue::as_i64).unwrap_or(0);
+            return Ok(name.is_empty() || name == "minecraft:air" || count <= 0);
+        }
         self.num_bool(sys::PIER_IPROP_IS_NULL)
     }
     pub fn is_block(&self) -> Result<bool> {
         self.num_bool(sys::PIER_IPROP_IS_BLOCK)
     }
     pub fn is_enchanted(&self) -> Result<bool> {
+        if let Some(v) = self.local() {
+            return Ok(v
+                .path("tag.ench")
+                .and_then(NbtValue::as_list)
+                .map(|l| !l.is_empty())
+                .unwrap_or(false));
+        }
         self.num_bool(sys::PIER_IPROP_IS_ENCHANTED)
     }
     pub fn is_armor(&self) -> Result<bool> {
@@ -153,6 +231,9 @@ impl ItemStack {
         self.num_bool(sys::PIER_IPROP_IS_DAMAGED)
     }
     pub fn is_unbreakable(&self) -> Result<bool> {
+        if let Some(v) = self.local() {
+            return Ok(v.path("tag.Unbreakable").and_then(NbtValue::as_i64).unwrap_or(0) != 0);
+        }
         self.num_bool(sys::PIER_IPROP_IS_UNBREAKABLE)
     }
     pub fn has_durability(&self) -> Result<bool> {
@@ -183,9 +264,19 @@ impl ItemStack {
         self.num_bool(sys::PIER_IPROP_IS_BUNDLE)
     }
     pub fn has_user_data(&self) -> Result<bool> {
+        if let Some(v) = self.local() {
+            return Ok(v.get("tag").is_some());
+        }
         self.num_bool(sys::PIER_IPROP_HAS_USER_DATA)
     }
     pub fn has_custom_name(&self) -> Result<bool> {
+        if let Some(v) = self.local() {
+            return Ok(v
+                .path("tag.display.Name")
+                .and_then(NbtValue::as_str)
+                .map(|n| !n.is_empty())
+                .unwrap_or(false));
+        }
         self.num_bool(sys::PIER_IPROP_HAS_CUSTOM_NAME)
     }
 
@@ -202,12 +293,23 @@ impl ItemStack {
     }
 
     pub fn type_name(&self) -> Result<String> {
+        if let Some(n) = self.local().and_then(|v| v.get("Name")).and_then(NbtValue::as_str) {
+            return Ok(n.to_owned());
+        }
         self.text(sys::PIER_ISTR_TYPE_NAME)
     }
     pub fn name(&self) -> Result<String> {
         self.text(sys::PIER_ISTR_NAME)
     }
     pub fn custom_name(&self) -> Result<String> {
+        if let Some(v) = self.local() {
+            // No custom name reads as an empty string, the same answer the host gives.
+            return Ok(v
+                .path("tag.display.Name")
+                .and_then(NbtValue::as_str)
+                .unwrap_or("")
+                .to_owned());
+        }
         self.text(sys::PIER_ISTR_CUSTOM_NAME)
     }
     pub fn hover_name(&self) -> Result<String> {
@@ -222,6 +324,13 @@ impl ItemStack {
 
     /// The custom lore. The host gives an SNBT string list, parsed here into a `Vec<String>`.
     pub fn lore(&self) -> Result<Vec<String>> {
+        if let Some(v) = self.local() {
+            return Ok(v
+                .path("tag.display.Lore")
+                .and_then(NbtValue::as_list)
+                .map(|l| l.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                .unwrap_or_default());
+        }
         parse_str_list(&self.text(sys::PIER_ISTR_LORE)?, "lore")
     }
 
@@ -237,6 +346,10 @@ impl ItemStack {
     /// than `PIER_ISTR_USER_DATA`: the content is the same and the dedicated slot saves one
     /// property-number dispatch on the host side.
     pub fn user_data(&self) -> Result<NbtValue> {
+        if self.local().is_some() {
+            // No `tag` is an empty compound, the same answer the host gives.
+            return Ok(self.local_tag().cloned().unwrap_or_else(NbtValue::compound));
+        }
         let f = crate::require_slot!(item_get_user_data, "reading the custom NBT of an item");
         let text =
             call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), ctx, sink) }).ok_or_else(|| {
@@ -370,7 +483,7 @@ impl ItemStack {
         .to_snbt();
         let out = call_out_str(|ctx, sink| unsafe { f(s(&self.snbt), s(&list), ctx, sink) })
             .ok_or_else(|| Error("the host refused to write the enchantments: an enchantment name is unrecognized, or the item cannot be enchanted".to_owned()))?;
-        Ok(ItemStack { snbt: out })
+        Ok(ItemStack::from_snbt(out))
     }
 
     /// Whether two items are the same kind of thing.

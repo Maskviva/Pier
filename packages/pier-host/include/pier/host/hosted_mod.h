@@ -67,6 +67,21 @@ namespace pier
          * omits the scope loses this protection and introduces no new failure.
          */
         std::atomic<int> inCallback{0};
+
+        /**
+         * Set by ModHost::unload before it reads inCallback, and cleared again when the
+         * unload is refused. A dispatch site tests it before entering the dylib, through
+         * acceptsCallbacks() where isEnabled() applies as well, and directly in Services
+         * and PacketHooks where it must not. Without it a callback starting on another
+         * thread enters between the inCallback read and FreeLibrary.
+         */
+        std::atomic<bool> unloading{false};
+
+        /** Whether a callback may be dispatched into this mod right now. */
+        [[nodiscard]] bool acceptsCallbacks() const noexcept
+        {
+            return isEnabled() && !unloading.load(std::memory_order_acquire);
+        }
     };
 
     /** RAII counter around a mod callback dispatch. Construction adds one and

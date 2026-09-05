@@ -31,6 +31,10 @@ namespace pier::hooks
 
         TickState gTick;
 
+        /** Ticks a frozen world may run in one frame. 100 is five seconds of game time
+         *  per real frame, so a queue of 1200 drains in twelve frames. */
+        constexpr uint32_t kStepsPerFrame = 100;
+
         LL_TYPE_INSTANCE_HOOK(
             LevelTickHook,
             ll::memory::HookPriority::Normal,
@@ -41,9 +45,13 @@ namespace pier::hooks
             auto& st = gTick;
             if (st.frozen)
             {
-                // Frozen: only explicitly queued step frames run.
+                // Frozen: only explicitly queued step ticks run, at most kStepsPerFrame
+                // per frame with the rest carried over. A whole queue in one frame is one
+                // frame as long as the queue itself, and nothing else on the server
+                // thread, chat and joins included, moves during it.
                 uint32_t n = st.pendingSteps;
-                st.pendingSteps = 0;
+                if (n > kStepsPerFrame) n = kStepsPerFrame;
+                st.pendingSteps -= n;
                 for (uint32_t i = 0; i < n; ++i) origin();
                 return;
             }
@@ -86,8 +94,8 @@ namespace pier::hooks
                 if (n == 0) return false;
                 // Stepping only means something while frozen.
                 if (!gTick.hooked || !gTick.frozen) return false;
-                // While frozen every pending step tick runs within one frame, so without
-                // a cap one call freezes the thread.
+                // The queue is bounded so that a mod cannot ask for an hour of ticks;
+                // the frame cap above decides how fast it drains.
                 if (n > 1200 || gTick.pendingSteps > 1200 - n) return false;
                 gTick.pendingSteps += n;
                 return true;

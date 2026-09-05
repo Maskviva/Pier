@@ -8,10 +8,10 @@
  *
  * The times are inclusive wall-clock times from steady_clock: dimension_tick runs inside
  * level_tick, and the redstone and chunk buckets run inside dimension_tick. They are
- * reported side by side and are not meant to sum. It coexists with the TickControl detour
- * on the same Level::$tick, since LeviLamina chains hooks, and each tick that really runs
- * is measured once, so /tick warp 5 shows five times the samples while the per-tick
- * numbers stay true.
+ * reported side by side and are not meant to sum. The level_tick detour sits at Lowest
+ * priority, innermost, so one call is one real Level::tick: a priority outside the
+ * TickControl detour wraps its whole warp loop instead, putting N ticks under one sample.
+ * A window counts real ticks, so none finishes while the world is frozen.
  */
 #include <chrono>
 #include <cstdint>
@@ -85,8 +85,9 @@ namespace pier::hooks
 
         LL_TYPE_INSTANCE_HOOK(
             ProfLevelTickHook,
-            // Outermost, wrapping the Normal-priority TickControl detour.
-            ll::memory::HookPriority::High,
+            // Innermost, inside the Normal-priority TickControl detour, so one call is
+            // one real tick even under warp.
+            ll::memory::HookPriority::Lowest,
             Level,
             &Level::$tick,
             void)

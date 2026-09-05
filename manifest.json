@@ -3,7 +3,7 @@
     "entry": "pier.dll",
     "type": "native",
     "platform": "server",
-    "version": "26.20.1",
+    "version": "26.20.2",
     "author": "Maskviva",
     "description": "Loads LeviLamina mods written in other languages through one C ABI.",
     "minecraft": {

@@ -141,6 +141,20 @@ impl Container {
     /// One slot failing to read fails the whole thing rather than being skipped: a listing
     /// missing a few items gives the wrong answer to what is in this chest.
     pub fn items(&self) -> Result<Vec<ItemStack>> {
+        // One crossing for the whole container where the host offers it; a host without
+        // the slot is read one slot at a time.
+        if crate::has_slot!(container_get_items) {
+            if let Some(f) = crate::rt::runtime::rt().api.container_get_items {
+                let mut out: Vec<ItemStack> = Vec::new();
+                let ok = unsafe { f(self.raw(), (&mut out as *mut Vec<ItemStack>).cast(), slot_sink) };
+                if ok {
+                    return Ok(out);
+                }
+                return Err(Error(format!(
+                    "{self} could not be read: the owner is offline, or the block is not a container"
+                )));
+            }
+        }
         let n = self.size()?;
         let mut out = Vec::with_capacity(n.max(0) as usize);
         for slot in 0..n {
@@ -233,4 +247,11 @@ impl std::fmt::Display for Container {
             other => write!(f, "{:?}({})", other, self.owner),
         }
     }
+}
+
+/// # Safety
+/// `ctx` must be a valid `*mut Vec<ItemStack>`. Slots arrive in order, so pushing keeps the
+/// index equal to the slot number.
+unsafe extern "C" fn slot_sink(ctx: *mut core::ffi::c_void, _slot: i32, item_snbt: sys::PierStr) {
+    (*ctx.cast::<Vec<ItemStack>>()).push(ItemStack::from_snbt(crate::rt::ffi::r_owned(item_snbt)));
 }

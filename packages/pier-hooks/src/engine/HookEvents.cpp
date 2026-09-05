@@ -133,19 +133,22 @@ namespace pier::hooks
             + "\",\"uuid\":\"" + snbtEscape(p.getUuid().asString()) + "\"}";
     }
 
-    HookEventRegistrar::HookEventRegistrar(HookEventDef& def) { table().push_back(&def); }
+    HookEventRegistrar::HookEventRegistrar(HookEventDef& def)
+    {
+        def.idText.assign(def.name);
+        table().push_back(&def);
+    }
 
     void dispatchHookEvent(HookEventDef& def, std::string const& snbt)
     {
         auto snap = snapshot(def);
-        std::string id{def.name};
         struct WCtx
         {
         } w; // Observation only: the write-back is a no-op
         for (auto& [cb, user, mod] : snap)
         {
             CallbackScope scope{mod}; // Veto unload during the callback
-            callOne(cb, user, id, snbt, &w, [](void*, PierStr) {});
+            callOne(cb, user, def.idText, snbt, &w, [](void*, PierStr) {});
         }
     }
 
@@ -155,17 +158,16 @@ namespace pier::hooks
         // sink: a subscriber answering with SNBT carrying the cancel flag vetoes the
         // action.
         auto snap = snapshot(def);
-        std::string id{def.name};
         bool cancelled = false;
         for (auto& [cb, user, mod] : snap)
         {
             CallbackScope scope{mod};
             std::string reply;
-            callOne(cb, user, id, snbt, &reply, [](void* ctx, PierStr v)
+            callOne(cb, user, def.idText, snbt, &reply, [](void* ctx, PierStr v)
             {
                 if (ctx) *static_cast<std::string*>(ctx) = toString(v);
             });
-            if (replyCancelled(reply, id))
+            if (replyCancelled(reply, def.idText))
             {
                 cancelled = true;
                 // Keep going: every subscriber must see the event. Stopping early would

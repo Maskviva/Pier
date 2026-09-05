@@ -98,7 +98,12 @@ impl Server {
         Ok(unsafe { f() })
     }
 
-    /// The duration of the last frame in seconds. At 20 TPS it is 0.05.
+    /// The wall-clock period of the last frame in seconds. At 20 TPS it is 0.05.
+    ///
+    /// This is the frame period, sleep included, and not the time the server spent computing
+    /// the tick: on an idle server it reads 0.05 all the same. It is kept for callers that want
+    /// the raw engine value; [`Server::tps`] and [`Server::mspt`] are the numbers a monitor
+    /// wants.
     ///
     /// The host returns -1.0 when it cannot read it, translated here into an `Err`: a negative
     /// frame duration would have a caller compute a negative TPS without noticing.
@@ -114,12 +119,49 @@ impl Server {
         }
     }
 
+    /// Ticks per second over the last 5 seconds of wall clock.
+    ///
+    /// Measured by counting the `Level::tick` calls that really run and dividing by elapsed
+    /// time, so it stays right under the tick warp (reads above 20), the tick freeze (reads
+    /// 0) and lag (reads below 20). The reciprocal of one frame period is not this number:
+    /// it reads above 20 on about half the frames of an idle server and reads 20 while the
+    /// world is frozen.
+    ///
+    /// `Err` until the host has sampled its first frame, which takes two ticks after start.
     pub fn tps(&self) -> Result<f64> {
-        let dt = self.tick_delta_time()?;
-        if dt <= 0.0 {
-            // A 0 does not mean infinitely fast, it means this frame has not been measured yet.
-            return Err(Error("the frame duration is 0, this frame has not been measured yet, and no TPS can be computed".to_owned()));
+        self.tps_over(5)
+    }
+
+    /// As [`Server::tps`], over a window of `window_seconds` (1..=60, clipped by the host).
+    pub fn tps_over(&self, window_seconds: u32) -> Result<f64> {
+        let f = crate::require_slot!(get_tps, "reading the tick rate");
+        let v = unsafe { f(window_seconds.clamp(1, 60) as i32) };
+        if v < 0.0 {
+            return Err(Error(
+                "no frame has been sampled yet, so no TPS can be computed; retry a tick later".to_owned(),
+            ));
         }
-        Ok(1.0 / dt)
+        Ok(v)
+    }
+
+    /// Milliseconds spent computing each tick, averaged over the last 5 seconds.
+    ///
+    /// This excludes the idle sleep between frames: a healthy server reads a few
+    /// milliseconds and only approaches 50 when it is saturated. `tick_delta_time() * 1000`
+    /// is not this number, it is the frame period and reads about 50 on an idle server.
+    pub fn mspt(&self) -> Result<f64> {
+        self.mspt_over(5)
+    }
+
+    /// As [`Server::mspt`], over a window of `window_seconds` (1..=60, clipped by the host).
+    pub fn mspt_over(&self, window_seconds: u32) -> Result<f64> {
+        let f = crate::require_slot!(get_mspt, "reading the time per tick");
+        let v = unsafe { f(window_seconds.clamp(1, 60) as i32) };
+        if v < 0.0 {
+            return Err(Error(
+                "no tick ran in the window, so no MSPT can be computed; the world is frozen or the host just started".to_owned(),
+            ));
+        }
+        Ok(v)
     }
 }

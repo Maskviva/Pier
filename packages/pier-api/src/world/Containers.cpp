@@ -43,6 +43,20 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
+        bool api_container_get_items(PierContainerRef ref, void* ctx, PierSlotSink sink)
+        {
+            PIER_API_GUARD_BEGIN
+                Container* c = bridge::resolveContainer(ref);
+                if (!c || !sink) return false;
+                int const size = c->getContainerSize();
+                for (int slot = 0; slot < size; ++slot)
+                {
+                    sink(ctx, slot, ps(bridge::itemToSnbt(c->getItem(slot))));
+                }
+                return true;
+            PIER_API_GUARD_END
+        }
+
         bool api_container_set_item(PierContainerRef ref, int32_t slot, PierStr itemSnbt)
         {
             PIER_API_GUARD_BEGIN
@@ -127,6 +141,7 @@ namespace pier::api_impl
             api.container_remove_item = &api_container_remove_item;
             api.container_clear = &api_container_clear;
             api.container_refresh = &api_container_refresh;
+            api.container_get_items = &api_container_get_items;
         }
 
         spi::SlotPackReg reg{{"containers", &fill}};

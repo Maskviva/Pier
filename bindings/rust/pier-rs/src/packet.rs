@@ -245,6 +245,67 @@ impl Packets {
         let user = Box::into_raw(boxed);
 
         let handle = unsafe { reg(rt().handle(), dirs.mask(), packet_trampoline, user.cast()) };
+        Self::finish_register(handle, user, unreg)
+    }
+
+    /// As [`Packets::intercept`], but the interceptor runs only for the listed packet ids.
+    ///
+    /// This is the form to use whenever the ids are known, which is nearly always. The
+    /// unfiltered form costs one callback per packet in each direction it asked for, chunk
+    /// data included, while here the host passes a packet no subscriber listed through before
+    /// taking any lock. `ids` are `MinecraftPacketIds` values in `0..1024`; an id outside that
+    /// range is ignored by the host, and a list with nothing left is refused.
+    ///
+    /// On a host without this slot the call falls back to the unfiltered form and filters the
+    /// id in the trampoline, so the interceptor still sees only the ids it asked for, at the
+    /// cost of one callback per packet.
+    pub fn intercept_ids<F>(&self, dirs: Directions, ids: &[i32], f: F) -> Result<PacketHook>
+    where
+        F: Fn(&mut Packet<'_>) -> Verdict + Send + Sync + 'static,
+    {
+        if ids.is_empty() {
+            return Err(Error(
+                "intercept_ids needs at least one packet id; an interceptor that can never fire is a bug at the call site".to_owned(),
+            ));
+        }
+        let unreg = if crate::has_slot!(packet_hook_unregister) {
+            rt().api.packet_hook_unregister
+        } else {
+            None
+        };
+        if crate::has_slot!(packet_hook_register_ids) {
+            if let Some(reg) = rt().api.packet_hook_register_ids {
+                let boxed: Box<Box<PacketFn>> = Box::new(Box::new(f));
+                let user = Box::into_raw(boxed);
+                let handle = unsafe {
+                    reg(
+                        rt().handle(),
+                        dirs.mask(),
+                        ids.as_ptr(),
+                        ids.len(),
+                        packet_trampoline,
+                        user.cast(),
+                    )
+                };
+                return Self::finish_register(handle, user, unreg);
+            }
+        }
+        // Older host: filter here. The set is small, so a linear scan beats a hash.
+        let wanted: Vec<i32> = ids.to_vec();
+        self.intercept(dirs, move |p| {
+            if wanted.contains(&p.packet_id()) {
+                f(p)
+            } else {
+                Verdict::Forward
+            }
+        })
+    }
+
+    fn finish_register(
+        handle: sys::PierPacketHookHandle,
+        user: *mut Box<PacketFn>,
+        unreg: Option<unsafe extern "C" fn(sys::PierModHandle, sys::PierPacketHookHandle) -> bool>,
+    ) -> Result<PacketHook> {
         if handle.is_null() {
             // Registration failed: the closure is taken back and freed rather than leaked.
             drop(unsafe { Box::from_raw(user) });

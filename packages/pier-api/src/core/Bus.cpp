@@ -139,7 +139,7 @@ namespace pier::api_impl
             // to land at the old address.
             auto mod = sub.owner.lock();
             if (!mod || mod.get() != sub.mod) return false; // dylib may be unmapped
-            if (!mod->isEnabled()) return false;            // Muted while disabled
+            if (!mod->acceptsCallbacks()) return false;            // Muted while disabled
 
             // The shared_ptr and the callback count are held until the callback
             // returns, so ModHost vetoes an unload rather than pulling the code section

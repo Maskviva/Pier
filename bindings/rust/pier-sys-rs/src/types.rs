@@ -77,6 +77,15 @@ pub type PierFocusImpact = i32;
 /// player standing at the origin have to stay apart, so `found` is a separate bit rather
 /// than being expressed by all-zero coordinates.
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PierBlockCell {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+    pub index: u32,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PierPlayerPos {
     pub x: f64,
@@ -212,6 +221,10 @@ pub type PierBlockSink =
     unsafe extern "C" fn(ctx: *mut c_void, x: i32, y: i32, z: i32, name: PierStr, snbt: PierStr);
 pub type PierEntitySink =
     unsafe extern "C" fn(ctx: *mut c_void, x: i32, y: i32, z: i32, type_: PierStr, snbt: PierStr);
+pub type PierPaletteSink =
+    unsafe extern "C" fn(ctx: *mut c_void, index: u32, name: PierStr, snbt: PierStr);
+pub type PierCellSink = unsafe extern "C" fn(ctx: *mut c_void, x: i32, y: i32, z: i32, index: u32);
+pub type PierSlotSink = unsafe extern "C" fn(ctx: *mut c_void, slot: i32, item_snbt: PierStr);
 pub type PierBytesSink = unsafe extern "C" fn(ctx: *mut c_void, data: *const u8, len: usize);
 pub type PierKvSink = unsafe extern "C" fn(ctx: *mut c_void, key: PierStr, value: PierStr);
 pub type PierActorSink =

@@ -76,30 +76,40 @@ namespace pier::api_impl
                     return -1;
                 }
 
+                // One chunk lookup per chunk and not per column: getChunkAt is a virtual
+                // call plus a map find, and a 4096x4096 area is sixteen million of them
+                // column-wise against sixty-five thousand chunk-wise. An unloaded chunk is
+                // skipped and never force-loaded, because force-loading a large area stalls
+                // the main thread for seconds. setBiome2d fills every y of the column with
+                // one biome, which is what the contract specifies, while setBiome3d writes
+                // only the sample at pos.y.
+                auto const floorDiv16 = [](int64_t v)
+                { return static_cast<int>(v >= 0 ? v >> 4 : -((-v + 15) >> 4)); };
+                int const cxMin = floorDiv16(minX), cxMax = floorDiv16(maxX);
+                int const czMin = floorDiv16(minZ), czMax = floorDiv16(maxZ);
                 int32_t done = 0;
-                for (int64_t x = minX; x <= maxX; ++x)
+                for (int cx = cxMin; cx <= cxMax; ++cx)
                 {
-                    for (int64_t z = minZ; z <= maxZ; ++z)
+                    int const xLo = std::max<int>(minX, cx * 16), xHi = std::min<int>(maxX, cx * 16 + 15);
+                    for (int cz = czMin; cz <= czMax; ++cz)
                     {
-                        // The chunk is fetched per column. An unloaded chunk is
-                        // skipped and never force-loaded, because force-loading a large
-                        // area stalls the main thread for seconds, and callers usually
-                        // work near a player where the chunks are loaded anyway.
-                        LevelChunk* chunk = bs->getChunkAt(BlockPos(x, 0, z));
+                        int const zLo = std::max<int>(minZ, cz * 16), zHi = std::min<int>(maxZ, cz * 16 + 15);
+                        LevelChunk* chunk = bs->getChunkAt(BlockPos(xLo, 0, zLo));
                         if (!chunk) continue;
-                        // The contract specifies setting a whole column, so setBiome2d
-                        // is used. It calls _setBiome(..., fillYDimension=true) and
-                        // fills every y of the column with one biome, while setBiome3d
-                        // writes only the sample at pos.y. The position comes from
-                        // ChunkBlockPos::from2D(x, z), since a column coordinate needs
-                        // no y. Writing ChunkBlockPos(x, 0, z) does not compile, as the
-                        // middle parameter is a ChunkLocalHeight and does not convert
-                        // implicitly from int.
-                        chunk->setBiome2d(
-                            *target,
-                            ChunkBlockPos::from2D(
-                                static_cast<uint8_t>(x & 15), static_cast<uint8_t>(z & 15)));
-                        ++done;
+                        for (int x = xLo; x <= xHi; ++x)
+                        {
+                            for (int z = zLo; z <= zHi; ++z)
+                            {
+                                // ChunkBlockPos(x, 0, z) does not compile: the middle
+                                // parameter is a ChunkLocalHeight and does not convert
+                                // implicitly from int. A column needs no y, so from2D.
+                                chunk->setBiome2d(
+                                    *target,
+                                    ChunkBlockPos::from2D(
+                                        static_cast<uint8_t>(x & 15), static_cast<uint8_t>(z & 15)));
+                                ++done;
+                            }
+                        }
                     }
                 }
                 return done;

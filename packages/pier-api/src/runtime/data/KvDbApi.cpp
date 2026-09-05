@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -30,21 +31,30 @@ namespace pier::api_impl
 {
     namespace
     {
+        /** One open database. `lock` serializes operations on this database only. A
+         *  table-wide mutex would be held across the LevelDB call, so one mod's slow write
+         *  would stall every other mod's reads. */
         struct KvEntry
         {
             HostedMod* mod = nullptr;
+            std::mutex lock;
             std::unique_ptr<ll::data::KeyValueDB> db;
         };
 
-        std::mutex gKvMutex;
-        std::unordered_map<uint64_t, KvEntry> gKvDbs;
+        /** The table is read-shared: an operation takes a shared lock only long enough
+         *  to copy out the entry's shared_ptr, then runs against the entry. A close takes
+         *  the table exclusively and erases; the entry itself lives until the last
+         *  operation in flight releases it, so the database is never destroyed under one. */
+        std::shared_mutex gKvTable;
+        std::unordered_map<uint64_t, std::shared_ptr<KvEntry>> gKvDbs;
         uint64_t gNextKvId = 1;
 
-        KvEntry* entryOf(PierKvDbHandle h)
+        std::shared_ptr<KvEntry> entryOf(PierKvDbHandle h)
         {
             auto id = reinterpret_cast<uint64_t>(h);
+            std::shared_lock lock(gKvTable);
             auto it = gKvDbs.find(id);
-            return it == gKvDbs.end() ? nullptr : &it->second;
+            return it == gKvDbs.end() ? nullptr : it->second;
         }
 
         /** Confines `rel` to the mod data directory. An escape attempt yields an
@@ -96,9 +106,12 @@ namespace pier::api_impl
                     // Four-argument constructor: (path, createIfMiss, fixIfError,
                     // bloomFilterBit), where 0 builds no bloom filter.
                     auto db = std::make_unique<ll::data::KeyValueDB>(full, createIfMissing, false, 0);
-                    std::lock_guard lock(gKvMutex);
+                    auto entry = std::make_shared<KvEntry>();
+                    entry->mod = mod;
+                    entry->db = std::move(db);
+                    std::unique_lock lock(gKvTable);
                     uint64_t id = gNextKvId++;
-                    gKvDbs[id] = KvEntry{mod, std::move(db)};
+                    gKvDbs[id] = std::move(entry);
                     return reinterpret_cast<PierKvDbHandle>(id);
                 }
                 catch (...)
@@ -115,14 +128,17 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 // The database object is destroyed outside the lock. Closing LevelDB
                 // can take time and must not hold the registry lock.
-                std::unique_ptr<ll::data::KeyValueDB> dying;
+                std::shared_ptr<KvEntry> dying;
                 {
-                    std::lock_guard lock(gKvMutex);
+                    std::unique_lock lock(gKvTable);
                     auto it = gKvDbs.find(reinterpret_cast<uint64_t>(h));
                     if (it == gKvDbs.end()) return;
-                    dying = std::move(it->second.db);
+                    dying = std::move(it->second);
                     gKvDbs.erase(it);
                 }
+                // Destroyed here when nothing is in flight, otherwise by the last
+                // operation holding it. Either way outside the table lock.
+                dying.reset();
             PIER_API_GUARD_END_VOID
         }
 
@@ -135,9 +151,9 @@ namespace pier::api_impl
                 // which would self-deadlock a non-recursive mutex.
                 std::optional<std::string> value;
                 {
-                    std::lock_guard lock(gKvMutex);
-                    auto* e = entryOf(h);
+                    auto e = entryOf(h);
                     if (!e) return false;
+                    std::lock_guard lock(e->lock);
                     value = e->db->get(sv(key));
                 }
                 if (!value) return false;
@@ -149,9 +165,9 @@ namespace pier::api_impl
         bool api_kvdb_set(PierKvDbHandle h, PierStr key, PierStr value)
         {
             PIER_API_GUARD_BEGIN
-                std::lock_guard lock(gKvMutex);
-                auto* e = entryOf(h);
+                auto e = entryOf(h);
                 if (!e) return false;
+                std::lock_guard lock(e->lock);
                 return e->db->set(sv(key), sv(value));
             PIER_API_GUARD_END
         }
@@ -159,9 +175,9 @@ namespace pier::api_impl
         bool api_kvdb_del(PierKvDbHandle h, PierStr key)
         {
             PIER_API_GUARD_BEGIN
-                std::lock_guard lock(gKvMutex);
-                auto* e = entryOf(h);
+                auto e = entryOf(h);
                 if (!e) return false;
+                std::lock_guard lock(e->lock);
                 return e->db->del(sv(key));
             PIER_API_GUARD_END
         }
@@ -169,9 +185,9 @@ namespace pier::api_impl
         bool api_kvdb_has(PierKvDbHandle h, PierStr key)
         {
             PIER_API_GUARD_BEGIN
-                std::lock_guard lock(gKvMutex);
-                auto* e = entryOf(h);
+                auto e = entryOf(h);
                 if (!e) return false;
+                std::lock_guard lock(e->lock);
                 return e->db->has(sv(key));
             PIER_API_GUARD_END
         }
@@ -179,9 +195,9 @@ namespace pier::api_impl
         bool api_kvdb_is_empty(PierKvDbHandle h)
         {
             PIER_API_GUARD_BEGIN
-                std::lock_guard lock(gKvMutex);
-                auto* e = entryOf(h);
+                auto e = entryOf(h);
                 if (!e) return true;
+                std::lock_guard lock(e->lock);
                 return e->db->empty();
             PIER_API_GUARD_END
         }
@@ -195,9 +211,9 @@ namespace pier::api_impl
                 // code such as iterating and clearing expired keys exist safely.
                 std::vector<std::pair<std::string, std::string>> snapshot;
                 {
-                    std::lock_guard lock(gKvMutex);
-                    auto* e = entryOf(h);
+                    auto e = entryOf(h);
                     if (!e) return;
+                    std::lock_guard lock(e->lock);
                     for (auto&& [key, value] : e->db->iter())
                     {
                         snapshot.emplace_back(std::string{key}, std::string{value});
@@ -214,11 +230,11 @@ namespace pier::api_impl
          *  warns. */
         void teardown(HostedMod* mod)
         {
-            std::lock_guard lock(gKvMutex);
+            std::unique_lock lock(gKvTable);
             size_t leaked = 0;
             for (auto it = gKvDbs.begin(); it != gKvDbs.end();)
             {
-                if (it->second.mod == mod)
+                if (it->second->mod == mod)
                 {
                     it = gKvDbs.erase(it);
                     ++leaked;

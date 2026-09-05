@@ -8,13 +8,14 @@
 use core::ffi::c_void;
 
 use crate::block::BlockInfo;
+use crate::types::BlockUpdate;
 use crate::entity::Entity;
 use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, r_owned, s};
 use crate::sys;
 use crate::types::Bounds;
-use crate::world::{EntityInfo, Scan, World};
+use crate::world::{BlockCell, EntityInfo, IndexedScan, PaletteEntry, Scan, World};
 
 impl World {
     // Scanning
@@ -81,6 +82,118 @@ impl World {
                 "scanning dimension {dim} failed: the level is not ready, or the dimension is unavailable"
             )))
         }
+    }
+
+    /// Scans the blocks of a region into a palette plus cells.
+    ///
+    /// The host serializes each distinct block state once and reports every cell as an
+    /// index, so a large region costs a few strings instead of two per cell; this is the
+    /// form for copying, saving and diffing regions. Entities are not included; use
+    /// [`World::scan`] with the entity half for those. The same 2^24-cell limit applies.
+    pub fn scan_indexed(&self, dim: i32, bounds: Bounds) -> Result<IndexedScan> {
+        let f = crate::require_slot!(scan_region_indexed, "scanning a region by palette");
+        let mut out = IndexedScan::default();
+        let ok = unsafe {
+            f(
+                dim,
+                bounds.min.0,
+                bounds.min.1,
+                bounds.min.2,
+                bounds.max.0,
+                bounds.max.1,
+                bounds.max.2,
+                (&mut out as *mut IndexedScan).cast(),
+                palette_sink,
+                cell_sink,
+            )
+        };
+        if ok {
+            Ok(out)
+        } else {
+            Err(Error(format!(
+                "scanning dimension {dim} by palette failed: the level is not ready, the dimension is unavailable, or the region exceeds 2^24 cells"
+            )))
+        }
+    }
+
+    // Bulk writes
+
+    /// Fills a box with one block. `spec` is a bare name such as `minecraft:stone` or full
+    /// SNBT, resolved once for the whole box. `update_flags` is as in
+    /// [`crate::Block::set_nbt`]: `BlockUpdate::NONE` is the fastest and leaves the client to
+    /// catch up on the next chunk send. Returns the number of cells written.
+    ///
+    /// One call replaces a loop over `set_block`, which cost an FFI call, a dimension lookup
+    /// and a spec parse per cell.
+    pub fn fill_region(&self, dim: i32, bounds: Bounds, spec: &str, update: BlockUpdate) -> Result<u64> {
+        let f = crate::require_slot!(edit_fill_region, "filling a region");
+        let n = unsafe {
+            f(
+                dim,
+                bounds.min.0,
+                bounds.min.1,
+                bounds.min.2,
+                bounds.max.0,
+                bounds.max.1,
+                bounds.max.2,
+                s(spec),
+                update.bits(),
+            )
+        };
+        if n < 0 {
+            return Err(Error(format!(
+                "filling a region in dimension {dim} with `{spec}` failed: the dimension is not ready, the spec does not resolve, or the box exceeds 2^24 cells"
+            )));
+        }
+        Ok(n as u64)
+    }
+
+    /// Writes many cells in one call. Each entry of `palette` is a block spec resolved once,
+    /// and each cell names one by index. Returns the number of cells written; a cell whose
+    /// index is out of range or whose spec did not resolve is skipped, so a result below
+    /// `cells.len()` means some were.
+    ///
+    /// Pasting an [`IndexedScan`] is `set_blocks(dim, &scan.palette_specs(), &scan.cells, BlockUpdate::NONE)`.
+    pub fn set_blocks(
+        &self,
+        dim: i32,
+        palette: &[&str],
+        cells: &[BlockCell],
+        update: BlockUpdate,
+    ) -> Result<u64> {
+        let f = crate::require_slot!(edit_set_blocks, "writing many blocks");
+        if palette.len() > u32::MAX as usize {
+            return Err(Error("the palette has more than 2^32 entries".to_owned()));
+        }
+        let specs: Vec<sys::PierStr> = palette.iter().map(|p| s(p)).collect();
+        // BlockCell and PierBlockCell have the same layout; the copy keeps the public
+        // type free of the sys crate.
+        let raw: Vec<sys::PierBlockCell> = cells
+            .iter()
+            .map(|c| sys::PierBlockCell {
+                x: c.pos.0,
+                y: c.pos.1,
+                z: c.pos.2,
+                index: c.index,
+            })
+            .collect();
+        let n = unsafe {
+            f(
+                dim,
+                specs.as_ptr(),
+                specs.len() as u32,
+                raw.as_ptr(),
+                raw.len(),
+                update.bits(),
+            )
+        };
+        if n < 0 {
+            return Err(Error(format!(
+                "writing {} blocks in dimension {dim} failed: the dimension is not ready",
+                cells.len()
+            )));
+        }
+        Ok(n as u64)
     }
 
     // Actors and effects
@@ -199,6 +312,34 @@ struct ScanCtx<'a> {
     /// caught in the sink, recorded as one bit, and reported as an `Err` once this call
     /// returns.
     panicked: bool,
+}
+
+/// # Safety
+/// `ctx` must be a valid `*mut IndexedScan`.
+unsafe extern "C" fn palette_sink(ctx: *mut c_void, index: u32, name: sys::PierStr, snbt: sys::PierStr) {
+    let out = &mut *ctx.cast::<IndexedScan>();
+    // Indices arrive in order of first appearance, so pushing keeps them aligned; a gap
+    // would mean a host bug, and it is filled rather than misaligning everything after it.
+    while (out.palette.len() as u32) < index {
+        out.palette.push(PaletteEntry {
+            name: String::new(),
+            snbt: String::new(),
+        });
+    }
+    out.palette.push(PaletteEntry {
+        name: r_owned(name),
+        snbt: r_owned(snbt),
+    });
+}
+
+/// # Safety
+/// `ctx` must be a valid `*mut IndexedScan`.
+unsafe extern "C" fn cell_sink(ctx: *mut c_void, x: i32, y: i32, z: i32, index: u32) {
+    let out = &mut *ctx.cast::<IndexedScan>();
+    out.cells.push(BlockCell {
+        pos: (x, y, z),
+        index,
+    });
 }
 
 /// # Safety

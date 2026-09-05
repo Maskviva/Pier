@@ -149,6 +149,19 @@ namespace pier::hooks
             {
                 return origin(player, isSenderAuthority);
             }
+            // A drop is the pair of one inventory action and one world action with the
+            // random flag, which is how the client encodes "thrown out of the UI". One
+            // inventory action alone is also what a creative pickup and a crafting
+            // remainder send, so the pair is what tells a drop from those.
+            ::InventorySource worldSource{
+                ::InventorySourceType::WorldInteraction,
+                ::ContainerID::None,
+                ::InventorySource::InventorySourceFlags::WorldInteractionRandom
+            };
+            if (mTransaction->getActions(worldSource).empty())
+            {
+                return origin(player, isSenderAuthority);
+            }
 
             std::string itemName = safeTypeName(
                 player.mInventory.get()->getItem(actions[0].mSlot, ::ContainerID::Inventory));

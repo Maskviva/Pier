@@ -1,7 +1,9 @@
 /** core/Bridge.cpp: resolves ABI-side references into engine objects. The
  *  declarations are in bridge.h. */
+#include <functional>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 #include "ll/api/command/CommandRegistrar.h"
@@ -16,6 +18,7 @@
 #include "mc/server/commands/CommandPermissionLevel.h"
 #include "mc/server/commands/ServerCommandOrigin.h"
 #include "mc/world/Container.h"
+#include "mc/legacy/ActorUniqueID.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/player/Inventory.h"
 #include "mc/world/actor/player/Player.h"
@@ -104,11 +107,75 @@ namespace pier::bridge
         return &dim->getBlockSourceFromMainChunkSource();
     }
 
+    namespace
+    {
+        struct StringHash
+        {
+            using is_transparent = void;
+            size_t operator()(std::string_view s) const noexcept { return std::hash<std::string_view>{}(s); }
+        };
+        using SelectorCache = std::unordered_map<std::string, int64_t, StringHash, std::equal_to<>>;
+
+        /**
+         * Selector to ActorUniqueID, one table per selector kind, server thread only.
+         *
+         * A forEachPlayer scan is what a selector costs without this table, and
+         * Player::getRealName() and getXuid() return std::string by value, so one scan over
+         * N players is N allocations, on every property read of every player handle. A
+         * repeat lookup is one fetchEntity plus one identity check instead. A hit is always
+         * verified against the live player, so a stale entry after a leave and rejoin, or an
+         * id reused by a bot, is dropped and the scan runs.
+         */
+        SelectorCache& cacheFor(int32_t kind)
+        {
+            static SelectorCache byName, byXuid, byUuid;
+            switch (kind)
+            {
+            case 1:
+                return byXuid;
+            case 2:
+                return byUuid;
+            default:
+                return byName;
+            }
+        }
+
+        bool selectorMatches(Player const& p, int32_t kind, std::string_view wanted)
+        {
+            switch (kind)
+            {
+            case 0:
+                return p.getRealName() == wanted;
+            case 1:
+                return p.getXuid() == wanted;
+            case 2:
+                return p.getUuid().asString() == wanted;
+            default:
+                return false;
+            }
+        }
+    } // namespace
+
     Player* resolvePlayer(PierPlayerSel sel)
     {
         auto* level = levelReady();
         if (!level || sel.value.len == 0) return nullptr;
         std::string_view wanted = sv(sel.value);
+        if (sel.kind < 0 || sel.kind > 2) return nullptr;
+
+        auto& cache = cacheFor(sel.kind);
+        if (auto hit = cache.find(wanted); hit != cache.end())
+        {
+            ActorUniqueID uid{};
+            uid.rawID = hit->second;
+            Actor* a = level->fetchEntity(uid, /*getRemoved*/ false);
+            if (a && a->isPlayer())
+            {
+                auto* p = static_cast<Player*>(a);
+                if (selectorMatches(*p, sel.kind, wanted)) return p;
+            }
+            cache.erase(hit); // Gone, or the id now belongs to someone else
+        }
 
         Player* found = nullptr;
         level->forEachPlayer([&](Player& p)
@@ -135,6 +202,14 @@ namespace pier::bridge
             }
             return true;
         });
+        if (found)
+        {
+            // Only an exact match of the selector kind is cached. The NameTag fallback
+            // below is deliberately not, because a NameTag is a display string another
+            // plugin may change at any time.
+            if (cache.size() > 4096) cache.clear(); // Bounded; bots come and go
+            cache.emplace(std::string{wanted}, found->getOrCreateUniqueID().rawID);
+        }
         if (!found && sel.kind == 0)
         {
             // A second pass matches the display name, because a name-tag plugin

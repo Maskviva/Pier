@@ -91,6 +91,27 @@ namespace pier::dimensions
          */
         std::atomic<int> gGridCount{0};
 
+        /** One bit per dimension 0..63 that has a grid with plotSize > 0, the second
+         *  lock-free gate. With one plot world registered, every non-player actor move in
+         *  every other dimension still reaches hasPlotGrid, on the hottest function of the
+         *  engine, and answers from this word without a mutex or a map find. Ids of 64 or
+         *  above set the overflow flag and keep the locked path. */
+        std::atomic<uint64_t> gGridDimBits{0};
+        std::atomic<bool> gGridAbove64{false};
+
+        void mirrorGridLocked(int dimension, bool present)
+        {
+            if (dimension < 0) return;
+            if (dimension >= 64)
+            {
+                if (present) gGridAbove64.store(true, std::memory_order_relaxed);
+                return;
+            }
+            uint64_t const bit = uint64_t{1} << dimension;
+            if (present) gGridDimBits.fetch_or(bit, std::memory_order_relaxed);
+            else gGridDimBits.fetch_and(~bit, std::memory_order_relaxed);
+        }
+
         /** Whether the `Actor::move` detour is installed. It is never removed once
          *  installed, as explained below. */
         std::atomic<bool> gMoveHookInstalled{false};
@@ -322,6 +343,7 @@ namespace pier::dimensions
             g.roots.clear();
             g.oversized.clear();
         }
+        mirrorGridLocked(dimension, g.plotSize > 0);
         installMoveHookOnce();
     }
 
@@ -332,6 +354,7 @@ namespace pier::dimensions
         {
             gGridCount.fetch_sub(1, std::memory_order_relaxed);
         }
+        mirrorGridLocked(dimension, false);
     }
 
     void setPlotMerges(int dimension, int32_t const* entries, int32_t count)
@@ -371,6 +394,11 @@ namespace pier::dimensions
     bool hasPlotGrid(int dimension)
     {
         if (gGridCount.load(std::memory_order_relaxed) == 0) return false;
+        if (dimension >= 0 && dimension < 64)
+        {
+            return (gGridDimBits.load(std::memory_order_relaxed) >> dimension) & 1u;
+        }
+        if (dimension >= 64 && !gGridAbove64.load(std::memory_order_relaxed)) return false;
         std::lock_guard lock{gridMutex()};
         auto it = grids().find(dimension);
         return it != grids().end() && it->second.plotSize > 0;

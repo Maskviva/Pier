@@ -29,7 +29,18 @@ namespace pier
     {
         if constexpr (std::is_floating_point_v<T>)
         {
-            return std::format("{}", static_cast<double>(v));
+            // SNBT has no exponent form and no inf or nan. std::format("{}") emits
+            // "1e+21" past 2^53 and "inf" for the non-finite values, both of which
+            // the parser on the far side refuses, taking every later field with them.
+            double d = static_cast<double>(v);
+            if (!(d == d) || d == std::numeric_limits<double>::infinity()
+                || d == -std::numeric_limits<double>::infinity())
+            {
+                d = 0.0;
+            }
+            std::string out = std::format("{}", d);
+            if (out.find_first_of("eE") != std::string::npos) out = std::format("{:.1f}", d);
+            return out;
         }
         else
         {

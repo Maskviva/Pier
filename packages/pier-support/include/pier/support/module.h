@@ -16,4 +16,9 @@ namespace pier
      *  Returning false makes the caller treat ownership as unresolved instead of
      *  acting on a resolution that was never made. */
     [[nodiscard]] bool addressOwnedBy(void const* moduleBase, void const* fn) noexcept;
+
+    /** Base address of the loaded module containing `fn`, or nullptr when none does or
+     *  the platform cannot tell. One call answers what a loop of addressOwnedBy over every
+     *  mod answered with one loader-lock acquisition per mod. */
+    [[nodiscard]] void const* moduleContaining(void const* fn) noexcept;
 } // namespace pier

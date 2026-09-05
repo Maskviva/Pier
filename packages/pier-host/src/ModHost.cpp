@@ -1,8 +1,10 @@
 #include "pier/host/mod_host.h"
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -228,14 +230,21 @@ namespace pier
             );
         }
 
-        // The general veto. A callback of this mod is executing, either on the
-        // current call chain, where a callback issued
-        // execute_command("pier unload <self>"), or on another thread dispatching a
-        // bus or packet callback of it. FreeLibrary would unmap the executing code
-        // section in both cases. The busy flag in lane covers lanes only, while this
-        // counter covers every dispatch site in the host.
-        if (int const depth = mod->inCallback.load(std::memory_order_acquire); depth > 0)
+        // The general veto: a callback of this mod is executing, on this call chain or
+        // on another thread, and FreeLibrary would unmap its code. The gate closes first
+        // so no new callback enters while the counter is read, then a short grace period
+        // lets the ones inside finish; without the gate one could start between the read
+        // and FreeLibrary. The lane busy flag covers lanes only, this covers every site.
+        mod->unloading.store(true, std::memory_order_release);
+        int depth = mod->inCallback.load(std::memory_order_acquire);
+        for (int waited = 0; depth > 0 && waited < 200; waited += 5)
         {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            depth = mod->inCallback.load(std::memory_order_acquire);
+        }
+        if (depth > 0)
+        {
+            mod->unloading.store(false, std::memory_order_release);
             return ll::makeStringError(
                 "'" + std::string(name) + "' cannot be unloaded now, " + std::to_string(depth)
                 + " of its callbacks are executing, either unloading itself from inside "
@@ -245,6 +254,7 @@ namespace pier
 
         if (mod->vtable.on_unload && !mod->vtable.on_unload(mod->vtable.instance))
         {
+            mod->unloading.store(false, std::memory_order_release);
             return ll::makeStringError("'" + std::string(name) + "' refused to unload, on_unload returned false");
         }
         mod->commandsMuted = true;

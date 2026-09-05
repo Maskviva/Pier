@@ -29,7 +29,7 @@
 #include "mc/world/item/TridentItem.h"
 #include "mc/world/item/components/ProjectileItemComponent.h"
 #include "mc/world/item/components/ShooterItemComponent.h"
-#include "mc/world/level/BedrockSpawner.h"
+#include "mc/world/level/Spawner.h"
 #include "mc/world/level/BlockSource.h"
 
 #include "pier/support/log.h"
@@ -228,8 +228,8 @@ namespace pier::hooks
         LL_TYPE_INSTANCE_HOOK(
             SpawnProjectileHook,
             ll::memory::HookPriority::Normal,
-            BedrockSpawner,
-            &BedrockSpawner::$spawnProjectile,
+            Spawner,
+            &Spawner::$spawnProjectile,
             ::Actor*,
             ::BlockSource& region,
             ::ActorDefinitionIdentifier const& id,

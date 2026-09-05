@@ -15,6 +15,8 @@
  */
 #include "pier/dimensions/dim/dimension_rules.h"
 
+#include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <unordered_map>
 
@@ -100,8 +102,45 @@ namespace pier::dimensions
             return m;
         }
 
+        /*  Lock-free fast path for the hook bodies
+         * Once installed the detours below are global and sit on LiquidBlock::_trySpreadTo,
+         * FireBlock::checkBurn, Spawner::spawnMob and Actor::canAddPassenger, which fire
+         * thousands of times per tick, so a dimension with no rule at all must answer
+         * without taking rulesMutex. Dimensions 0..63 are mirrored into atomics: one bit
+         * per dimension with any
+         * rule, one byte per (dimension, rule) holding unset, deny or allow. Writers update
+         * them under rulesMutex, readers load relaxed and never take the lock. An id of 64
+         * or above keeps the locked path. */
+        constexpr int kMirroredDims = 64;
+        std::atomic<uint64_t> gRuleDimBits{0};
+        std::atomic<bool> gRulesAbove64{false};
+        // 0 unset, 1 deny, 2 allow
+        std::atomic<uint8_t> gRuleMirror[kMirroredDims][kDimRuleCount]{};
+
+        void mirrorRuleLocked(int dimension, int rule, uint8_t state)
+        {
+            if (dimension < 0) return;
+            if (dimension >= kMirroredDims)
+            {
+                gRulesAbove64.store(true, std::memory_order_relaxed);
+                return;
+            }
+            gRuleMirror[dimension][rule].store(state, std::memory_order_relaxed);
+            auto it = dimCounts().find(dimension);
+            bool const any = it != dimCounts().end() && it->second > 0;
+            uint64_t const bit = uint64_t{1} << dimension;
+            if (any) gRuleDimBits.fetch_or(bit, std::memory_order_relaxed);
+            else gRuleDimBits.fetch_and(~bit, std::memory_order_relaxed);
+        }
+
         bool anyRuleFor(int dimension)
         {
+            if (dimension < 0) return false;
+            if (dimension < kMirroredDims)
+            {
+                return (gRuleDimBits.load(std::memory_order_relaxed) >> dimension) & 1u;
+            }
+            if (!gRulesAbove64.load(std::memory_order_relaxed)) return false;
             std::lock_guard lock{rulesMutex()};
             auto it = dimCounts().find(dimension);
             return it != dimCounts().end() && it->second > 0;
@@ -127,10 +166,19 @@ namespace pier::dimensions
         auto const k = key(dimension, rule);
         auto [it, inserted] = rules().insert_or_assign(k, allow);
         if (inserted) dimCounts()[dimension] += 1;
+        mirrorRuleLocked(dimension, rule, allow ? 2 : 1);
     }
 
     bool getDimensionRule(int dimension, int rule, bool* outAllow)
     {
+        if (rule < 0 || rule >= kDimRuleCount) return false;
+        if (dimension >= 0 && dimension < kMirroredDims)
+        {
+            uint8_t const state = gRuleMirror[dimension][rule].load(std::memory_order_relaxed);
+            if (state == 0) return false;
+            if (outAllow) *outAllow = (state == 2);
+            return true;
+        }
         std::lock_guard lock{rulesMutex()};
         auto it = rules().find(key(dimension, rule));
         if (it == rules().end()) return false;
@@ -143,6 +191,7 @@ namespace pier::dimensions
         std::lock_guard lock{rulesMutex()};
         for (int r = 0; r < kDimRuleCount; ++r) rules().erase(key(dimension, r));
         dimCounts().erase(dimension);
+        for (int r = 0; r < kDimRuleCount; ++r) mirrorRuleLocked(dimension, r, 0);
     }
 
     namespace
@@ -222,6 +271,13 @@ namespace pier::dimensions
 
             if (naturalSpawn)
             {
+                // The common setting, no natural spawning at all, is answered before the
+                // engine builds the mob. Only a split setting needs the category, which
+                // exists only on the built mob, and pays for a spawn it then undoes.
+                if (!allowed(dim, DimRule::SpawnMonster) && !allowed(dim, DimRule::SpawnAnimal))
+                {
+                    return nullptr;
+                }
                 // Hostile or friendly is decided by category, and an undecidable one
                 // counts as hostile. One mob too few in a creative world beats one too
                 // many interrupting a build.

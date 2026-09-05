@@ -410,6 +410,45 @@ pub struct PierApi {
     pub get_extra_block:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, *mut c_void, PierStrSink) -> bool>,
     pub set_extra_block: Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr, i32) -> bool>,
+
+    // ── Tick statistics
+    pub get_tps: Option<unsafe extern "C" fn(i32) -> f64>,
+    pub get_mspt: Option<unsafe extern "C" fn(i32) -> f64>,
+
+    // ── Packet interception filtered by id
+    pub packet_hook_register_ids: Option<
+        unsafe extern "C" fn(
+            PierModHandle,
+            i32,
+            *const i32,
+            usize,
+            PierPacketCb,
+            *mut c_void,
+        ) -> PierPacketHookHandle,
+    >,
+
+    // ── Bulk block reads and writes
+    pub scan_region_indexed: Option<
+        unsafe extern "C" fn(
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+            *mut c_void,
+            PierPaletteSink,
+            PierCellSink,
+        ) -> bool,
+    >,
+    pub edit_fill_region:
+        Option<unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, i32, PierStr, i32) -> i64>,
+    pub edit_set_blocks: Option<
+        unsafe extern "C" fn(i32, *const PierStr, u32, *const PierBlockCell, usize, i32) -> i64,
+    >,
+    pub container_get_items:
+        Option<unsafe extern "C" fn(PierContainerRef, *mut c_void, PierSlotSink) -> bool>,
 }
 
 impl PierApi {

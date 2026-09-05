@@ -191,6 +191,7 @@ namespace pier::api_impl
                 // dereferenced.
                 auto provider = svc.owner.lock();
                 if (!provider || provider.get() != svc.mod) return PIER_SERVICE_NOT_FOUND;
+                if (provider->unloading.load(std::memory_order_acquire)) return PIER_SERVICE_NOT_FOUND;
 
                 // isEnabled() must not be consulted here. ModManager::enable() flips
                 // the state to Enabled only after the onEnable callback returns, and

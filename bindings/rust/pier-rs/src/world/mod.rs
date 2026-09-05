@@ -29,6 +29,52 @@ pub struct EntityInfo {
     pub snbt: String,
 }
 
+/// One distinct block state met by [`World::scan_indexed`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaletteEntry {
+    pub name: String,
+    /// The full block serialization, name + states + version, as SNBT.
+    pub snbt: String,
+}
+
+/// One cell of [`World::scan_indexed`] or [`World::set_blocks`]: a position and an index
+/// into the palette that travels with it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockCell {
+    pub pos: PositionI32,
+    pub index: u32,
+}
+
+/// The result of one [`World::scan_indexed`]: every distinct block state once, and one
+/// small cell per position. A region of a million stone cells holds one `String` pair here
+/// where [`Scan`] holds two million.
+#[derive(Debug, Clone, Default)]
+pub struct IndexedScan {
+    pub palette: Vec<PaletteEntry>,
+    pub cells: Vec<BlockCell>,
+}
+
+impl IndexedScan {
+    /// The palette entry of a cell.
+    pub fn block_of(&self, cell: &BlockCell) -> Option<&PaletteEntry> {
+        self.palette.get(cell.index as usize)
+    }
+
+    /// The palette as block specs, the shape [`World::set_blocks`] takes.
+    pub fn palette_specs(&self) -> Vec<&str> {
+        self.palette.iter().map(|p| p.snbt.as_str()).collect()
+    }
+
+    /// Cells that are not air, by palette name.
+    pub fn non_air_count(&self) -> usize {
+        let air: Vec<bool> = self.palette.iter().map(|p| p.name == "minecraft:air").collect();
+        self.cells
+            .iter()
+            .filter(|c| !air.get(c.index as usize).copied().unwrap_or(false))
+            .count()
+    }
+}
+
 /// The result of one scan.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Scan {

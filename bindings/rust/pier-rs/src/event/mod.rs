@@ -93,7 +93,11 @@ pub struct Event<'a> {
     /// Parsed lazily: the many listeners that only watch the id should not pay for
     /// parsing SNBT.
     parsed: Option<NbtValue>,
+    /// What goes back to the host. Either an overlay holding only the top-level keys this
+    /// callback wrote, or, after [`Event::edit`], a full copy of the payload with the edits
+    /// applied. `edited_is_full` says which.
     edited: Option<NbtValue>,
+    edited_is_full: bool,
     write_ctx: *mut c_void,
     write_back: sys::PierStrSink,
 }
@@ -282,9 +286,7 @@ impl<'a> Event<'a> {
                 self.id
             )));
         }
-        self.edit(|v| {
-            v.insert("cancelled", NbtValue::Byte(1));
-        });
+        self.set("cancelled", NbtValue::Byte(1));
         Ok(())
     }
 
@@ -297,9 +299,7 @@ impl<'a> Event<'a> {
         if self.can_cancel() == Some(false) {
             return false;
         }
-        self.edit(|v| {
-            v.insert("cancelled", NbtValue::Byte(1));
-        });
+        self.set("cancelled", NbtValue::Byte(1));
         true
     }
 
@@ -310,9 +310,7 @@ impl<'a> Event<'a> {
     /// at an earlier priority cannot be undone, and the host bus does not allow a veto to be
     /// turned back into an approval either.
     pub fn uncancel(&mut self) {
-        self.edit(|v| {
-            v.insert("cancelled", NbtValue::Byte(0));
-        });
+        self.set("cancelled", NbtValue::Byte(0));
     }
 
     /// Edits one field of the payload.
@@ -321,25 +319,43 @@ impl<'a> Event<'a> {
     /// untouched ones stay as they are, so two mods on the same event do not erase each
     /// other's edits.
     pub fn set(&mut self, path: &str, value: NbtValue) {
-        let key = path.to_owned();
-        self.edit(move |v| {
-            v.insert(key, value);
-        });
+        // Written into the overlay, never into a copy of the whole payload. The host
+        // merges the keys that arrive and leaves the rest alone (Events.cpp), and a
+        // synthetic hook event reads only `cancelled`, so the touched keys are enough.
+        // Going through `edit` instead clones and reserializes the whole event, item NBT
+        // included, on every cancel.
+        if self.edited.is_none() {
+            self.edited = Some(NbtValue::compound());
+            self.edited_is_full = false;
+        }
+        if let Some(e) = self.edited.as_mut() {
+            e.insert(path, value);
+        }
     }
 
     /// An arbitrary rewrite. The closure receives a mutable copy of the payload.
+    ///
+    /// This is the one path that copies the whole payload; [`Event::set`] and
+    /// [`Event::cancel`] write only the keys they touch.
     pub fn edit(&mut self, f: impl FnOnce(&mut NbtValue)) {
-        if self.edited.is_none() {
+        if !self.edited_is_full {
             // Based on the current payload; an unparsable one starts from an empty compound tag,
             // which is at least enough to write cancelled.
             //
             // Cloned into a local before assigning: `self.value()` borrows `self`, and writing
             // `self.edited` in the same statement is a borrow conflict.
-            let base = match self.value() {
+            let mut base = match self.value() {
                 Ok(v) => v.clone(),
                 Err(_) => NbtValue::compound(),
             };
+            // Keys written through the overlay before this call win over the payload.
+            if let Some(NbtValue::Compound(overlay)) = self.edited.take() {
+                for (k, v) in overlay {
+                    base.insert(k, v);
+                }
+            }
             self.edited = Some(base);
+            self.edited_is_full = true;
         }
         if let Some(e) = self.edited.as_mut() {
             f(e);
@@ -520,6 +536,7 @@ unsafe extern "C" fn trampoline(
         snbt: text,
         parsed: None,
         edited: None,
+        edited_is_full: false,
         write_ctx,
         write_back,
     };

@@ -14,10 +14,12 @@
  * than replacing them, and an existing mod runs unchanged. / */
 #ifndef PIER_BUILD_CLIENT
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "mc/dataloadhelper/DefaultDataLoadHelper.h"
 #include "mc/dataloadhelper/NewUniqueIdsDataLoadHelper.h"
@@ -45,6 +47,7 @@
 #include "pier/api/bridge.h"
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
+#include "pier/support/log.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -198,6 +201,81 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
+        /** Resolves a block spec the way set_block does: a leading '{' means SNBT and
+         *  anything else is a block name, "minecraft:" implied. */
+        Block const* resolveSpec(std::string_view spec)
+        {
+            while (!spec.empty() && (spec.front() == ' ' || spec.front() == '\t')) spec.remove_prefix(1);
+            if (spec.empty()) return nullptr;
+            return spec.front() == '{' ? bridge::blockFromSnbt(spec) : bridge::defaultBlockNamed(spec);
+        }
+
+        int64_t api_edit_fill_region(
+            int32_t dim, int32_t x1, int32_t y1, int32_t z1, int32_t x2, int32_t y2, int32_t z2,
+            PierStr blockSpec, int32_t updateFlags)
+        {
+            PIER_API_GUARD_BEGIN
+                auto* bs = bridge::blockSourceOf(dim);
+                if (!bs) return -1;
+                Block const* block = resolveSpec(sv(blockSpec));
+                if (!block) return -1;
+                int const minX = std::min(x1, x2), maxX = std::max(x1, x2);
+                int const minY = std::min(y1, y2), maxY = std::max(y1, y2);
+                int const minZ = std::min(z1, z2), maxZ = std::max(z1, z2);
+                constexpr int64_t kMaxVolume = int64_t{1} << 24;
+                int64_t const volume = (int64_t{maxX} - minX + 1) * (int64_t{maxY} - minY + 1)
+                    * (int64_t{maxZ} - minZ + 1);
+                if (volume > kMaxVolume)
+                {
+                    hostLogger().error(
+                        "[api] edit_fill_region refused, a box of {} cells exceeds the limit of {}; fill in slices",
+                        volume, kMaxVolume);
+                    return -1;
+                }
+                auto const context = bridge::blockEditContext();
+                int64_t written = 0;
+                // y innermost keeps consecutive writes inside one sub-chunk column, the
+                // access pattern the chunk storage is laid out for.
+                for (int x = minX; x <= maxX; ++x)
+                {
+                    for (int z = minZ; z <= maxZ; ++z)
+                    {
+                        for (int y = minY; y <= maxY; ++y)
+                        {
+                            if (bs->setBlock(BlockPos{x, y, z}, *block, updateFlags, nullptr, context)) ++written;
+                        }
+                    }
+                }
+                return written;
+            PIER_API_GUARD_END_VAL(-1)
+        }
+
+        int64_t api_edit_set_blocks(
+            int32_t dim, PierStr const* palette, uint32_t paletteCount, PierBlockCell const* cells,
+            size_t cellCount, int32_t updateFlags)
+        {
+            PIER_API_GUARD_BEGIN
+                if ((paletteCount != 0 && !palette) || (cellCount != 0 && !cells)) return -1;
+                auto* bs = bridge::blockSourceOf(dim);
+                if (!bs) return -1;
+                // Each spec is resolved exactly once. A spec that fails resolves to null
+                // and every cell naming it is skipped, which the return value reveals.
+                std::vector<Block const*> resolved(paletteCount, nullptr);
+                for (uint32_t i = 0; i < paletteCount; ++i) resolved[i] = resolveSpec(sv(palette[i]));
+                auto const context = bridge::blockEditContext();
+                int64_t written = 0;
+                for (size_t i = 0; i < cellCount; ++i)
+                {
+                    PierBlockCell const& c = cells[i];
+                    if (c.index >= paletteCount) continue;
+                    Block const* block = resolved[c.index];
+                    if (!block) continue;
+                    if (bs->setBlock(BlockPos{c.x, c.y, c.z}, *block, updateFlags, nullptr, context)) ++written;
+                }
+                return written;
+            PIER_API_GUARD_END_VAL(-1)
+        }
+
         bool api_edit_trace_ray(
             PierActorId id,
             float max_dist,
@@ -289,6 +367,8 @@ namespace pier::api_impl
             api.edit_set_block_entity = &api_edit_set_block_entity;
             api.edit_spawn_entity_nbt = &api_edit_spawn_entity_nbt;
             api.edit_trace_ray = &api_edit_trace_ray;
+            api.edit_fill_region = &api_edit_fill_region;
+            api.edit_set_blocks = &api_edit_set_blocks;
             api.get_extra_block = &api_get_extra_block;
             api.set_extra_block = &api_set_extra_block;
         }

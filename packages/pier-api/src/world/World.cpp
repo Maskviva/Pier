@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <unordered_map>
 
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/deps/core/string/HashedString.h"
@@ -22,6 +23,8 @@
 #include "mc/world/level/block/Block.h"
 #include "mc/world/level/block/BlockChangeContext.h"
 #include "mc/world/level/block/actor/BlockActor.h"
+#include "mc/world/level/chunk/LevelChunk.h"
+#include "mc/world/level/ChunkBlockPos.h"
 #include "mc/world/level/dimension/Dimension.h"
 #include "mc/world/phys/AABB.h"
 
@@ -70,6 +73,91 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VAL((PierPlayerPos{0.0, 0.0, 0.0, 0, false}))
         }
 
+        /**
+         * Visits every cell of a box, chunk by chunk. Inside a loaded chunk the block
+         * is read through LevelChunk::getBlock, an array index, instead of
+         * BlockSource::getBlock, a virtual call plus a chunk lookup per cell. A chunk
+         * that is not loaded, and a y outside the dimension height range, fall back to
+         * BlockSource::getBlock, which answers air, so the result matches what the
+         * per-cell path gave.
+         */
+        template <class Fn>
+        void forEachBlockInRegion(
+            BlockSource& bs, int minX, int minY, int minZ, int maxX, int maxY, int maxZ, Fn&& visit)
+        {
+            short const minH = bs.getDimension().getMinHeight();
+            short const height = bs.getDimension().getHeight();
+            int const loY = std::max<int>(minY, minH);
+            int const hiY = std::min<int>(maxY, static_cast<int>(minH) + height - 1);
+            auto const floorDiv16 = [](int v) { return v >= 0 ? v >> 4 : -((-v + 15) >> 4); };
+            int const cxMin = floorDiv16(minX), cxMax = floorDiv16(maxX);
+            int const czMin = floorDiv16(minZ), czMax = floorDiv16(maxZ);
+            for (int cx = cxMin; cx <= cxMax; ++cx)
+            {
+                int const xLo = std::max(minX, cx * 16), xHi = std::min(maxX, cx * 16 + 15);
+                for (int cz = czMin; cz <= czMax; ++cz)
+                {
+                    int const zLo = std::max(minZ, cz * 16), zHi = std::min(maxZ, cz * 16 + 15);
+                    LevelChunk* chunk = bs.getChunkAt(BlockPos{xLo, 0, zLo});
+                    bool const direct = chunk && chunk->isFullyLoaded();
+                    for (int y = minY; y <= maxY; ++y)
+                    {
+                        bool const inRange = direct && y >= loY && y <= hiY;
+                        for (int x = xLo; x <= xHi; ++x)
+                        {
+                            for (int z = zLo; z <= zHi; ++z)
+                            {
+                                BlockPos const pos{x, y, z};
+                                Block const& block =
+                                    inRange ? chunk->getBlock(ChunkBlockPos{pos, minH}) : bs.getBlock(pos);
+                                visit(x, y, z, block);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        bool api_scan_region_indexed(
+            int32_t dimension, int32_t x1, int32_t y1, int32_t z1, int32_t x2, int32_t y2, int32_t z2,
+            void* ctx, PierPaletteSink paletteSink, PierCellSink cellSink)
+        {
+            PIER_API_GUARD_BEGIN
+                if (!paletteSink || !cellSink) return false;
+                auto* bs = bridge::blockSourceOf(dimension);
+                if (!bs) return false;
+                int minX = std::min(x1, x2), maxX = std::max(x1, x2);
+                int minY = std::min(y1, y2), maxY = std::max(y1, y2);
+                int minZ = std::min(z1, z2), maxZ = std::max(z1, z2);
+                constexpr int64_t kMaxVolume = int64_t{1} << 24;
+                int64_t const volume = (int64_t{maxX} - minX + 1) * (int64_t{maxY} - minY + 1)
+                    * (int64_t{maxZ} - minZ + 1);
+                if (volume > kMaxVolume)
+                {
+                    hostLogger().error(
+                        "[api] scan_region_indexed refused, a region of {} cells exceeds the limit of {}; scan in blocks",
+                        volume, kMaxVolume);
+                    return false;
+                }
+                std::unordered_map<Block const*, uint32_t> indexOf;
+                forEachBlockInRegion(
+                    *bs, minX, minY, minZ, maxX, maxY, maxZ,
+                    [&](int x, int y, int z, Block const& block)
+                    {
+                        auto it = indexOf.find(&block);
+                        if (it == indexOf.end())
+                        {
+                            auto const index = static_cast<uint32_t>(indexOf.size());
+                            it = indexOf.emplace(&block, index).first;
+                            std::string const snbt = block.mSerializationId.get().toSnbt(SnbtFormat::Minimize);
+                            paletteSink(ctx, index, ps(block.getTypeName()), ps(snbt));
+                        }
+                        cellSink(ctx, x, y, z, it->second);
+                    });
+                return true;
+            PIER_API_GUARD_END
+        }
+
         bool api_scan_region(
             int32_t dimension,
             int32_t x1,
@@ -104,28 +192,28 @@ namespace pier::api_impl
                     return false;
                 }
 
-                // Blocks: the whole box cell by cell, bottom to top, then x, then z.
+                // Blocks: chunk by chunk through forEachBlockInRegion. Block states are
+                // interned, so one Block* has one serialization, and caching the SNBT by
+                // pointer turns a million toSnbt calls on a region of stone into one.
                 if (blocksSink)
                 {
-                    for (int64_t y = minY; y <= maxY; ++y)
-                    {
-                        for (int64_t x = minX; x <= maxX; ++x)
+                    std::unordered_map<Block const*, std::string> snbtByBlock;
+                    forEachBlockInRegion(
+                        *bs, minX, minY, minZ, maxX, maxY, maxZ,
+                        [&](int x, int y, int z, Block const& block)
                         {
-                            for (int64_t z = minZ; z <= maxZ; ++z)
+                            auto it = snbtByBlock.find(&block);
+                            if (it == snbtByBlock.end())
                             {
-                                auto const& block = bs->getBlock(
-                                    BlockPos{static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)});
                                 // This LL version has no getSerializationId() accessor,
                                 // so the public member mSerializationId is read
-                                // directly. It is the same tag:
-                                // {name, states, version}.
-                                std::string snbt =
-                                    block.mSerializationId.get().toSnbt(SnbtFormat::Minimize);
-                                blocksSink(ctx, static_cast<int>(x), static_cast<int>(y), static_cast<int>(z),
-                                           ps(block.getTypeName()), ps(snbt));
+                                // directly. It is the same tag: {name, states, version}.
+                                it = snbtByBlock
+                                         .emplace(&block, block.mSerializationId.get().toSnbt(SnbtFormat::Minimize))
+                                         .first;
                             }
-                        }
-                    }
+                            blocksSink(ctx, x, y, z, ps(block.getTypeName()), ps(it->second));
+                        });
                 }
 
                 // Actors: the runtime entity table filtered by the box and mapped
@@ -522,6 +610,7 @@ namespace pier::api_impl
             api.spawn_particle = &api_spawn_particle;
             api.get_player_position = &api_get_player_position;
             api.scan_region = &api_scan_region;
+            api.scan_region_indexed = &api_scan_region_indexed;
             api.get_block = &api_get_block;
             api.set_block = &api_set_block;
             api.block_get_num = &api_block_get_num;

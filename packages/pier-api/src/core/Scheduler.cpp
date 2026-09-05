@@ -82,7 +82,7 @@ namespace pier::api_impl
             }
             auto mod = weakMod.lock();
             if (!mod || mod.get() != task.mod) return; // Mod gone, dylib may be unmapped
-            if (!mod->isEnabled()) return;             // Muted while disabled
+            if (!mod->acceptsCallbacks()) return;             // Muted while disabled
             CallbackScope scope{mod.get()};            // Veto unload during the callback
             if (task.cb) task.cb(task.user);
         }
@@ -98,10 +98,14 @@ namespace pier::api_impl
         {
             auto* host = ModHost::instance();
             if (!host) return nullptr;
+            // One loader-lock acquisition for the owning module, then a comparison
+            // against the table. A loop of addressOwnedBy over hostedMods() takes that
+            // lock once per mod, on every legacy schedule and again when the task fires.
+            void const* owner = moduleContaining(reinterpret_cast<void const*>(cb));
+            if (!owner) return nullptr;
             for (auto const& hosted : host->hostedMods())
             {
-                void const* base = hosted->lib.handle();
-                if (base && addressOwnedBy(base, reinterpret_cast<void const*>(cb))) return base;
+                if (hosted->lib.handle() == owner) return owner;
             }
             return nullptr;
         }

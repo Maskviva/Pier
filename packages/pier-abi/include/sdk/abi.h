@@ -167,6 +167,31 @@ typedef void (*PierBlockSink)(void* ctx, int32_t x, int32_t y, int32_t z, PierSt
  */
 typedef void (*PierEntitySink)(void* ctx, int32_t x, int32_t y, int32_t z, PierStr type, PierStr snbt);
 
+/**
+ * Palette sink for scan_region_indexed: invoked once per distinct block state
+ * met in the region, before the first cell that uses it. Indices count from 0
+ * in the order of first appearance and are valid for that one call only.
+ *   name : block type name, e.g. "minecraft:stone".
+ *   snbt : full block serialization (name + states + version) as SNBT.
+ */
+typedef void (*PierPaletteSink)(void* ctx, uint32_t index, PierStr name, PierStr snbt);
+
+/** Cell sink for scan_region_indexed: one call per cell with its palette index. */
+typedef void (*PierCellSink)(void* ctx, int32_t x, int32_t y, int32_t z, uint32_t index);
+
+/** Slot sink for container_get_items: one call per slot, in slot order. */
+typedef void (*PierSlotSink)(void* ctx, int32_t slot, PierStr item_snbt);
+
+/** One cell of edit_set_blocks: a position and an index into the palette the
+ *  same call passes. */
+typedef struct PierBlockCell
+{
+    int32_t x;
+    int32_t y;
+    int32_t z;
+    uint32_t index;
+} PierBlockCell;
+
 
 /*  Per-domain payload types  */
 
@@ -1066,9 +1091,11 @@ typedef struct PierApi
     uint64_t (*get_current_tick)();
 
     /**
-     * Seconds taken by the last tick (mTickDeltaTime; 0.05 at 20 TPS).
-     * TPS = 1.0 / tick_delta_time when > 0. Returns -1.0 if unavailable.
-     * Server thread only.
+     * Wall-clock period of the last frame in seconds (mTickDeltaTime; 0.05 at 20
+     * TPS). It includes the sleep the server inserts to hold 20 Hz, so it is not
+     * the time spent computing a tick and its reciprocal is not a tick rate: it
+     * is one noisy sample of the frame rate. For TPS and MSPT use get_tps and
+     * get_mspt. Returns -1.0 if unavailable. Server thread only.
      */
     double (*get_tick_delta_time)();
 
@@ -2202,6 +2229,89 @@ typedef struct PierApi
      *  edit_set_block_nbt: bit 1 notifies neighbours, bit 2 syncs the client. */
     bool (*set_extra_block)(int32_t dim, int32_t x, int32_t y, int32_t z,
                             PierStr block_spec, int32_t update_flags);
+
+    /*  Appended: tick statistics  */
+
+    /**
+     * Ticks per second over the last `window_seconds` (1..60, clipped) of wall
+     * clock: the number of Level::tick calls that really ran divided by elapsed
+     * time. Stays correct under the tick warp (reads above 20), the tick freeze
+     * (reads 0) and lag (reads below 20). Returns -1.0 before the first frame
+     * has been sampled. Server thread only.
+     */
+    double (*get_tps)(int32_t window_seconds);
+
+    /**
+     * Milliseconds spent inside Level::tick per tick, averaged over the last
+     * `window_seconds` (1..60, clipped). This is the time the server computes,
+     * excluding the idle sleep between frames; a healthy server reads a few
+     * milliseconds and only approaches 50 when saturated. Returns -1.0 when no
+     * tick ran in the window. Server thread only.
+     */
+    double (*get_mspt)(int32_t window_seconds);
+
+    /*  Appended: packet interception filtered by id  */
+
+    /**
+     * As packet_hook_register, but the callback fires only for the listed packet
+     * ids (MinecraftPacketIds values, 0..1023). packet_hook_register subscribes
+     * to every id and therefore costs one callback per packet in that direction,
+     * chunk data included; a mod watching a few ids should use this slot, since
+     * a packet no subscriber listed is passed through before any lock is taken.
+     * An empty list, or one whose ids are all out of range, is refused. The same
+     * unregister slot applies. Any thread.
+     */
+    PierPacketHookHandle (*packet_hook_register_ids)(
+        PierModHandle mod, int32_t dir_mask, int32_t const* ids, size_t count,
+        PierPacketCb cb, void* user);
+
+    /*  Appended: bulk block reads and writes  */
+
+    /**
+     * As scan_region for blocks, but each distinct block state is serialized
+     * once through the palette sink and every cell reports only an index. A
+     * region of one million stone cells costs one SNBT serialization instead
+     * of one million. Entities are not covered; use scan_region with a null
+     * block sink for those. The same 2^24-cell limit applies. Server thread
+     * only. Returns false if the dimension is not ready or the region is too
+     * large.
+     */
+    bool (*scan_region_indexed)(int32_t dimension, int32_t x1, int32_t y1, int32_t z1,
+                                int32_t x2, int32_t y2, int32_t z2, void* ctx,
+                                PierPaletteSink palette, PierCellSink cells);
+
+    /**
+     * Fills a box with one block. block_spec is a bare name such as
+     * "minecraft:stone" or full SNBT; it is resolved once for the whole box.
+     * update_flags is as in edit_set_block_nbt: bit 1 notifies neighbours, bit
+     * 2 syncs the client; 0 is the fastest and leaves the client to catch up on
+     * the next chunk send. Returns the number of cells written, or -1 if the
+     * dimension is not ready, the spec does not resolve, or the box exceeds
+     * 2^24 cells. Server thread only.
+     */
+    int64_t (*edit_fill_region)(int32_t dimension, int32_t x1, int32_t y1, int32_t z1,
+                                int32_t x2, int32_t y2, int32_t z2, PierStr block_spec,
+                                int32_t update_flags);
+
+    /**
+     * Writes many cells in one call. palette holds palette_count block specs,
+     * each resolved once; every cell names one by index. A cell whose index is
+     * out of range, or whose block did not resolve, is skipped and counted in
+     * the return value's complement. Returns the number of cells written, or -1
+     * if the dimension is not ready or a pointer is null with a non-zero count.
+     * Server thread only.
+     */
+    int64_t (*edit_set_blocks)(int32_t dimension, PierStr const* palette, uint32_t palette_count,
+                               PierBlockCell const* cells, size_t cell_count, int32_t update_flags);
+
+    /**
+     * Every slot of a container in one call: the sink receives (slot, item SNBT)
+     * for each slot in order, empty slots included as an empty-item snapshot.
+     * One container resolution and one FFI crossing replace one of each per
+     * slot. Returns false if the container cannot be resolved. Server thread
+     * only.
+     */
+    bool (*container_get_items)(PierContainerRef ref, void* ctx, PierSlotSink sink);
 } PierApi;
 
 /**

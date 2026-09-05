@@ -69,7 +69,7 @@ pub use types::{
     Ability, BlockUpdate, Bounds, Difficulty, EquipSlot, GameMode, LocalTime, MessageType,
     PlayerPermission, PositionF64, PositionI32, RayHit, TitleKind, TitleTimes, Weather,
 };
-pub use world::{Box3D, Scan, World};
+pub use world::{BlockCell, Box3D, IndexedScan, PaletteEntry, Scan, World};
 
 /// The internal entry point macro expansion uses. It is not a stable API and mod code must
 /// not touch it directly.

@@ -130,7 +130,7 @@ namespace pier::api_impl
             }
             auto mod = weakMod.lock();
             if (!mod || mod.get() != pending.mod) return; // Mod is gone
-            if (!mod->isEnabled()) return;                // Muted while disabled
+            if (!mod->acceptsCallbacks()) return;                // Muted while disabled
             CallbackScope scope{mod.get()};               // Veto unload during callback
             if (pending.cb) pending.cb(pending.user, ps(resultSnbt));
         }
