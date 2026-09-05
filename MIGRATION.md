@@ -374,7 +374,7 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `docs/rust/threads.md` | ✔ added: the server thread default and the packet interception exception |
 | `tooth.json` | ✔ added: the lip package manifest, which is how a server owner installs a release |
 
-**Summary**: ✔ 203 | ✂ 12 | ⬜ 44 (259 old files in total)
+**Summary**: ✔ 204 | ✂ 12 | ⬜ 44 (260 old files in total)
 
 ---
 

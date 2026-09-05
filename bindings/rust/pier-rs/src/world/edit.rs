@@ -8,12 +8,12 @@
 use core::ffi::c_void;
 
 use crate::block::BlockInfo;
-use crate::types::BlockUpdate;
 use crate::entity::Entity;
 use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, r_owned, s};
 use crate::sys;
+use crate::types::BlockUpdate;
 use crate::types::Bounds;
 use crate::world::{BlockCell, EntityInfo, IndexedScan, PaletteEntry, Scan, World};
 
@@ -125,7 +125,13 @@ impl World {
     ///
     /// One call replaces a loop over `set_block`, which cost an FFI call, a dimension lookup
     /// and a spec parse per cell.
-    pub fn fill_region(&self, dim: i32, bounds: Bounds, spec: &str, update: BlockUpdate) -> Result<u64> {
+    pub fn fill_region(
+        &self,
+        dim: i32,
+        bounds: Bounds,
+        spec: &str,
+        update: BlockUpdate,
+    ) -> Result<u64> {
         let f = crate::require_slot!(edit_fill_region, "filling a region");
         let n = unsafe {
             f(
@@ -316,7 +322,12 @@ struct ScanCtx<'a> {
 
 /// # Safety
 /// `ctx` must be a valid `*mut IndexedScan`.
-unsafe extern "C" fn palette_sink(ctx: *mut c_void, index: u32, name: sys::PierStr, snbt: sys::PierStr) {
+unsafe extern "C" fn palette_sink(
+    ctx: *mut c_void,
+    index: u32,
+    name: sys::PierStr,
+    snbt: sys::PierStr,
+) {
     let out = &mut *ctx.cast::<IndexedScan>();
     // Indices arrive in order of first appearance, so pushing keeps them aligned; a gap
     // would mean a host bug, and it is filled rather than misaligning everything after it.

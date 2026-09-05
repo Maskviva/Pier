@@ -138,7 +138,8 @@ impl Server {
         let v = unsafe { f(window_seconds.clamp(1, 60) as i32) };
         if v < 0.0 {
             return Err(Error(
-                "no frame has been sampled yet, so no TPS can be computed; retry a tick later".to_owned(),
+                "no frame has been sampled yet, so no TPS can be computed; retry a tick later"
+                    .to_owned(),
             ));
         }
         Ok(v)

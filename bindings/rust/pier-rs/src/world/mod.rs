@@ -67,7 +67,11 @@ impl IndexedScan {
 
     /// Cells that are not air, by palette name.
     pub fn non_air_count(&self) -> usize {
-        let air: Vec<bool> = self.palette.iter().map(|p| p.name == "minecraft:air").collect();
+        let air: Vec<bool> = self
+            .palette
+            .iter()
+            .map(|p| p.name == "minecraft:air")
+            .collect();
         self.cells
             .iter()
             .filter(|c| !air.get(c.index as usize).copied().unwrap_or(false))

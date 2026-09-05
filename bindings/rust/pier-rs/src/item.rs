@@ -51,7 +51,9 @@ impl std::hash::Hash for ItemStack {
 
 impl std::fmt::Debug for ItemStack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ItemStack").field("snbt", &self.snbt).finish()
+        f.debug_struct("ItemStack")
+            .field("snbt", &self.snbt)
+            .finish()
     }
 }
 
@@ -156,7 +158,11 @@ impl ItemStack {
     }
 
     pub fn count(&self) -> Result<u8> {
-        if let Some(n) = self.local().and_then(|v| v.get("Count")).and_then(NbtValue::as_i64) {
+        if let Some(n) = self
+            .local()
+            .and_then(|v| v.get("Count"))
+            .and_then(NbtValue::as_i64)
+        {
             return Ok(n.clamp(0, 255) as u8);
         }
         self.num(sys::PIER_IPROP_COUNT)
@@ -173,7 +179,11 @@ impl ItemStack {
         self.num_i32(sys::PIER_IPROP_ID)
     }
     pub fn damage(&self) -> Result<i32> {
-        if let Some(n) = self.local().and_then(|v| v.get("Damage")).and_then(NbtValue::as_i64) {
+        if let Some(n) = self
+            .local()
+            .and_then(|v| v.get("Damage"))
+            .and_then(NbtValue::as_i64)
+        {
             return Ok(n as i32);
         }
         self.num_i32(sys::PIER_IPROP_DAMAGE)
@@ -232,7 +242,11 @@ impl ItemStack {
     }
     pub fn is_unbreakable(&self) -> Result<bool> {
         if let Some(v) = self.local() {
-            return Ok(v.path("tag.Unbreakable").and_then(NbtValue::as_i64).unwrap_or(0) != 0);
+            return Ok(v
+                .path("tag.Unbreakable")
+                .and_then(NbtValue::as_i64)
+                .unwrap_or(0)
+                != 0);
         }
         self.num_bool(sys::PIER_IPROP_IS_UNBREAKABLE)
     }
@@ -293,7 +307,11 @@ impl ItemStack {
     }
 
     pub fn type_name(&self) -> Result<String> {
-        if let Some(n) = self.local().and_then(|v| v.get("Name")).and_then(NbtValue::as_str) {
+        if let Some(n) = self
+            .local()
+            .and_then(|v| v.get("Name"))
+            .and_then(NbtValue::as_str)
+        {
             return Ok(n.to_owned());
         }
         self.text(sys::PIER_ISTR_TYPE_NAME)
@@ -328,7 +346,11 @@ impl ItemStack {
             return Ok(v
                 .path("tag.display.Lore")
                 .and_then(NbtValue::as_list)
-                .map(|l| l.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect())
+                .map(|l| {
+                    l.iter()
+                        .filter_map(|x| x.as_str().map(str::to_owned))
+                        .collect()
+                })
                 .unwrap_or_default());
         }
         parse_str_list(&self.text(sys::PIER_ISTR_LORE)?, "lore")

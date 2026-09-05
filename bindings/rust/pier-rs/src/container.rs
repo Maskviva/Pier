@@ -146,7 +146,13 @@ impl Container {
         if crate::has_slot!(container_get_items) {
             if let Some(f) = crate::rt::runtime::rt().api.container_get_items {
                 let mut out: Vec<ItemStack> = Vec::new();
-                let ok = unsafe { f(self.raw(), (&mut out as *mut Vec<ItemStack>).cast(), slot_sink) };
+                let ok = unsafe {
+                    f(
+                        self.raw(),
+                        (&mut out as *mut Vec<ItemStack>).cast(),
+                        slot_sink,
+                    )
+                };
                 if ok {
                     return Ok(out);
                 }
