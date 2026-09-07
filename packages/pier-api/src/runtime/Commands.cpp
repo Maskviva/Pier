@@ -12,12 +12,14 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "ll/api/command/CommandHandle.h"
 #include "ll/api/command/CommandRegistrar.h"
+#include "ll/api/service/Bedrock.h"
 #include "ll/api/command/runtime/ParamKind.h"
 #include "ll/api/command/runtime/RuntimeCommand.h"
 #include "ll/api/command/runtime/RuntimeOverload.h"
@@ -67,6 +69,31 @@ namespace pier::api_impl
 {
     namespace
     {
+        /** Whether the engine has a command registry to register into yet.
+         *
+         *  Every entry point below reaches CommandRegistrar::getServerInstance(), which
+         *  resolves the registry without checking that it exists. Called before the
+         *  server has built one, that read is an access violation, and an access
+         *  violation is SEH rather than a C++ exception: the `catch (...)` these
+         *  functions are wrapped in does not see it, PIER_API_GUARD does not see it, and
+         *  the process leaves with no log line from either side. A caller that registers
+         *  a moment too early gets a silent exit and nothing to read.
+         *
+         *  getCommandRegistry is asked rather than levelReady because it is the thing
+         *  actually needed: a level can be up while the registry is not.
+         */
+        bool commandRegistryReady(char const* what, std::string_view name)
+        {
+            if (ll::service::getCommandRegistry()) return true;
+            hostLogger().error(
+                "[cmd] {} '{}' was refused: the engine has no command registry yet. Register "
+                "from on_enable rather than on_load, and if that is already the case, wait for "
+                "the server to reach Running before calling",
+                what, name
+            );
+            return false;
+        }
+
         bool api_execute_command(PierStr cmd, void* ctx, PierCmdOutputSink sink)
         {
             PIER_API_GUARD_BEGIN
@@ -214,6 +241,7 @@ namespace pier::api_impl
                 auto* mod = asMod(modHandle);
                 if (!mod || !cb) return false;
                 std::string cmdName = toString(name);
+                if (!commandRegistryReady("registering the command", cmdName)) return false;
 
                 int32_t const perm = std::clamp<int32_t>(permission, 0, 4);
                 bool fresh = false;
@@ -495,6 +523,7 @@ namespace pier::api_impl
                 auto* mod = asMod(modHandle);
                 if (!mod || !cb) return false;
                 std::string cmdName = toString(name);
+                if (!commandRegistryReady("registering the command", cmdName)) return false;
 
                 // The whole {overloads:[[{name,kind,enum?,optional?},...],...]} is
                 // decoded first, so a malformed declaration fails before anything is
@@ -669,6 +698,7 @@ namespace pier::api_impl
         bool api_register_command_enum(PierStr name, PierStr valuesSnbt)
         {
             PIER_API_GUARD_BEGIN
+                if (!commandRegistryReady("registering the command enum", sv(name))) return false;
                 // {values:[["name",1L],...]} is a list of (display name, ordinal) pairs.
                 auto tag = CompoundTag::fromSnbt(sv(valuesSnbt));
                 if (!tag || !tag->contains("values") || !tag->at("values").is_array()) return false;
@@ -710,6 +740,7 @@ namespace pier::api_impl
         bool api_register_command_soft_enum(PierStr name, PierStr valuesSnbt)
         {
             PIER_API_GUARD_BEGIN
+                if (!commandRegistryReady("registering the soft enum", sv(name))) return false;
                 auto values = decodeStringValues(valuesSnbt);
                 if (!values) return false;
                 try
@@ -729,6 +760,7 @@ namespace pier::api_impl
         bool api_update_command_soft_enum(PierStr name, int32_t op, PierStr valuesSnbt)
         {
             PIER_API_GUARD_BEGIN
+                if (!commandRegistryReady("updating the soft enum", sv(name))) return false;
                 auto values = decodeStringValues(valuesSnbt);
                 if (!values) return false;
                 try

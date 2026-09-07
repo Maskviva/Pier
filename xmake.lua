@@ -17,7 +17,7 @@ local is_client = (get_config("target_type") or "server") == "client"
 -- It is a function called from each package rather than root-scope `add_defines`,
 -- `add_cxflags` and `set_languages`. xmake folds root-scope build settings into the
 -- install hash it computes for a required package: with them at root scope,
--- `levilamina 26.32.0` resolved to a different hash than the identical requirement in
+-- `levilamina 26.32.1` resolved to a different hash than the identical requirement in
 -- a project without them, no prebuilt install matched, and xmake cloned and compiled
 -- LeviLamina from source on every clean machine. That build does not finish inside a
 -- CI timeout, so the failure presents as a hang rather than as a configuration

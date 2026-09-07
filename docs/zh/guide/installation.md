@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | 服务端 | 基岩版专用服务器 1.26.32 |
-| 装载器 | LeviLamina 26.32.0 |
+| 装载器 | LeviLamina 26.32.1 |
 | 可选 | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney)，经济相关调用需要 |
 
 LegacyMoney 是真的可选。Pier 对它走延迟加载，所以没装的服务器照常启动，

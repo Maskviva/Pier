@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Server | Bedrock Dedicated Server 1.26.32 |
-| Loader | LeviLamina 26.32.0 |
+| Loader | LeviLamina 26.32.1 |
 | Optional | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) for the economy calls |
 
 LegacyMoney really is optional. Pier delay-loads it, so a server without it starts

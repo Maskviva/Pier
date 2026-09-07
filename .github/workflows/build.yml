@@ -24,7 +24,7 @@ jobs:
 
       - uses: xmake-io/github-action-setup-xmake@v1
 
-      # LeviLamina pins its own build to clang-cl (its xmake.lua line 41) and 26.32.0
+      # LeviLamina pins its own build to clang-cl (its xmake.lua line 41) and 26.32.x
       # does not compile under the Clang 20.1.8 the runner image ships:
       # MinecraftCommands.h holds unique_ptr members of four forward-declared types
       # (Command, CommandOutputSender, CommandRegistry, DeferredCommandBase) beside a

@@ -31,6 +31,8 @@ mods/
 | `version` | yes | Semver. |
 | `description` | no | Shown in `/pier list`. |
 | `dependencies` | yes | Must include `{ "name": "pier" }`. |
+| `reload_safe` | no | `true` opens the mod to `/pier reload`. Default false. |
+| `load_level` | no | Integer, default 0. Lower loads earlier. |
 
 ## The two that go wrong
 
@@ -42,6 +44,26 @@ all.
 **`entry` must match what the build produced.** Cargo turns hyphens in a crate name into
 underscores, so the crate `my-mod` builds `my_mod.dll`. This is the easiest one to slip
 on.
+
+## Load order
+
+Mods load in `load_level` order, lowest first, and mods sharing a level load by name.
+Omitting the field puts you at 0 with everyone else, which is where a mod with no
+preference belongs.
+
+```json
+{ "load_level": -10 }
+```
+
+A level orders, it does not sequence. If your mod cannot work unless another one is
+already loaded, that is a **dependency**, and the host checks it and refuses to load you
+without it. A level only says which way to lean among mods that have a preference and
+nothing to hang it on: a permission manager that would rather register its gates before
+anything can consult them, say.
+
+A non-integer value is reported as a problem in `/pier list` rather than treated as 0.
+Writing `"load_level": "early"` means an ordering was intended, and quietly giving that
+mod the default is exactly the silent fallback this project refuses elsewhere.
 
 ## Dependencies
 

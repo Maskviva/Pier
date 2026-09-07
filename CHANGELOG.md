@@ -6,6 +6,57 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v1, which moves far more slowly.
 
+## [26.32.1] - 2026-09-07
+
+A correctness release for BDS 1.26.32. Everything here was found and fixed after
+26.32.0 was already tagged and shipped; see that entry for the migration itself.
+
+### Changed
+
+- **Requires LeviLamina 26.32.1**, up from 26.32.0.
+- **CI pins LLVM to 21.1.8.** LeviLamina 26.32.x pins its own build to clang-cl and does
+  not compile under the Clang 20.1.8 a GitHub-hosted `windows-2022` runner ships:
+  `MinecraftCommands.h` holds `unique_ptr` members of four forward-declared types beside
+  a defaulted destructor, which Clang 20 instantiates at the class definition and rejects
+  and Clang 21 does not. Confirmed on the same commit (`31d23a0c`) and the same MSVC STL
+  (14.44.35207) locally before this was added; filed upstream. This is an engine build
+  defect and not a Pier one, so it costs nothing at the ABI or the mod level. The
+  workflows install the toolchain via LLVM's NSIS installer rather than the `clang+llvm-`
+  archive: the archive carries LLVM's own libraries on top of the toolchain, which made
+  it 900 MB and slow enough extracting on a Windows runner to matter.
+
+### Added
+
+- **`load_level` in manifest.json.** An optional integer, default 0; lower loads earlier
+  and mods sharing a level keep loading by name, which is the order they had before the
+  field existed. It orders and does not sequence: a mod that cannot start without another
+  declares a dependency, which the host checks. A level is for a mod that has a
+  preference and nothing to hang it on. A non-integer value is reported as a problem in
+  `/pier list` rather than rounded to 0.
+
+### Fixed
+
+- **Registering a command, an enum or a soft enum before the engine had a command
+  registry took the whole server down with no log line.** All five entry points reach
+  `CommandRegistrar::getServerInstance()`, which resolves the registry without checking
+  that one exists; reading it too early is an access violation, and an access violation
+  is SEH rather than a C++ exception, so the `catch (...)` around those calls never saw
+  it and neither did `PIER_API_GUARD`. BDS left without writing anything and LeviLamina
+  wrote no crash log, which is why the symptom read as "any command call kills the
+  server" rather than as an ordering mistake. The five now ask
+  `ll::service::getCommandRegistry()` first and refuse with a log line saying what to do.
+  `getCommandRegistry` rather than `levelReady`, because a level can be up while the
+  registry is not. Found by a downstream mod that hit it in production; `tools/pier-probe`
+  never exercised these slots, see the amended note under 26.32.0's Verified section.
+
+### Requirements
+
+| | |
+|---|---|
+| Bedrock Dedicated Server | 1.26.32 |
+| LeviLamina | 26.32.1 |
+| Platform | Windows x64 |
+
 ## [26.32.0] - 2026-09-07
 
 The BDS 1.26.32 release. Mojang's build now inlines a large part of what used to be a
@@ -47,7 +98,6 @@ unchanged. One slot reports a narrower number, described below.
   it by default, which is why this took a Windows server to surface.
 - `pier-probe` moved from `examples/` to `tools/`. It is a diagnostic, not a thing to
   learn from; `examples/` now holds the two mods that are.
-
 - **`md_retire_dimension(name)`.** Drops a custom dimension from
   `dimension_config.json`, from the host's tables and from the dimension factory, so the
   next boot does not register it and `md_list_dimensions` stops reporting it. The ABI
@@ -59,7 +109,6 @@ unchanged. One slot reports a narrower number, described below.
   the old chunks orphaned and costs disk, and the alternative is worse, because reusing
   the number points a new dimension at the terrain of the old one and nothing about that
   is recoverable.
-
 - **`sky.time` in the dimension spec.** An optional tick of day, 0..23999, beside
   `skylight` and `weather`. The dimension is held at that tick and every other dimension
   keeps following the level clock. It sits in the spec because it describes the sky and
@@ -82,6 +131,13 @@ unchanged. One slot reports a narrower number, described below.
 protocol 1001, which is the number the server's own startup banner prints, so the
 replacement for the inlined-away `NetworkProtocolVersion` reads the same value the engine
 does rather than a plausible one.
+
+*Amended after 26.32.1:* read that count for what it measures. The census half of the
+probe calls nothing: it reports whether each slot is present, NULL, or past
+`struct_size`. The half that does call only calls slots that change no state. **No
+writing slot and no registration slot was exercised**, so "none threw" says nothing
+about them; the first real call to command registration on this engine version happened
+after this release shipped and found the missing guard fixed in 26.32.1.
 
 ### Fixed after the first run on a real server
 
@@ -119,8 +175,17 @@ rather than only in the source.
 - `block_property`: IS_UNBREAKABLE.
 - Actor copying in `world_edit`: the id-remapping helper needed to avoid colliding with
   the source actor is gone.
-- Custom dimensions in full. `md_*` slots that create one report failure; see the note
-  under Changed.
+- **Creating a custom dimension.** `md_add_dimension` refuses and returns -1: it needs an
+  id from the engine, and both entry points that supplied one
+  (`DimensionManager::serverRegisterCustomDimension`, which allocated it and wrote it to
+  the save's NameIdStore, and `getDimensionId`, which read that table back) are inlined
+  away with no symbol left. A dimension a save already holds cannot be found again
+  either. `md_retire_dimension`, `md_list_dimensions` and the dimension rules are
+  unaffected, and so is every non-dimension slot.
+
+  Separately, and unrelated to this release: the four `md_*` slots retired in 26.20.3
+  (`md_add_simple_dimension`, `md_add_plot_dimension`, `md_set_plot_grid`,
+  `md_clear_plot_grid`) are still stubs that log once and refuse.
 
 Two more answer a narrower question than before rather than failing: `profile_take`'s
 `chunk_blocks` bucket, described above, and the potion effect list, which no longer
@@ -325,6 +390,7 @@ The ABI is not compatible and no attempt is made to load a loader mod.
   could free it lives in a library that may already be unloaded. Cleanup that has to
   happen does not belong in a form callback.
 
+[26.32.1]: https://github.com/Maskviva/pier/releases/tag/26.32.1
 [26.32.0]: https://github.com/Maskviva/pier/releases/tag/26.32.0
 [26.20.2]: https://github.com/Maskviva/pier/releases/tag/26.20.2
 [26.20.1]: https://github.com/Maskviva/pier/releases/tag/26.20.1

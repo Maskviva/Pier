@@ -130,6 +130,22 @@ namespace pier::mod_control
                     c.problem = "reload_safe must be true or false";
                 }
             }
+            // load_level is a plain integer at the top level, invisible to the
+            // LeviLamina deserializer for the same reason reload_safe is. A value that
+            // is not an integer is reported rather than rounded or ignored: a manifest
+            // saying "load_level": "early" means the author expected an ordering and
+            // silently giving them 0 is the shape contract §5.1 refuses.
+            if (j.contains("load_level"))
+            {
+                if (j["load_level"].is_number_integer())
+                {
+                    c.loadLevel = j["load_level"].get<int>();
+                }
+                else
+                {
+                    c.problem = "load_level must be an integer";
+                }
+            }
             if (j.contains("dependencies") && j["dependencies"].is_array())
             {
                 for (auto const& d : j["dependencies"])
@@ -212,8 +228,15 @@ namespace pier::mod_control
             if (c.problem == "not-pier") continue; // Belongs to another manager
             found.push_back(std::move(c));
         }
+        // Level first, name second. The name comparison is what the order was before
+        // load_level existed, so mods that declare nothing keep the order they had and
+        // one manifest gaining a level does not reshuffle its neighbours.
         std::sort(found.begin(), found.end(),
-                  [](Candidate const& a, Candidate const& b) { return a.name < b.name; });
+                  [](Candidate const& a, Candidate const& b)
+                  {
+                      if (a.loadLevel != b.loadLevel) return a.loadLevel < b.loadLevel;
+                      return a.name < b.name;
+                  });
         return found;
     }
 
@@ -480,6 +503,10 @@ namespace pier::mod_control
                 }
                 line += "]";
                 line += c.reloadSafe ? "  [reload_safe]" : "  [not reload_safe]";
+                // Only when it is not the default. Printing [level 0] on every line
+                // would be noise on the mods that never asked for an ordering, and the
+                // list is read to find the one that did.
+                if (c.loadLevel != 0) line += "  [level " + std::to_string(c.loadLevel) + "]";
                 if (!c.problem.empty()) line += "  problem: " + c.problem;
                 output.success(line);
             }

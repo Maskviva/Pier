@@ -1,6 +1,6 @@
 [package]
 name = "pier-sys-rs"
-version = "26.32.0"
+version = "26.32.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Raw FFI declarations for Pier, cell for cell against packages/pier-abi/include/sdk/abi.h (ABI v1)."

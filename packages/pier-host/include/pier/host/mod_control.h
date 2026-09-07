@@ -26,6 +26,18 @@ namespace pier::mod_control
         std::vector<std::string> dependencies;
         /** Top-level `"reload_safe": true` in manifest.json. */
         bool reloadSafe = false;
+        /** Top-level `"load_level": N` in manifest.json, default 0.
+         *
+         *  Lower loads earlier. A mod that has to be up before others declares a
+         *  negative level, one that has to come last a positive one, and a mod with no
+         *  opinion says nothing and lands with everyone else at 0. Mods sharing a level
+         *  keep the order they had before this field existed, which is by name, so
+         *  adding the field to one manifest does not reshuffle the mods around it.
+         *
+         *  It orders, it does not sequence: a mod that needs another to be loaded first
+         *  declares a dependency, which is checked. A level is a hint for mods that have
+         *  a preference but no dependency to express it with. */
+        int loadLevel = 0;
         /** Non-empty when the manifest exists but cannot be used.
          *  Named `problem` rather than `error` so that a call site does not confuse
          *  it with the error channel of ll::Expected. */

@@ -26,7 +26,7 @@ jobs:
 
       - uses: xmake-io/github-action-setup-xmake@v1
 
-      # See build.yml for why this is pinned: LeviLamina 26.32.0 does not compile
+      # See build.yml for why this is pinned: LeviLamina 26.32.x does not compile
       # under the Clang 20.1.8 the runner image ships, and does compile under 21.1.8
       # with the same MSVC STL. A release build failing here is worse than a PR build
       # failing, so the pin is not optional on this workflow.
