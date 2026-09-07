@@ -6,12 +6,15 @@
  * Compiled into both targets. On the client runConsoleCommand is always false, and
  * each slot degrades on its own null level check.
  */
+#include <cctype>
 #include <string>
+#include <string_view>
 #include <variant>
 
 #include "mc/common/Common.h"
 #include "mc/common/SharedConstants.h"
 #include "mc/world/level/Level.h"
+#include "mc/world/level/storage/LevelData.h"
 #include "mc/world/level/LevelSeed64.h"
 #include "mc/world/level/storage/GameRule.h"
 #include "mc/world/level/storage/GameRuleId.h"
@@ -108,37 +111,65 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
+        /**
+         * The rule of that name, or null. A scan over mGameRules is the only route left:
+         * GameRules exposes no name lookup and no membership test in 26.32, so the name a
+         * caller gives is matched against GameRule::mName.
+         *
+         * The match folds case. GameRule::mName is spelled the way GameRulesIndex is,
+         * `showCoordinates` rather than `showcoordinates`, while /gamerule and every
+         * caller that predates this write it in lower case. An exact comparison found
+         * `pvp` and nothing else, which is the shape this ASCII fold fixes. Rule names
+         * are ASCII, so no locale enters into it.
+         */
+        bool sameRuleName(std::string_view a, std::string_view b)
+        {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i)
+            {
+                auto const l = static_cast<unsigned char>(a[i]);
+                auto const r = static_cast<unsigned char>(b[i]);
+                if (std::tolower(l) != std::tolower(r)) return false;
+            }
+            return true;
+        }
+
+        ::GameRule const* findGameRule(::GameRules const& rules, std::string const& name)
+        {
+            for (auto const& rule : rules.mGameRules.get())
+            {
+                if (sameRuleName(rule.mName.get(), name)) return &rule;
+            }
+            return nullptr;
+        }
+
         bool api_game_rule_get(PierStr name, void* ctx, PierStrSink sink)
         {
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level || !sink) return false;
-                auto& rules = level->getGameRules();
-                GameRuleId id = rules.nameToGameRuleIndex(toString(name));
-                // NewType<int> is a bare index. Out of range means an unknown rule.
-                int idx = id.mValue;
-                auto const& list = rules.mGameRules.get();
-                if (idx < 0 || static_cast<size_t>(idx) >= list.size()) return false;
-                auto const& rule = list[static_cast<size_t>(idx)];
+                auto const* rule = findGameRule(level->getGameRules(), toString(name));
+                if (!rule) return false;
 
+                // The value is read out of the public variant for every type. The
+                // getBool and getInt accessors are compiled only on the client
+                // platform, and this TU is built for both.
+                auto const& var = rule->mValue.get();
                 std::string out;
-                switch (rule.mType)
+                switch (rule->mType)
                 {
                 case GameRule::Type::Bool:
-                    out = std::string{"{type:\"bool\",value:"} + (rule.getBool() ? "1b" : "0b") + "}";
+                    if (!std::holds_alternative<bool>(var)) return false;
+                    out = std::string{"{type:\"bool\",value:"} + (std::get<bool>(var) ? "1b" : "0b") + "}";
                     break;
                 case GameRule::Type::Int:
-                    out = "{type:\"int\",value:" + snbtNum(rule.getInt()) + "}";
+                    if (!std::holds_alternative<int>(var)) return false;
+                    out = "{type:\"int\",value:" + snbtNum(std::get<int>(var)) + "}";
                     break;
                 case GameRule::Type::Float:
-                {
-                    // This LL version has no getFloat() accessor, so the public
-                    // variant is read instead.
-                    auto const& var = rule.mValue.get();
-                    float f = std::holds_alternative<float>(var) ? std::get<float>(var) : 0.0f;
-                    out = "{type:\"float\",value:" + snbtNum(f) + "f}";
+                    if (!std::holds_alternative<float>(var)) return false;
+                    out = "{type:\"float\",value:" + snbtNum(std::get<float>(var)) + "f}";
                     break;
-                }
                 default:
                     return false;
                 }
@@ -152,18 +183,14 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* level = bridge::levelReady();
                 if (!level) return false;
-                // This one deliberately keeps the command path. GameRules exposes
-                // only getBool, getInt, getFloat and nameToGameRuleIndex. The only
-                // public write is the internal _setGameRule, whose signature is
-                // unstable across versions, and bypassing /gamerule would skip the
+                // This one deliberately keeps the command path. The only public write
+                // is the internal _setGameRule, whose signature is unstable across
+                // versions, and bypassing /gamerule would skip the
                 // GameRulesChangedPacket broadcast so clients would never learn the
-                // rule changed. nameToGameRuleIndex validates the name first, which
-                // separates a misspelled rule from a failed command.
+                // rule changed. The name is validated against the rule table first,
+                // which separates a misspelled rule from a failed command.
                 std::string const rule = toString(name);
-                if (!level->getGameRules().hasRule(level->getGameRules().nameToGameRuleIndex(rule)))
-                {
-                    return false;
-                }
+                if (!findGameRule(level->getGameRules(), rule)) return false;
                 // value is concatenated into a console command, so only true, false
                 // or an optionally negative integer is accepted. Everything else is
                 // refused rather than feeding caller text to the command parser.
@@ -190,8 +217,17 @@ namespace pier::api_impl
                     sink(ctx, ps(Common::getGameVersionString()));
                     return true;
                 case PIER_SRV_PROTOCOL_VERSION:
-                    sink(ctx, ps(snbtNum(SharedConstants::NetworkProtocolVersion())));
+                {
+                    // SharedConstants::NetworkProtocolVersion is compiled only on the
+                    // client platform in 26.32. LevelData::mNetworkVersion is the number
+                    // the running level was opened with, which is the same protocol a
+                    // client has to speak to connect, and it is readable on both
+                    // platforms.
+                    auto* level = bridge::levelReady();
+                    if (!level) return false;
+                    sink(ctx, ps(snbtNum(level->getLevelData().mNetworkVersion)));
                     return true;
+                }
                 default:
                     return false;
                 }

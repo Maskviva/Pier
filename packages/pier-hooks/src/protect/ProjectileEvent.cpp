@@ -21,7 +21,6 @@
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
 #include "mc/world/actor/ActorType.h"
-#include "mc/world/actor/VanillaActorRendererId.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/item/CrossbowItem.h"
 #include "mc/world/item/ItemInstance.h"
@@ -178,8 +177,10 @@ namespace pier::hooks
                 return origin(item, player, durationLeft);
             }
 
-            std::string projName =
-                safeName([] { return ::VanillaActorRendererId::trident().getString(); });
+            // The renderer id accessor is inlined away in 26.32 and has no symbol
+            // left, so the name is spelled out. It is the one word the accessor
+            // yielded, which keeps a server's existing rules matching.
+            std::string const projName{"trident"};
 
             if (refuseLaunch(
                     *player,
@@ -193,33 +194,52 @@ namespace pier::hooks
         }
 
         // 4. A crossbow loaded with a firework rocket, as in 3.
+        //
+        //    The private _shootFirework this used to hook is inlined away in 26.32, so
+        //    there is no longer any code at a fixed address to detour. The virtual
+        //    release is the nearest surviving point, and it fires for an arrow-loaded
+        //    crossbow as well, which hook 2 already decides. The charged item is read
+        //    here so that only the firework path reaches refuseLaunch and the decision
+        //    stays one per launch.
 
         LL_TYPE_INSTANCE_HOOK(
             CrossbowFireworkHook,
             ll::memory::HookPriority::Normal,
             CrossbowItem,
-            &CrossbowItem::_shootFirework,
+            &CrossbowItem::$releaseUsing,
             void,
-            ::ItemInstance const& projectileInstance,
-            ::Player& player)
+            ::ItemStack& item,
+            ::Player* player,
+            int durationLeft)
         {
             auto& def = projectileDef();
-            if (!def.live() || gDispatching)
+            if (!def.live() || gDispatching || player == nullptr)
             {
-                return origin(projectileInstance, player);
+                return origin(item, player, durationLeft);
             }
 
-            std::string projName = safeName([&] { return projectileInstance.getTypeName(); });
+            ::ItemInstance const* charged = item.mChargedItem.get();
+            if (charged == nullptr)
+            {
+                return origin(item, player, durationLeft);
+            }
+            std::string projName = safeName([&] { return charged->getTypeName(); });
+            if (projName.find("firework") == std::string::npos)
+            {
+                // An arrow-loaded crossbow. Hook 2 owns that path and asking again here
+                // would charge one launch two decisions.
+                return origin(item, player, durationLeft);
+            }
 
             if (refuseLaunch(
-                    player,
+                    *player,
                     projName,
-                    player.getPosition(),
-                    static_cast<int>(player.getDimensionId())))
+                    player->getPosition(),
+                    static_cast<int>(player->getDimensionId())))
             {
                 return;
             }
-            origin(projectileInstance, player);
+            origin(item, player, durationLeft);
         }
 
         // 5. The older spawner path, a backstop for add-on entities and the code around

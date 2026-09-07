@@ -3,8 +3,8 @@
  * internal manager and serializing it stays away from the per-block hot path. Both entry points
  * stream SNBT objects through a sink, one per village or per area, the same pattern list_players
  * and scan_region use. Everything is read-only, changes no game state, and is server thread only.
- * Version note: the fields below were checked against the BDS 26.20.0 headers. Village exposes
- * getBounds, getCenter, getPOICount and getUniqueID, and the per-chunk HSA lives in
+ * Version note: the fields below were checked against the BDS 26.32.2 headers. Village exposes
+ * mBounds and mUniqueID as fields and no accessor, and the per-chunk HSA lives in
  * LevelChunk::mSpawningAreas with the shape {aabb, type}. Villager enumeration is deliberately
  * omitted: villagers hang off POIInstance weak_ptr arrays keyed by role, and walking them is both
  * fragile and version sensitive, while the POI count is the stable signal. A version that needs
@@ -12,6 +12,7 @@
  * layout. / */
 #ifndef PIER_BUILD_CLIENT
 
+#include <cstddef>
 #include <cstdint>
 #include <cmath>
 #include <memory>
@@ -70,10 +71,10 @@ namespace pier::api_impl
                 auto dim = level->getDimension(DimensionType{dimension}).lock();
                 if (!dim) return;
 
-                // getVillageManager() returns a unique_ptr const&. It is object
-                // storage, so the TypedStorage is the value itself and no .get()
-                // gymnastics are needed on the member.
-                auto const& mgr = dim->getVillageManager();
+                // getVillageManager is inlined away in 26.32; mVillageManager is the
+                // unique_ptr it returned, and object storage means the TypedStorage is the
+                // value itself with no .get() gymnastics needed on the member.
+                auto const& mgr = dim->mVillageManager;
                 if (!mgr) return;
 
                 // mVillages is an unordered_map<UUID, shared_ptr<Village>> in object
@@ -84,17 +85,27 @@ namespace pier::api_impl
                 {
                     if (!villagePtr) continue;
                     Village& v = *villagePtr;
-                    AABB const& b = v.getBounds();
-                    Vec3 c = v.getCenter();
+                    // The four Village accessors this used are inlined away in 26.32.
+                    // mBounds and mUniqueID are the fields two of them returned; the
+                    // center is the midpoint of the bounds, which is what getCenter
+                    // computed. getPOICount summed the claimed and unclaimed stacks, and
+                    // the unclaimed ones are all that is reachable here, so the count is a
+                    // floor rather than the total.
+                    AABB const& b = v.mBounds.get();
+                    Vec3 const c{(b.min.x + b.max.x) * 0.5f,
+                                 (b.min.y + b.max.y) * 0.5f,
+                                 (b.min.z + b.max.z) * 0.5f};
+                    std::size_t poi = 0;
+                    for (auto const& stack : v.mUnclaimedPOIStacks.get()) poi += stack.size();
 
-                    std::string snbt = "{\"uuid\":\"" + snbtEscape(v.getUniqueID().asString())
+                    std::string snbt = "{\"uuid\":\"" + snbtEscape(v.mUniqueID->asString())
                         + "\",\"center\":[" + snbtDouble(c.x) + "," + snbtDouble(c.y)
                         + "," + snbtDouble(c.z) + "]"
                         + ",\"bounds\":{\"min\":[" + snbtDouble(b.min.x) + ","
                         + snbtDouble(b.min.y) + "," + snbtDouble(b.min.z)
                         + "],\"max\":[" + snbtDouble(b.max.x) + ","
                         + snbtDouble(b.max.y) + "," + snbtDouble(b.max.z) + "]}"
-                        + ",\"poi_count\":" + snbtNum(v.getPOICount()) + "}";
+                        + ",\"poi_count\":" + snbtNum(poi) + "}";
                     snbtSink(ctx, ps(snbt));
                 }
             PIER_API_GUARD_END_VOID

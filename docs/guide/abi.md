@@ -93,3 +93,24 @@ Reordering, deleting or changing a signature advances `PIER_ABI_VERSION` and
 
 `tools/abi-v1.slots` is the baseline, and the `abi-additive` check compares against it on
 every push, so a non-append change cannot land quietly.
+
+## Seeing it on a real host
+
+`tools/pier-probe` is a mod that walks the whole table and reports, for each slot,
+whether the host provides it and what it answers. It reads only, so it is safe on a
+server with players on it.
+
+It also demonstrates the claim this page makes. The mod includes `sdk/abi.h`, links no
+library and needs no build system: `build-msvc.bat` is one `cl` invocation. If a future
+change made that untrue, the ABI would have grown a dependency it does not admit to.
+
+Write the entry point with `PIER_MAIN_EXPORT`, which the header defines. Naming the
+symbol is not the same as exporting it: a Windows DLL exports nothing unless asked, so a
+plain declaration builds and then fails to load. An ELF build exports it by default,
+which is what makes this worth stating rather than leaving to the reader.
+
+Four verdicts. `ABSENT` splits by cause: past `struct_size` means the host is older than
+the mod, while a NULL slot means the host was built without the package that fills it.
+`REFUSED` means the slot was called and reported failure, which on BDS 1.26.32 is the
+documented answer for a known set of capabilities. `THREW` is the only one that is always
+a defect.

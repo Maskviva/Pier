@@ -559,17 +559,18 @@ unsafe extern "C" fn trampoline(
 
 /// Batch subscription, holding the handles together.
 ///
-/// Business code was already writing this itself, as `Wiring::new("worldedit").on(...).at(...)`, so
-/// it moved into the SDK. It adds two things over a hand-written version: a failed subscription is
-/// not silent, since failures are recorded in [`Wiring::failures`] and `arm()` can fail as a whole,
-/// and the tag goes into the log so the failing entry can be located.
+/// Two things over subscribing by hand: a failed subscription is not silent, since
+/// failures are recorded in [`Wiring::failures`] and `arm()` can fail as a whole, and the
+/// tag goes into the log so the failing entry can be located.
 ///
-/// ```ignore let wiring = Wiring::new("plots")
+/// ```ignore
+/// let wiring = Wiring::new("plots")
 ///     .on(names::PLAYER_DESTROY_BLOCK, "protect-break", |ev| { ... })
 ///     .at(names::PLAYER_DISCONNECT, Priority::Low, "forget", |ev| { ... })
 ///     .arm()?;                       // any failure fails the whole thing
 ///
-/// // wiring going out of scope unsubscribes everything ```
+/// // wiring going out of scope unsubscribes everything
+/// ```
 pub struct Wiring {
     owner: String,
     pending: Vec<(String, Priority, String, Box<Handler>)>,

@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitepress'
 
 // The site is general to specific. `/guide/` is Pier itself: where it came from, how it
-// is designed, and how a language gets bound to it. `/rust/` is the first official
-// binding, and is where someone who just wants to write a mod should land.
+// is designed, and how a language gets bound to it. `/rust/` and `/cpp/` are the two
+// official bindings and are where someone who just wants to write a mod should land.
+// C++ reads the header directly and has no SDK layer, so its pages are shorter: what
+// they cover is the four things the Rust wrappers do for you.
 //
 // The Chinese locale mirrors that structure under `/zh/`. Code comments stay English
 // everywhere per contract §7; a page marked as Chinese is a translation, not a comment.
@@ -10,10 +12,12 @@ import { defineConfig } from 'vitepress'
 const enNav = [
   { text: 'Pier', link: '/guide/what-is-pier' },
   { text: 'Rust', link: '/rust/' },
+  { text: 'C++', link: '/cpp/' },
   {
     text: 'Bindings',
     items: [
       { text: 'Rust (official)', link: '/rust/' },
+      { text: 'C++ (official)', link: '/cpp/' },
       { text: 'Add a language', link: '/guide/adding-a-language' },
     ],
   },
@@ -41,6 +45,16 @@ const enSidebar = {
       ],
     },
   ],
+  '/cpp/': [
+    {
+      text: 'C++',
+      items: [
+        { text: 'Overview', link: '/cpp/' },
+        { text: 'Your first mod', link: '/cpp/first-mod' },
+      ],
+    },
+    { text: 'Reference', items: [{ text: 'The ABI', link: '/guide/abi' }] },
+  ],
   '/rust/': [
     {
       text: 'Getting started',
@@ -67,10 +81,12 @@ const enSidebar = {
 const zhNav = [
   { text: 'Pier', link: '/zh/guide/what-is-pier' },
   { text: 'Rust', link: '/zh/rust/' },
+  { text: 'C++', link: '/zh/cpp/' },
   {
     text: '语言绑定',
     items: [
       { text: 'Rust（官方）', link: '/zh/rust/' },
+      { text: 'C++（官方）', link: '/zh/cpp/' },
       { text: '加一门语言', link: '/zh/guide/adding-a-language' },
     ],
   },
@@ -97,6 +113,16 @@ const zhSidebar = {
         { text: '兼容性', link: '/zh/guide/compatibility' },
       ],
     },
+  ],
+  '/zh/cpp/': [
+    {
+      text: 'C++',
+      items: [
+        { text: '总览', link: '/zh/cpp/' },
+        { text: '第一个模组', link: '/zh/cpp/first-mod' },
+      ],
+    },
+    { text: '参考', items: [{ text: 'ABI', link: '/zh/guide/abi' }] },
   ],
   '/zh/rust/': [
     {

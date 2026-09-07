@@ -98,26 +98,26 @@ the new repository right now.
 | `packages/pier-api/xmake.lua` | `packages/pier-api/xmake.lua` | ✔ done, rewritten with the includes made private |
 | `packages/pier-dimensions/include/pier/dimensions/base/Macros.h` | `—` | ✂ cut, retired: that export macro existed for a dll export, while in the new architecture this package is an object package compiled into the host that exports no symbol, since capabilities fill the table through SlotPack, so the macro has nowhere to apply |
 | `packages/pier-dimensions/include/pier/dimensions/base/NativeDimensions.h` | `base/native_dimensions.h` | ✔ done, rewritten with the design note on the native path and the purpose of the ledger both kept |
-| `packages/pier-dimensions/include/pier/dimensions/base/SimpleCustomDimension.h` | `base/simple_custom_dimension.h` | ✔ done, rewritten with the dllexport macro removed and the reason noted |
+| `packages/pier-dimensions/include/pier/dimensions/base/SimpleCustomDimension.h` | `—` | ✂ cut, superseded: the one custom Dimension is now spec/spec_dimension.h, driven by a DimensionSpec instead of a generator enum, and the retired ABI names route there |
 | `packages/pier-dimensions/include/pier/dimensions/base/Utils.h` | `base/utils.h` | ✔ done, rewritten with the diagnostics for the two disagreeing height values kept |
-| `packages/pier-dimensions/include/pier/dimensions/dim/ChunkTrace.h` | `packages/pier-dimensions/include/pier/dimensions/dim/chunk_trace.h` | ✔ done, rewritten: the tracing switches gathered in one place and shared by PlotGenerator, with the environment variable prefix changed to PIER_* |
+| `packages/pier-dimensions/include/pier/dimensions/dim/ChunkTrace.h` | `packages/pier-dimensions/include/pier/dimensions/dim/chunk_trace.h` | ✔ done, rewritten: the tracing switches gathered in one place, with the environment variable prefix changed to PIER_* |
 | `packages/pier-dimensions/include/pier/dimensions/dim/CompleteBaseTypes.h` | `dim/complete_base_types.h` | ✔ done, rewritten with a note added that every derived-dimension .cpp includes it first |
 | `packages/pier-dimensions/include/pier/dimensions/dim/CustomDimensionConfig.h` | `dim/custom_dimension_config.h` | ✔ done, rewritten with a note added on why it follows the save rather than living under configs/ |
 | `packages/pier-dimensions/include/pier/dimensions/dim/CustomDimensionManager.h` | `packages/pier-dimensions/include/pier/dimensions/dim/custom_dimension_manager.h` | ✔ done, rewritten with dllexport removed; the id-by-name function was cut, because the fromString it forwarded to reads back garbage for a custom dimension |
 | `packages/pier-dimensions/include/pier/dimensions/dim/DimensionHeight.h` | `dim/dimension_height.h` | ✔ done, rewritten with the table of three measurements behind the -512 bottom and the fallback plan kept |
 | `packages/pier-dimensions/include/pier/dimensions/dim/DimensionRules.h` | `packages/pier-dimensions/include/pier/dimensions/dim/dimension_rules.h` | ✔ done, rewritten with 13 static_asserts pinning the numbering to PierDimRule |
-| `packages/pier-dimensions/include/pier/dimensions/plot/PlotConfine.h` | `packages/pier-dimensions/include/pier/dimensions/plot/plot_confine.h` | ✔ done, rewritten |
-| `packages/pier-dimensions/include/pier/dimensions/plot/PlotDimension.h` | `packages/pier-dimensions/include/pier/dimensions/plot/plot_dimension.h` | ✔ done, rewritten with dllexport removed |
-| `packages/pier-dimensions/include/pier/dimensions/plot/PlotGenerator.h` | `packages/pier-dimensions/include/pier/dimensions/plot/plot_generator.h` | ✔ done, rewritten with dllexport removed |
-| `packages/pier-dimensions/include/pier/dimensions/plot/PlotLayout.h` | `packages/pier-dimensions/include/pier/dimensions/plot/plot_layout.h` | ✔ done, rewritten: the self-reference in kBedrockY was fixed and the wording cleared of language names |
+| `packages/pier-dimensions/include/pier/dimensions/plot/PlotConfine.h` | `—` | ✂ cut, superseded by gen/cell_confine.h: the grid is a cell grid and a plot world is one use of it |
+| `packages/pier-dimensions/include/pier/dimensions/plot/PlotDimension.h` | `—` | ✂ cut, superseded by spec/spec_dimension.h, which serves every terrain kind from the spec |
+| `packages/pier-dimensions/include/pier/dimensions/plot/PlotGenerator.h` | `—` | ✂ cut, superseded by gen/layers_generator.h, which builds the grid from terrain.grid in the spec |
+| `packages/pier-dimensions/include/pier/dimensions/plot/PlotLayout.h` | `—` | ✂ cut, superseded: the layout is spec::Grid inside the dimension spec, so no separate layout type is registered |
 | `packages/pier-dimensions/src/dim/CustomDimensionConfig.cpp` | `same path` | ✔ done, rewritten: the bare printf became a log call with its danger noted, and the version upgrade path gained a comment |
 | `packages/pier-dimensions/src/dim/CustomDimensionManager.cpp` | `packages/pier-dimensions/src/dim/CustomDimensionManager.cpp` | ✔ done, ported in full, with all five incident conclusions in place: the closure before the registration, ids starting at the largest plus one, salvagedIds keeping their numbers, the native path leaving Undefined alone, and comparing before writing to disk |
 | `packages/pier-dimensions/src/dim/DimensionRules.cpp` | `packages/pier-dimensions/src/dim/DimensionRules.cpp` | ✔ done, ported in full: a log line whose two numbers both disagreed was corrected, and setDimensionRule gained an error for an out-of-range rule number |
 | `packages/pier-dimensions/src/dim/NativeDimensions.cpp` | `same path` | ✔ done, rewritten: the bug history of DimensionDefinitionGroup not being persisted, the read-back check and the id change warning all kept; the diagnostic environment variables were renamed to PIER_DIM_DEF_* and listed in the migration notes; the never-called canCreateDimension was deleted and its conclusion folded into the three-cause comment of getOrCreateByName |
-| `packages/pier-dimensions/src/dim/SimpleCustomDimension.cpp` | `packages/pier-dimensions/src/dim/SimpleCustomDimension.cpp` | ✔ done, ported in full: skylight decided per generator, the default branch speaking up, and the lazy resolution of the three symbols all kept |
-| `packages/pier-dimensions/src/plot/PlotConfine.cpp` | `packages/pier-dimensions/src/plot/PlotConfine.cpp` | ✔ done, ported in full: the asymmetry of the group walk bound was kept with its reason written out, and the catch around a failed velocity clear gained an explanation |
-| `packages/pier-dimensions/src/plot/PlotDimension.cpp` | `packages/pier-dimensions/src/plot/PlotDimension.cpp` | ✔ done, ported in full |
-| `packages/pier-dimensions/src/plot/PlotGenerator.cpp` | `packages/pier-dimensions/src/plot/PlotGenerator.cpp` | ✔ done, ported in full, with the tracing switch no longer copied per file and taken from the one in chunk_trace.h |
+| `packages/pier-dimensions/src/dim/SimpleCustomDimension.cpp` | `—` | ✂ cut, superseded by src/spec/SpecDimension.cpp; the three lazily resolved structure symbols moved there |
+| `packages/pier-dimensions/src/plot/PlotConfine.cpp` | `—` | ✂ cut, superseded by src/gen/CellConfine.cpp, which keeps the asymmetric group walk bound and the explained catch |
+| `packages/pier-dimensions/src/plot/PlotDimension.cpp` | `—` | ✂ cut, superseded by src/spec/SpecDimension.cpp |
+| `packages/pier-dimensions/src/plot/PlotGenerator.cpp` | `—` | ✂ cut, superseded by src/gen/LayersGenerator.cpp. The chunk tracing switch it read is still declared in dim/chunk_trace.h and no generator asks for it yet |
 | `packages/pier-dimensions/src/rt/ChunkTrace.cpp` | `packages/pier-dimensions/src/rt/ChunkTrace.cpp` | ✔ done, ported in full: it uses hostLogger now, the two empty catches gained explanations, and the environment variables were renamed |
 | `packages/pier-dimensions/src/rt/MoreDimensionsBridge.cpp` | `src/rt/{Bridge,Slots}.cpp` | ✔ done, split and rewritten: Bridge.cpp is the DimensionBridge implementation, with the three-layer name source, the id consistency safety gate and the hard-won comment about toString crashing the server; Slots.cpp fills the eleven md_* slots, keeping the history of the GeneratorType numbering correction |
 | `packages/pier-dimensions/src/rt/Utils.cpp` | `src/base/Utils.cpp` | ✔ done, rewritten to use the common host logger |
@@ -298,6 +298,16 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 
 | New location | Source |
 |---|---|
+| `examples/hello-pier-cpp/manifest.json` | new, the C++ example's mod manifest |
+| `examples/hello-pier-cpp/src/Main.cpp` | new, the smallest C++ mod: one command and one line per lifecycle step |
+| `examples/hello-pier-cpp/build-msvc.bat` | new, the whole build as one cl invocation |
+| `examples/hello-pier-cpp/build-clang.bat` | new, the same under clang-cl, the driver that produces an MSVC-ABI binary |
+| `examples/hello-pier-cpp/CMakeLists.txt` | new, the same for a CMake project |
+| `examples/hello-pier-cpp/xmake.lua` | new, the same for an xmake project |
+| `docs/cpp/index.md` | new, the C++ binding: capability checks, strings and error conventions |
+| `docs/cpp/first-mod.md` | new, an empty directory to a loadable DLL, four build systems |
+| `docs/zh/cpp/index.md` | new, the Chinese translation of the C++ binding page |
+| `docs/zh/cpp/first-mod.md` | new, the Chinese translation of the first-mod page |
 | `packages/pier-api/include/pier/api/bridge.h` | ✔ done, added: the declarations of the resolution helpers |
 | `packages/pier-api/src/core/Bridge.cpp` | ✔ done, added: the resolution helpers that were spread across TUs in the old repository, gathered here |
 | `packages/pier-api/src/core/Enrich.cpp` | ✔ done, added: enrichEventData became its own TU |
@@ -308,7 +318,6 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `packages/pier-api/src/world/BlockResolve.cpp` | ✔ done, added, fixing a real broken link in the old repository: three helpers were defined in the server-only Edit.cpp and referenced by the dual-target World.cpp |
 | `packages/pier-client/xmake.lua` | ✔ done, added: the client slots became their own package |
 | `packages/pier-dimensions/include/pier/dimensions/base/native_dimensions.h` | ✔ done, renamed from the old `base/NativeDimensions.h` into snake_case |
-| `packages/pier-dimensions/include/pier/dimensions/base/simple_custom_dimension.h` | ✔ done, renamed from the old `base/SimpleCustomDimension.h` |
 | `packages/pier-dimensions/include/pier/dimensions/base/utils.h` | ✔ done, renamed from the old `base/Utils.h` |
 | `packages/pier-dimensions/include/pier/dimensions/dim/complete_base_types.h` | ✔ done, renamed from the old `dim/CompleteBaseTypes.h` |
 | `packages/pier-dimensions/include/pier/dimensions/dim/custom_dimension_config.h` | ✔ done, renamed from the old `dim/CustomDimensionConfig.h` |
@@ -374,7 +383,7 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `docs/rust/threads.md` | ✔ added: the server thread default and the packet interception exception |
 | `tooth.json` | ✔ added: the lip package manifest, which is how a server owner installs a release |
 
-**Summary**: ✔ 204 | ✂ 12 | ⬜ 44 (260 old files in total)
+**Summary**: ✔ 195 | ✂ 21 | ⬜ 44 (260 old files in total)
 
 ---
 
@@ -823,3 +832,28 @@ problems it exposed, redid how a value is read.
 | `bindings/rust/pier-rs/src/event/names.rs` | the event id constants: the LL registry events plus all 29 synthetic events, each stating whether it can be cancelled and what its payload fields are; `ALL_SYNTHETIC` makes a startup self-check easy |
 | `bindings/rust/pier-rs/src/service.rs` | `call`, `call_json::<T>`, `call_with` and `call_optional`; the `CallError` categories NotFound, Provider, Refused, Decode and Unavailable; `register` and `register_json`; and `exists` really parsing now, where an earlier generation substring-matched JSON text |
 | `bindings/rust/pier-rs/src/sel.rs` | the `PlayerSel` enum replaces a bare `kind: i32`, and the fact that `Name` goes through the display-name fallback and cannot serve as an identity is written into the type layer through `is_stable()` |
+
+## The dimension spec: one entry, three kinds of terrain
+
+`md_add_simple_dimension` and `md_add_plot_dimension` each carried one shape of world, so a third
+shape meant a third slot, and the ABI only ever grows. They are retired in favour of one entry
+taking a declarative spec, along with `md_set_plot_grid` and `md_clear_plot_grid`, whose grid now
+comes from `terrain.grid.confine` in that same spec, so terrain and confinement can no longer
+disagree about where a cell ends. The retired slots keep their place in the table and are filled
+with stubs that log once and fail, because deleting a slot moves every slot after it and bumps the
+version, which rejects every mod already compiled.
+
+| File | Contents |
+|---|---|
+| `packages/pier-dimensions/include/pier/dimensions/spec/dimension_spec.h` | one declarative description of a dimension: seed, height range, sky, and a terrain recipe of one of three kinds; the SNBT shape `md_add_dimension` documents, read in exactly one place |
+| `packages/pier-dimensions/include/pier/dimensions/spec/spec_dimension.h` | the one custom `Dimension`, driven by a `DimensionSpec`; replaces the `SimpleCustomDimension` and `PlotDimension` pair behind the same ABI names |
+| `packages/pier-dimensions/src/spec/DimensionSpec.cpp` | reading and clamping the spec; the only file that touches the SNBT keys; a refusal is a returned problem list, never a substituted default |
+| `packages/pier-dimensions/src/spec/SpecDimension.cpp` | sky, height and generator choice, all read from the stored payload; the three lazily resolved structure symbols moved here unchanged from `SimpleCustomDimension.cpp` |
+| `packages/pier-dimensions/include/pier/dimensions/gen/layers_generator.h` | the chunk generator of a layered dimension: a stack of layers with an optional grid drawn on the surface |
+| `packages/pier-dimensions/src/gen/LayersGenerator.cpp` | fills a chunk from the layer stack; the per-thread buffer is refilled when the owning generator changes, which the upstream flat generator does not do and which is wrong with more than one flat dimension |
+| `packages/pier-dimensions/include/pier/dimensions/gen/noise_generator.h` | density terrain with multi-biome placement, built from `PerlinNoise` and `LevelChunk::_setBiome` |
+| `packages/pier-dimensions/src/gen/NoiseGenerator.cpp` | the density field, the block palette by depth below the surface, and the climate match that picks a biome per column |
+| `packages/pier-dimensions/include/pier/dimensions/gen/cell_confine.h` | whether two coordinates count as the same grid cell; the predecessor asked whether they were the same plot, which is one use of the mechanism and not its definition |
+| `packages/pier-dimensions/src/gen/CellConfine.cpp` | the grid table, the merge graph and the actor interception behind the two `*_CROSS_CELL` rules |
+| `packages/pier-hooks/src/world/PortalEvents.cpp` | the synthetic `PortalCreateEvent`, hooked at `PortalBlock::trySpawnPortal`, after the engine measured the frame and confirmed the fire, so not one line of geometry is reimplemented |
+| `tools/migrate_dimension_config.py` | a one-time migration of `dimension_config.json` from the two pre-26.20.3 payload shapes to the spec shape; the mapping is the one the old readers used, written into the file once instead of kept in code |

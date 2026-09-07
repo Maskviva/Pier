@@ -61,7 +61,8 @@ namespace pier::bridge
     Block const* defaultBlockNamed(std::string_view name)
     {
         std::string full = qualify(name);
-        auto const& block = BlockTypeRegistry::get().getDefaultBlockState(HashedString{full}, false);
+        auto const& block =
+            BlockTypeRegistry::mBlockTypeRegistry().mValue.getDefaultBlockState(HashedString{full}, false);
         if (block.getTypeName() != full) return nullptr;
         return &block;
     }
@@ -75,5 +76,12 @@ namespace pier::bridge
      * protection plugins stop intercepting, which is the kind of breakage that is
      * invisible until someone else's plugin fails.
      */
-    BlockChangeContext blockEditContext() { return BlockChangeContext::commandsChange(); }
+    BlockChangeContext blockEditContext()
+    {
+        // commandsChange is inlined away; the class is a variant now and the alternative
+        // that factory produced is the stateless Commands tag.
+        BlockChangeContext how{};
+        how.mContextSource = ::StatelessBlockChangeContext::Commands;
+        return how;
+    }
 } // namespace pier::bridge

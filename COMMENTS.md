@@ -181,15 +181,16 @@ This inherits `CONTRACT.md` §5.4 and has the highest priority while trimming:
 python3 tools/checks/comment_style.py
 ```
 
-It covers the budgets of §1, items 1, 2, 3, 5, 6 and 7 of §3, and the line width and ASCII
-rules of §5.
+It covers the budgets of §1, items 2, 3, 4, 5, 6 and 7 of §3, the language and spelling of
+§4, and the line width and ASCII rules of §5. Item 1 of §3, a comment restating the code,
+is not among them and needs a human.
 
-**The language item of §4 currently has a machine check only on `abi.h`.** The CJK test in
-the script is bound to the `is_abi` branch and the banned-word list is entirely regular
-expressions over one natural language, so after the repository was translated that list
-matches nothing. Both need to follow, and until they do the language item has only a
-`grep` for CJK characters as a backstop, which under contract §9 means a delivery note may
-not give it a checkmark.
+The language item of §4 is checked on every file: the CJK test runs over the whole
+repository rather than only `abi.h`, and the banned-word list is written in the language
+§4 requires. A list in any other language passes every file silently, which is what the
+list did while it was still in the language the repository was first written in. American
+spelling is checked from a list of the pairs that occur in English technical prose; a
+British spelling outside that list still passes.
 
 **What it cannot cover**: whether a comment is true (§7), whether it is one of the five
 kinds of §2, and whether it restates the code. Those three need a human. A passing script

@@ -10,6 +10,8 @@
 #include "mc/deps/core/math/Color.h"
 #include "mc/deps/nbt/CompoundTag.h"
 #include "mc/safety/RedactableString.h"
+#include "mc/world/item/Item.h"
+#include "mc/world/item/ItemDescriptor.h"
 #include "mc/world/item/ItemStack.h"
 #include "mc/world/level/block/BlockType.h"
 
@@ -51,7 +53,9 @@ namespace pier::api_impl
                     *out = item->isNull() ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_IS_BLOCK:
-                    *out = item->isBlock() ? 1.0 : 0.0;
+                    // isBlock asked whether the stack resolved to a block, which is the
+                    // pointer it kept.
+                    *out = item->mBlock != nullptr ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_IS_ENCHANTED:
                     *out = item->isEnchanted() ? 1.0 : 0.0;
@@ -67,14 +71,22 @@ namespace pier::api_impl
                     return true;
                 /*  Appended: item gap fills  */
                 case PIER_IPROP_MAX_DAMAGE:
-                    *out = static_cast<double>(item->getMaxDamage());
+                    // The accessors below moved off ItemStackBase and are on Item, which
+                    // mItem points at. A stack whose item is gone answers nothing rather
+                    // than a zero that reads like a real durability.
+                    if (!item->mItem) return false;
+                    *out = static_cast<double>(item->mItem->getMaxDamage());
                     return true;
                 case PIER_IPROP_IS_UNBREAKABLE:
-                    *out = item->isUnbreakable() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away. It read a tag out of the user data rather than a
+                    // field, and reproducing that read means guessing the key.
+                    return false;
                 case PIER_IPROP_HAS_DURABILITY:
-                    *out = item->hasDurability() ? 1.0 : 0.0;
-                    return true;
+                    // hasDurability is inlined away with no field left to read. It asked
+                    // whether the item wears out at all, which mMaxDamage alone does not
+                    // answer: a stack of an item with a max damage is still not damageable
+                    // when it is not an equipment item.
+                    return false;
                 case PIER_IPROP_IS_POTION:
                     *out = item->isPotionItem() ? 1.0 : 0.0;
                     return true;
@@ -83,41 +95,48 @@ namespace pier::api_impl
                     // the server.
                     return false;
                 case PIER_IPROP_IS_FIRE_RESISTANT:
-                    *out = item->isFireResistant() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away; the FireResistantItemComponent it consulted is not
+                    // reachable from here.
+                    return false;
                 case PIER_IPROP_ATTACK_DAMAGE:
-                    *out = static_cast<double>(item->getAttackDamage());
+                    if (!item->mItem) return false;
+                    *out = static_cast<double>(item->mItem->getAttackDamage());
                     return true;
                 case PIER_IPROP_REPAIR_COST:
                     *out = static_cast<double>(item->getBaseRepairCost());
                     return true;
                 case PIER_IPROP_ENCHANT_VALUE:
-                    *out = static_cast<double>(item->getEnchantValue());
+                    if (!item->mItem) return false;
+                    *out = static_cast<double>(item->mItem->getEnchantValue());
                     return true;
                 case PIER_IPROP_IS_STACKABLE:
                     *out = item->isStackable() ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_IS_MUSIC_DISC:
-                    *out = item->isMusicDiscItem() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away with nothing left to read.
+                    return false;
                 case PIER_IPROP_IS_OFFHAND:
-                    *out = item->isOffhandItem() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away with nothing left to read.
+                    return false;
                 case PIER_IPROP_USE_DURATION:
-                    *out = static_cast<double>(item->getMaxUseDuration());
+                    if (!item->mItem) return false;
+                    *out = static_cast<double>(item->mItem->getMaxUseDuration(nullptr));
                     return true;
                 case PIER_IPROP_IS_GLINT:
-                    *out = item->isGlint() ? 1.0 : 0.0;
+                    if (!item->mItem) return false;
+                    *out = item->mItem->isGlint(*item) ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_IS_BUNDLE:
                     // isBundle() sits behind #ifdef LL_PLAT_C and is unavailable on the
                     // server.
                     return false;
                 case PIER_IPROP_HAS_USER_DATA:
-                    *out = item->hasUserData() ? 1.0 : 0.0;
+                    // hasUserData read exactly this pointer.
+                    *out = item->mUserData ? 1.0 : 0.0;
                     return true;
                 case PIER_IPROP_HAS_CUSTOM_NAME:
-                    *out = item->hasCustomHoverName() ? 1.0 : 0.0;
+                    if (!item->mItem) return false;
+                    *out = item->mItem->hasCustomHoverName(*item) ? 1.0 : 0.0;
                     return true;
                 default:
                     return false;
@@ -160,13 +179,16 @@ namespace pier::api_impl
                 }
                 case PIER_ISTR_CAN_DESTROY:
                 {
-                    auto const& list = item->getCanDestroy();
+                    // getCanDestroy is inlined away; mCanDestroy is the vector it returned.
+                    auto const& list = item->mCanDestroy;
                     std::string out = "[";
                     for (size_t i = 0; i < list.size(); ++i)
                     {
                         if (!list[i]) continue;
                         if (out.size() > 1) out += ",";
-                        out += "\"" + snbtEscape(list[i]->getRawNameId()) + "\"";
+                        // BlockType::getRawNameId is inlined away; mNameInfo.mRawName is
+                        // the HashedString it returned.
+                        out += "\"" + snbtEscape(list[i]->mNameInfo->mRawName->getString()) + "\"";
                     }
                     out += "]";
                     sink(ctx, ps(out));
@@ -174,13 +196,16 @@ namespace pier::api_impl
                 }
                 case PIER_ISTR_CAN_PLACE_ON:
                 {
-                    auto const& list = item->getCanPlaceOn();
+                    // getCanPlaceOn is inlined away; mCanPlaceOn is the vector it returned.
+                    auto const& list = item->mCanPlaceOn;
                     std::string out = "[";
                     for (size_t i = 0; i < list.size(); ++i)
                     {
                         if (!list[i]) continue;
                         if (out.size() > 1) out += ",";
-                        out += "\"" + snbtEscape(list[i]->getRawNameId()) + "\"";
+                        // BlockType::getRawNameId is inlined away; mNameInfo.mRawName is
+                        // the HashedString it returned.
+                        out += "\"" + snbtEscape(list[i]->mNameInfo->mRawName->getString()) + "\"";
                     }
                     out += "]";
                     sink(ctx, ps(out));
@@ -188,7 +213,8 @@ namespace pier::api_impl
                 }
                 case PIER_ISTR_USER_DATA:
                 {
-                    auto* ud = item->getUserData();
+                    // getUserData is inlined away; mUserData is the pointer it handed back.
+                    auto* ud = item->mUserData.get();
                     if (!ud)
                     {
                         sink(ctx, ps(std::string_view{"{}"}));
@@ -204,11 +230,16 @@ namespace pier::api_impl
                     sink(ctx, ps(item->getName()));
                     return true;
                 case PIER_ISTR_EFFECT_NAME:
-                    sink(ctx, ps(item->getEffectName(false)));
-                    return true;
+                    // Inlined away. It built the potion effect line out of the item's
+                    // components, which are not reachable from a stack here.
+                    return false;
                 case PIER_ISTR_COLOR:
                 {
-                    auto color = item->getColor();
+                    // ItemStackBase::getColor is inlined away. The Item override survives
+                    // and takes the two things the stack version passed it.
+                    if (!item->mItem) return false;
+                    auto const desc = item->getDescriptor();
+                    auto color = item->mItem->getColor(item->mUserData.get(), desc);
                     std::string snbt = "{r:" + snbtDouble(color.r);
                     snbt += ",g:" + snbtDouble(color.g);
                     snbt += ",b:" + snbtDouble(color.b) + "}";
@@ -231,7 +262,10 @@ namespace pier::api_impl
                 {
                 case PIER_IOP_SET_CUSTOM_NAME:
                     item->setCustomName(
-                        ::Bedrock::Safety::RedactableString{toString(sarg), std::nullopt});
+                        // The two-argument constructor is inlined away. The one that
+                        // survives takes the unredacted string, which is what a null
+                        // redacted string meant.
+                        ::Bedrock::Safety::RedactableString{toString(sarg)});
                     break;
                 case PIER_IOP_SET_DAMAGE:
                     item->setDamageValue(static_cast<short>(narg));
@@ -278,7 +312,7 @@ namespace pier::api_impl
                     return false;
                 }
                 case PIER_IOP_REMOVE_ENCHANTS:
-                    item->removeEnchants();
+                    (void)item->removeEnchants();
                     break;
                 case PIER_IOP_CLEAR_LORE:
                     item->setCustomLore({});
@@ -300,8 +334,12 @@ namespace pier::api_impl
                         list.emplace_back(
                             static_cast<std::string const&>(static_cast<StringTag const&>(*p)));
                     }
-                    item->setCanDestroy(list);
-                    break;
+                    // setCanDestroy is inlined away. mCanDestroy holds BlockType
+                    // pointers and a hash beside it, so writing it means resolving every
+                    // id and reproducing the hash the engine compares against; a wrong
+                    // hash silently stops the restriction from applying.
+                    (void)list;
+                    return false;
                 }
                 case PIER_IOP_SET_CAN_PLACE_ON:
                 {
@@ -314,8 +352,9 @@ namespace pier::api_impl
                         list.emplace_back(
                             static_cast<std::string const&>(static_cast<StringTag const&>(*p)));
                     }
-                    item->setCanPlaceOn(list);
-                    break;
+                    // Same shape as set_can_destroy above.
+                    (void)list;
+                    return false;
                 }
                 default:
                     return false;

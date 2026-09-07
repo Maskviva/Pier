@@ -24,6 +24,37 @@ jobs:
 
       - uses: xmake-io/github-action-setup-xmake@v1
 
+      # LeviLamina pins its own build to clang-cl (its xmake.lua line 41) and 26.32.0
+      # does not compile under the Clang 20.1.8 the runner image ships:
+      # MinecraftCommands.h holds unique_ptr members of four forward-declared types
+      # (Command, CommandOutputSender, CommandRegistry, DeferredCommandBase) beside a
+      # defaulted destructor, which Clang 20 instantiates at the class definition and
+      # rejects, and Clang 21 does not. The same commit (31d23a0c) builds clean under
+      # 21.1.8 with the same MSVC STL (14.44.35207), confirmed locally before this was
+      # added. Filed upstream; this pin can go once LeviLamina fixes the header or the
+      # runner image ships a newer Clang.
+      - name: Install LLVM 21.1.8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # The `clang+llvm-` archive carries LLVM's own libraries and tools on top of
+          # the toolchain, which is what makes it 900 MB and tens of thousands of files:
+          # a plain `tar -xf` of it took over ten minutes on a Windows runner. The `LLVM-`
+          # installer is the toolchain alone, a fifth of the size, and NSIS's own silent
+          # install is faster than shelling out to bsdtar for that many small files.
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/LLVM-21.1.8-win64.exe"
+          curl.exe -fL --retry 3 -o "$env:RUNNER_TEMP\llvm-installer.exe" $url
+          # /D sets the install directory and NSIS requires it unquoted, backslash-only,
+          # with no trailing slash, and last on the command line.
+          Start-Process -FilePath "$env:RUNNER_TEMP\llvm-installer.exe" `
+              -ArgumentList "/S", "/D=C:\llvm" -Wait -NoNewWindow
+          # Prepended, so this wins over the C:\Program Files\LLVM the image installs.
+          "C:\llvm\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Show the clang-cl that will be used
+        shell: pwsh
+        run: clang-cl --version
+
       - run: xmake repo -u
 
       - uses: actions/cache@v6

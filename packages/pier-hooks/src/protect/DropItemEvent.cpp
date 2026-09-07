@@ -13,6 +13,7 @@
 #include "pier/hooks/hook_events.h"
 
 #include <string>
+#include <vector>
 
 #include "ll/api/memory/Hook.h"
 
@@ -25,6 +26,7 @@
 // C2027 plus a C2039 claiming unique_ptr is missing a member, which reads like the wrong
 // number of dereferences. The full collapse rules are in the file header of
 // tools/typed-storage.py.
+#include "mc/world/actor/player/Inventory.h"
 #include "mc/world/actor/player/PlayerInventory.h"
 #include "mc/world/inventory/transaction/ComplexInventoryTransaction.h"
 #include "mc/world/inventory/transaction/InventoryAction.h"
@@ -86,6 +88,22 @@ namespace pier::hooks
                 which);
         }
 
+        /** The actions a transaction carries for one source, empty when it carries none.
+         *
+         *  InventoryTransaction::getActions is inlined away in 26.32 and has no symbol
+         *  left. mActions is the map it read, so the lookup moves here. A source that is
+         *  absent from the map and a source present with no action are the same answer to
+         *  the caller, which is what the accessor also returned. */
+        std::vector<::InventoryAction> const& actionsFor(
+            ::InventoryTransaction const& tx,
+            ::InventorySource const&      source)
+        {
+            static std::vector<::InventoryAction> const kNone;
+            auto const& map = tx.mActions.get();
+            auto        it  = map.find(source);
+            return it == map.end() ? kNone : it->second;
+        }
+
         /** Hook 1: the Q key, dropping the held item. */
         LL_TYPE_INSTANCE_HOOK(
             PlayerDropItemHook,
@@ -144,7 +162,7 @@ namespace pier::hooks
                 ::InventorySource::InventorySourceFlags::NoFlag
             };
 
-            auto const& actions = mTransaction->getActions(source);
+            auto const& actions = actionsFor(*mTransaction, source);
             if (actions.size() != 1)
             {
                 return origin(player, isSenderAuthority);
@@ -158,13 +176,17 @@ namespace pier::hooks
                 ::ContainerID::None,
                 ::InventorySource::InventorySourceFlags::WorldInteractionRandom
             };
-            if (mTransaction->getActions(worldSource).empty())
+            if (actionsFor(*mTransaction, worldSource).empty())
             {
                 return origin(player, isSenderAuthority);
             }
 
+            // PlayerInventory::getItem is inlined away. The call site always asked for
+            // ContainerID::Inventory, which is the branch that reads mInventory, so the
+            // slot is read straight off that container and the answer does not move.
             std::string itemName = safeTypeName(
-                player.mInventory.get()->getItem(actions[0].mSlot, ::ContainerID::Inventory));
+                player.mInventory.get()->mInventory.get()->getItem(
+                    static_cast<int>(actions[0].mSlot)));
 
             if (dispatchHookEventCancellable(def, buildSnbt(player, itemName, false, true)))
             {

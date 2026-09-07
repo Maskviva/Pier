@@ -220,8 +220,26 @@ pub const PLAYER_OPEN_CONTAINER: &str = "PlayerOpenContainerEvent";
 /// Observation only, emitted before origin, for recording who started mining which cell.
 pub const PLAYER_START_DESTROY_BLOCK: &str = "PlayerStartDestroyBlockEvent";
 
-/// Observation only. A player changes dimension. Payload: `from` `to` `_player`.
+/// Cancellable, and the target can be rewritten. A player changes dimension, from any
+/// cause: a portal, a teleport, `/execute in`, a respawn.
+///
+/// Payload: `from` `to` `to_x` `to_y` `to_z` `use_portal` `respawn` `_player`.
+/// `use_portal` is what separates walking into a portal from being teleported, and a rule
+/// that treats the two alike will surprise whoever wrote it.
+///
+/// Answering with `to`, or with all three of `to_x` `to_y` `to_z`, reroutes the transfer;
+/// the engine then performs it itself. Teleporting from the callback instead re-enters
+/// this event while the player still stands in the portal, and repeats every tick.
 pub const PLAYER_CHANGE_DIMENSION: &str = "PlayerChangeDimensionEvent";
+
+/// Cancellable. A frame is about to become a nether portal.
+///
+/// It fires after the engine has measured the frame and found the fire, so a consumer
+/// needs no geometry of its own. Payload: `dim` `x` `y` `z`.
+///
+/// There is no player: fire reaches a frame from a dispenser, from lightning and from
+/// spreading, and a rule keyed on a player would miss those.
+pub const PORTAL_CREATE: &str = "PortalCreateEvent";
 
 /// Observation only. A hopper transfers an item. Payload: `x` `y` `z` `slot` `item` `count`
 /// `old_item` `old_count`.
@@ -280,6 +298,8 @@ const CANCELLABLE: &[&str] = &[
     "PlayerTakeEntityEvent",
     "PlayerOpenContainerEvent",
     "PlayerUseItemOnEvent",
+    "PlayerChangeDimensionEvent",
+    "PortalCreateEvent",
 ];
 
 /// The events known to be observation only, each with where to block instead.
@@ -310,7 +330,6 @@ const OBSERVE_ONLY: &[(&str, &str)] = &[
     ("ConsoleOutputtedEvent", "already done; use ConsoleOutputtingEvent to block it"),
     // Pier synthetic, where the host uses dispatchHookEvent and the write-back sink is a no-op
     ("PlayerStartDestroyBlockEvent", "emitted before origin only to record who started mining which cell; use PlayerDestroyBlockEvent or BlockDestroyEvent to block it"),
-    ("PlayerChangeDimensionEvent", "stopping a dimension change midway strands the player between two dimensions"),
     ("HopperTransferEvent", "the transfer already happened, since the hook point is after origin"),
     ("WeatherChangeEvent", "stopping it midway leaves the timer disagreeing with the actual weather; control weather through the Server weather interface or a gamerule"),
     ("PlayerChangeSlotEvent", "the return is a reference to the item in the new slot and cancelling would mean inventing one; pin the held item by setting the slot back inside the event"),
@@ -383,6 +402,7 @@ pub const ALL_SYNTHETIC: &[&str] = &[
     PLAYER_OPEN_CONTAINER,
     PLAYER_START_DESTROY_BLOCK,
     PLAYER_CHANGE_DIMENSION,
+    PORTAL_CREATE,
     HOPPER_TRANSFER,
     PLAYER_USE_ITEM_ON,
 ];

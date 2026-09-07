@@ -48,6 +48,7 @@ SCRIPTS = [
     ("pkg_layering.py", ["pkg-layering", "object-kind", "optional-drops"]),
     ("build_config.py", ["build-config"]),
     ("include_resolves.py", ["include-resolves"]),
+    ("sources_are_built.py", ["sources-are-built"]),
     ("sys_mirrors_abi.py", ["sys-mirrors-abi"]),
     ("rust_layering.py", ["rust-layering"]),
     ("rust_comment_budget.py", ["rust-comment-budget"]),
@@ -62,6 +63,10 @@ SCRIPTS = [
 
 def main():
     want = sys.argv[1] if len(sys.argv) > 1 else None
+    if want is not None and want.startswith("-"):
+        print("usage: run-checks.py [name-filter]. %r looks like a flag, and this script "
+              "takes none; a filter matching nothing would run nothing." % want)
+        return 2
     failed = []
     ran = 0
     for script, names in SCRIPTS:
@@ -79,6 +84,11 @@ def main():
         print()
 
     print("=" * 62)
+    if ran == 0:
+        print("FAIL: no check ran%s. A runner that runs nothing can never go red, so an "
+              "empty selection is an error and not a pass."
+              % (", nothing matched %r" % want if want else ""))
+        return 2
     if failed:
         print("FAIL: %d check(s) did not pass: %s" % (len(failed), ", ".join(failed)))
         return 1

@@ -26,7 +26,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.20.1" }
+pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.32.0" }
 ```
 
 The package is `pier-rs` and the crate it exposes is `levilamina`, which is why the

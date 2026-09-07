@@ -108,6 +108,15 @@ namespace pier::dimensions
         ledgerById()[id] = name;
     }
 
+    void forgetDimension(std::string const& name)
+    {
+        std::lock_guard lock{ledgerMutex()};
+        auto it = ledgerByName().find(name);
+        if (it == ledgerByName().end()) return;
+        ledgerById().erase(it->second);
+        ledgerByName().erase(it);
+    }
+
     std::string dimensionNameOf(int id)
     {
         std::lock_guard lock{ledgerMutex()};
@@ -145,31 +154,16 @@ namespace pier::dimensions
     {
         bool available() { return managerOrNull() != nullptr; }
 
-        std::optional<int> engineDimensionId(std::string const& name)
-        {
-            auto* mgr = managerOrNull();
-            if (!mgr) return std::nullopt;
-            try
-            {
-                int const v = mgr->getDimensionId(std::string_view{name}).value();
-
-                // A custom dimension is always 3 or above.
-                if (v < 3) return std::nullopt;
-
-                // Being 3 or above does not mean registered: an unregistered name comes
-                // back as Undefined(). Testing only for less than 3 relies on Undefined()
-                // being rewritten at runtime to a large number. The native path never
-                // rewrites it, so it stays at 3 and every unregistered name would be read
-                // as an existing id 3.
-                if (v == ::VanillaDimensions::Undefined().value()) return std::nullopt;
-
-                return v;
-            }
-            catch (...)
-            {
-                return std::nullopt;
-            }
-        }
+        /*
+         * Unanswerable on 26.32, see the note above registerCustomDimension.
+         *
+         * DimensionManager::getDimensionId read NameIdStore and is inlined away, and
+         * Util::NameIdStore is an empty class in the generated headers of both 26.20 and
+         * 26.32, so its table cannot be read from here at all. Answering out of the host
+         * ledger instead would make the drift check in CustomDimensionManager compare the
+         * ledger against itself and pass on every boot, which is worse than not knowing.
+         */
+        std::optional<int> engineDimensionId(std::string const&) { return std::nullopt; }
 
         bool isActive(int dimId)
         {
@@ -177,7 +171,11 @@ namespace pier::dimensions
             if (!mgr) return false;
             try
             {
-                return mgr->isDimensionTypeActive(DimensionType{dimId});
+                // isDimensionTypeActive moved off DimensionManager in 26.32 and is a
+                // virtual on ILevel now, which is the one the manager forwarded to.
+                auto level = ll::service::getLevel();
+                if (!level) return false;
+                return level->isDimensionTypeActive(DimensionType{dimId});
             }
             catch (...)
             {
@@ -185,247 +183,41 @@ namespace pier::dimensions
             }
         }
 
+        /*
+         * Refused on 26.32: the engine no longer offers an id. The two entry points this
+         * flow needed are inlined away with no symbol left. serverRegisterCustomDimension
+         * allocated the id and wrote it into the save's NameIdStore, and getDimensionId
+         * read that table back on the next boot. The pieces around them survive, so the
+         * definition and the factory can still be registered, but nothing hands out an id
+         * and nothing reports the one a save already holds. Allocating one here was
+         * rejected: the number has to agree with what the engine persists, and a
+         * disagreement renames a dimension a player has already built in.
+         *
+         * Every md_* slot that creates a dimension now reports failure, which is the
+         * answer abi.h documents for a refused registration. No other slot is affected.
+         */
         std::optional<int>
-        registerCustomDimension(std::string const& name, int minY, int maxY, GeneratorType gen)
+        registerCustomDimension(std::string const& name, int, int, GeneratorType)
         {
-            auto* mgr = managerOrNull();
-            if (!mgr)
+            static bool said = false;
+            if (!said)
             {
-                hostLogger().error("[dim] native registration: Level is not open, DimensionManager is unavailable");
-                return std::nullopt;
-            }
-
-            // The id NameIdStore restored from the save, when there is one.
-            //
-            // A restored name-to-id table does not mean the dimension is usable this
-            // session: NameIdStore is persisted while wiring the dimension into
-            // DimensionRegistry and the factory is not. Returning here would leave the
-            // factory binding permanently unestablished after every restart.
-            auto const preexisting = engineDimensionId(name);
-
-            // 1) A known name: only the factory binding is restored and NameIdStore is
-            //    left alone. Success ends the call.
-            if (preexisting)
-            {
-                try
-                {
-                    mgr->_registerCustomDimensionWithFactory(
-                        std::string_view{name}, DimensionType{*preexisting});
-                }
-                catch (std::exception const& e)
-                {
-                    hostLogger().warn(
-                        "[dim] '{}' (id {}) threw while rebinding the engine factory: {}", name, *preexisting, e.what());
-                }
-                catch (...)
-                {
-                    hostLogger().warn("[dim] '{}' (id {}) threw an unknown exception while rebinding the engine factory", name, *preexisting);
-                }
-
-                // The definition is restored unconditionally and an existing one is left
-                // alone. DimensionDefinitionGroup is not persisted, is rebuilt empty every
-                // boot, and only dimensions completing step 2 add an entry, while this
-                // branch is taken whenever the name is already in NameIdStore, meaning
-                // every boot after the first. Returning here leaves the group and
-                // DimensionDataPacket without the definition, so the client drops chunks
-                // of a dimension id it lacks a definition for while the server reaches
-                // Loaded and the player sees nothing.
-                try
-                {
-                    auto& group = mgr->getDimensionDefinitionGroup();
-                    if (!group.getDimensionDefinition(name).has_value())
-                    {
-                        auto const [advMin, advMax] = advertisedRange(minY, maxY);
-                        DimensionDefinitionGroup::DimensionDefinition def{
-                            advMin, advMax, gen, DimensionType{*preexisting}
-                        };
-                        if (group.tryAddDimensionDefinition(name, def))
-                        {
-                            hostLogger().info(
-                                "[dim] '{}' (id {}) had no definition in DimensionDefinitionGroup "
-                                "this boot and one was added (height {}..{}); without it the "
-                                "client does not recognize the dimension and its chunks do not "
-                                "render",
-                                name, *preexisting, minY, maxY
-                            );
-                        }
-                        else
-                        {
-                            hostLogger().error(
-                                "[dim] the definition of '{}' (id {}) could not be added to "
-                                "DimensionDefinitionGroup; the client will most likely not "
-                                "receive chunks of this dimension",
-                                name, *preexisting
-                            );
-                        }
-                    }
-                }
-                catch (std::exception const& e)
-                {
-                    hostLogger().error("[dim] '{}' threw while restoring its DimensionDefinition: {}", name, e.what());
-                }
-                catch (...)
-                {
-                    hostLogger().error("[dim] '{}' threw an unknown exception while restoring its DimensionDefinition", name);
-                }
-
-                // Nothing is probed here. getOrCreateDimension really builds the
-                // dimension, and at this moment the id is not final, since the caller's
-                // factory closure still reads the old shared->id. Probing here leaves an
-                // instance built under the wrong id that no later id change can displace.
-                // Whether it can be built is verified once by the caller after the id is
-                // written back.
-                rememberDimension(name, *preexisting);
-                return preexisting;
-            }
-
-            // 2) serverRegisterCustomDimension reads the geometry from
-            //    DimensionDefinitionGroup by name, so the definition must be there first;
-            //    a behavior-pack JSON dimension takes the same path and this adds an
-            //    equivalent one by hand. The group goes whole into DimensionDataPacket,
-            //    telling the client the dimension exists, how tall it is and which
-            //    generator it uses, so it accepts chunks with the real id.
-            //    DimensionDataPacket must not be intercepted: FakeDimensionId excludes it,
-            //    and both together give slow switches, a crash after loading, empty chunks.
-            try
-            {
-                auto& group = mgr->getDimensionDefinitionGroup();
-                if (!group.getDimensionDefinition(name).has_value())
-                {
-                    // A known id is written in directly, which is more reliable than
-                    // waiting for the engine to write it back. Only a brand new dimension
-                    // uses the -1 placeholder, as a JSON-loaded dimension does, since its
-                    // id cannot be known in advance either.
-                    auto const [advMin, advMax] = advertisedRange(minY, maxY);
-                    DimensionDefinitionGroup::DimensionDefinition def{
-                        advMin,
-                        advMax,
-                        gen,
-                        DimensionType{preexisting ? *preexisting : -1}
-                    };
-                    if (!group.tryAddDimensionDefinition(name, def))
-                    {
-                        hostLogger().warn(
-                            "[dim] the definition of '{}' could not be added to "
-                            "DimensionDefinitionGroup; registration continues and falls back "
-                            "if it fails",
-                            name
-                        );
-                    }
-                }
-            }
-            catch (std::exception const& e)
-            {
-                hostLogger().error("[dim] '{}' threw while writing to DimensionDefinitionGroup: {}", name, e.what());
-                return std::nullopt;
-            }
-            catch (...)
-            {
-                hostLogger().error("[dim] '{}' threw an unknown exception while writing to DimensionDefinitionGroup", name);
-                return std::nullopt;
-            }
-
-            // 3) The real registration. The engine allocates the id, writes NameIdStore
-            //    and records the factory.
-            std::optional<DimensionType> assigned;
-            try
-            {
-                assigned = mgr->serverRegisterCustomDimension(std::string_view{name});
-            }
-            catch (std::exception const& e)
-            {
-                hostLogger().error("[dim] serverRegisterCustomDimension('{}') threw: {}", name, e.what());
-                return std::nullopt;
-            }
-            catch (...)
-            {
-                hostLogger().error("[dim] serverRegisterCustomDimension('{}') threw an unknown exception", name);
-                return std::nullopt;
-            }
-
-            if (!assigned)
-            {
-                // When the name is already in NameIdStore the engine most likely returns
-                // empty, meaning it is already registered. Dropping the id there is wrong:
-                // the caller would fall back to allocating one locally, pick an id that
-                // disagrees with the save, and everything players already built is lost.
-                if (preexisting)
-                {
-                    hostLogger().warn(
-                        "[dim] serverRegisterCustomDimension('{}') returned empty while "
-                        "NameIdStore already holds id {}, which is kept (engine active={})",
-                        name, *preexisting, isActive(*preexisting)
-                    );
-                    rememberDimension(name, *preexisting);
-                    return preexisting;
-                }
-
+                said = true;
                 hostLogger().error(
-                    "[dim] serverRegisterCustomDimension('{}') returned empty, so the engine "
-                    "refused the registration; the usual causes are calling too early, "
-                    "before NameIdStore is loaded from the save, or too late, after every "
-                    "dimension has been created",
-                    name
-                );
-                return std::nullopt;
-            }
-
-            int const id = assigned->value();
-
-            if (preexisting && *preexisting != id)
-            {
-                // The engine returned an id different from the one in the save, which
-                // orphans every chunk and every piece of player data referencing the old
-                // id. That is not something to swallow silently.
-                hostLogger().error(
-                    "[dim] '{}' changed id from {} to {} on re-registration; every chunk and "
-                    "player position stored under the old id in the save is orphaned",
-                    name, *preexisting, id
+                    "[dim] custom dimensions are unavailable on this engine: the id "
+                    "allocation the registration needs is not reachable, so no dimension "
+                    "can be created and the ones a save already holds cannot be found "
+                    "again. Every other capability of the mod is unaffected"
                 );
             }
-
-            // 4) The read-back check, which catches a registration that looks successful
-            //    while the id does not match, the silent mismatch that finally surfaces as
-            //    a failed teleport.
-            auto const readBack = engineDimensionId(name);
-            if (!readBack || *readBack != id)
-            {
-                hostLogger().error(
-                    "[dim] '{}' registered as id {} while getDimensionId reads back {}; the "
-                    "engine ledger is inconsistent and the native path is abandoned",
-                    name, id, readBack ? std::to_string(*readBack) : std::string{"(none)"}
-                );
-                return std::nullopt;
-            }
-
-            // 5) The real id is written back into that definition in
-            //    DimensionDefinitionGroup. Step 2 filled mDimensionType with the -1
-            //    placeholder, and the engine usually writes it back itself inside
-            //    _registerCustomDimensionWithDimensionDefinitionGroup, but that cannot be
-            //    relied on: the group is serialized whole into DimensionDataPacket and a
-            //    dimension type of -1 is enough to make the client fail to parse it.
-            try
-            {
-                auto& defs = *mgr->getDimensionDefinitionGroup().mDimensionDefinitions;
-                if (auto it = defs.find(name);
-                    it != defs.end() && it->second.mDimensionType->value() != id)
-                {
-                    hostLogger().debug(
-                        "[dim] mDimensionType in the DimensionDefinition of '{}' was {}, rewritten to {}",
-                        name, it->second.mDimensionType->value(), id
-                    );
-                    it->second.mDimensionType = DimensionType{id};
-                }
-            }
-            catch (...)
-            {
-                hostLogger().warn("[dim] writing the id back into the DimensionDefinition of '{}' failed; registration itself is unaffected", name);
-            }
-
-            hostLogger().debug("[dim] '{}' registered natively by the engine with id {} (height {}..{}), active={}",
-                               name, id, minY, maxY, isActive(id));
-            rememberDimension(name, id);
-            return id;
+            // Names the caller, since the once-per-process line above carries the
+            // reason but not which registration hit it.
+            hostLogger().error(
+                "[dim] '{}' was not registered; a mod that needs it has to treat "
+                "md_add_dimension returning -1 as the dimension not existing",
+                name
+            );
+            return std::nullopt;
         }
 
         Dimension* getOrCreateByName(std::string const& name)

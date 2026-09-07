@@ -22,9 +22,9 @@ namespace pier::dimensions
      * client always requests subchunks -32..-24: it falls back to the largest possible
      * world and takes the bottom as subchunk -32, y = -512. With the server validating
      * against -64, every request is judged IndexOutOfBounds and no block data gets
-     * through. The control is the overworld, where the same client requests -4..4 and all
-     * succeed, because it knows the vanilla dimensions itself. The server therefore moves
-     * to match, the top stays at 320, and the dimension is 832 blocks tall, 52 subchunks.
+     * through. A vanilla dimension is exempt: the client knows its geometry itself and
+     * requests -4..4 there. The top stays at 320, so the dimension is 832 blocks tall,
+     * 52 subchunks.
      * The cost is 28 extra pure-air subchunks per column, whose palette holds one entry
      * and which serialize small while still occupying memory. Whether the engine caps
      * dimension height is unconfirmed; setting this back to -64 restores the previous

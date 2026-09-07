@@ -40,6 +40,7 @@
 #include "mc/world/level/block/Block.h"
 #include "mc/world/level/block/BlockChangeContext.h"
 #include "mc/world/level/block/actor/BlockActor.h"
+#include "mc/world/level/block/actor/VanillaBlockActor.h"
 #include "mc/world/phys/HitResult.h"
 
 #include "sdk/abi.h"
@@ -101,7 +102,8 @@ namespace pier::api_impl
                 // version makes the engine treat the write as an ancient save and run
                 // the upgrade table, which shows up as writing one state and getting a
                 // different one.
-                CompoundTag tag = def->getSerializationId();
+                // mSerializationId is the tag getSerializationId returned.
+                CompoundTag tag = def->mSerializationId.get();
                 auto extra = CompoundTag::fromSnbt(states);
                 if (!extra) return false;
                 auto& target = tag["states"];
@@ -149,11 +151,15 @@ namespace pier::api_impl
 
                 DefaultDataLoadHelper helper{};
                 be->load(*level, *parsed, helper);
-                be->setChanged();
+                // BlockActor lost setChanged and onChanged in 26.32; the overrides
+                // survive on VanillaBlockActor, which every container block entity is.
+                auto* vba = dynamic_cast<VanillaBlockActor*>(be);
+                if (!vba) return false;
+                vba->setChanged();
                 // setChanged only marks it dirty. Without this step the server is
                 // correct while the client still shows an empty chest until the chunk
                 // reloads, by which time the player has concluded the copy failed.
-                be->onChanged(*bs);
+                vba->onChanged(*bs);
                 return true;
             PIER_API_GUARD_END
         }
@@ -185,19 +191,15 @@ namespace pier::api_impl
                     tag["Pos"] = std::move(pos);
                 }
 
-                // NewUniqueIdsDataLoadHelper maps the UniqueID in the NBT onto a new
-                // id, which is what /structure load uses when it places actors. Keeping
-                // the id from the snapshot collides with the source actor, and a
-                // collision makes the engine treat two actors as one: one vanishes and
-                // the other misbehaves, with nothing in the log.
-                NewUniqueIdsDataLoadHelper helper{*level};
-                auto owner = level->getActorFactory().loadActor(&tag, helper);
-                if (!owner) return false;
-
-                Actor* actor = level->addEntity(*bs, std::move(owner));
-                if (!actor) return false;
-                if (out) *out = actor->getOrCreateUniqueID().rawID;
-                return true;
+                // Placing the actor needed NewUniqueIdsDataLoadHelper to map the
+                // UniqueID in the NBT onto a fresh one, the way /structure load does. Its
+                // constructor is inlined away in 26.32 and loadActor now wants a height
+                // range and a chunk besides. Reusing the snapshot's own id instead would
+                // collide with the source actor, and a collision makes the engine treat
+                // two actors as one: one vanishes, the other misbehaves, nothing logged.
+                (void)bs;
+                (void)out;
+                return false;
             PIER_API_GUARD_END
         }
 

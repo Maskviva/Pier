@@ -42,17 +42,17 @@ namespace pier::dimensions
          * A piston pushing a block across a plot boundary.
          *
          * Distinct from `PistonPush`: `PistonPush=false` means a piston moves no block
-         * anywhere in the dimension, while `PistonCrossPlot=false` allows pushing inside
+         * anywhere in the dimension, while `PistonCrossCell=false` allows pushing inside
          * a plot and blocks only a crossing. With both set, either one forbidding stops
          * the push.
          *
          * It is meaningful only once `setPlotGrid` has registered a grid, and a dimension
          * without one always allows it.
          */
-        PistonCrossPlot = 11,
-        /** An actor crossing a plot boundary. Players and ridden vehicles are exempt,
-         *  see PlotConfine.cpp. */
-        EntityCrossPlot = 12,
+        PistonCrossCell = 11,
+        /** An actor crossing a cell boundary. Players and ridden vehicles are exempt,
+         *  see CellConfine.cpp. */
+        EntityCrossCell = 12,
     };
 
     inline constexpr int kDimRuleCount = 13;

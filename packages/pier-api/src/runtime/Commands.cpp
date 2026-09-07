@@ -459,7 +459,9 @@ namespace pier::api_impl
                     std::string itemName;
                     if (auto it = ItemRegistryManager::getItemRegistry()
                                       .getItem(static_cast<short>(ci.mId)))
-                        itemName = it->getFullItemName();
+                        // getFullItemName is inlined away; mFullName is the HashedString
+                        // it returned.
+                        itemName = it->mFullName->getString();
                     key("{id:" + snbtNum(static_cast<int>(ci.mId))
                         + ",aux:" + snbtNum(static_cast<int>(ci.mVersion))
                         + ",name:\"" + snbtEscape(itemName) + "\"}");

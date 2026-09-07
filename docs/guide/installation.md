@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| Server | Bedrock Dedicated Server 1.26.20 |
-| Loader | LeviLamina 26.20.4 |
+| Server | Bedrock Dedicated Server 1.26.32 |
+| Loader | LeviLamina 26.32.0 |
 | Optional | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) for the economy calls |
 
 LegacyMoney really is optional. Pier delay-loads it, so a server without it starts
@@ -30,8 +30,11 @@ Download `pier-windows-x64.zip` from the
 Start the server. The log carries a line from the host once it is ready:
 
 ```
-[host] ready, ABI v1, api table 1560 bytes
+[host] ready, ABI v1, api table 1608 bytes
 ```
+
+The byte count is whatever the host compiled and grows every time a capability is
+appended, so read the line for the ABI version and not for that number.
 
 Then, in the console:
 

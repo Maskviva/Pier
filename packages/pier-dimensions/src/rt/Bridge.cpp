@@ -67,11 +67,11 @@ namespace pier::dimensions::rt
                 auto const hit = dimMap.mRight.find(wanted);
                 if (hit != dimMap.mRight.end())
                 {
-                    auto const id = hit->second.value();
+                    auto const id = hit->second.mValue;
                     // Undefined() is rewritten at runtime to one above the highest
                     // allocated id, so it is always a plausible-looking number. A name
                     // that resolves to it is a name that was never registered.
-                    if (id >= 0 && id != ::VanillaDimensions::Undefined().value()) return id;
+                    if (id >= 0 && id != ::VanillaDimensions::Undefined().mValue) return id;
                 }
             }
 
@@ -167,7 +167,7 @@ namespace pier::dimensions::rt
             // wrong dimension, or allow a teleport on the strength of it, which throws
             // an uncaught exception on a chunk thread and fastfails the process with
             // 0xC0000409.
-            int const realId = real->getDimensionId().value();
+            int const realId = real->getDimensionId().mValue;
             if (realId != dim)
             {
                 pier::hostLogger().error(

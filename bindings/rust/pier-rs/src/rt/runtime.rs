@@ -1,7 +1,9 @@
 //! The single runtime state in the process, and the implementation of the two gates.
 //!
-//! ```text Gate one, is the table long enough: struct_size >= offset + size_of::<fn ptr>() Gate
-//! two, is this slot non-null:      api.field.is_some() ```
+//! ```text
+//! Gate one, is the table long enough: struct_size >= offset + size_of::<fn ptr>() Gate
+//! two, is this slot non-null:      api.field.is_some()
+//! ```
 //!
 //! Neither may be skipped and the order cannot be reversed. Checking only for non-null, with a host
 //! older than the mod and a table too short to reach the field, makes reading `api.field` an out-

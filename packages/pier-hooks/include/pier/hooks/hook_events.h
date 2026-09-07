@@ -105,4 +105,42 @@ namespace pier::hooks
      * called after a cancel, so the behavior does not depend on registration order.
      */
     bool dispatchHookEventCancellable(HookEventDef& def, std::string const& snbt);
+
+    /**
+     * A redirect a subscriber asked for. Both halves are optional, so rerouting to
+     * another dimension without naming a position keeps the target the engine picked.
+     */
+    struct Redirect
+    {
+        bool  hasDimension = false;
+        int   dimension    = 0;
+        bool  hasPosition  = false;
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+
+        [[nodiscard]] bool any() const { return hasDimension || hasPosition; }
+    };
+
+    /** What the subscribers of one dispatch decided together. */
+    struct Decision
+    {
+        bool     cancelled = false;
+        Redirect redirect;
+    };
+
+    /**
+     * As dispatchHookEventCancellable, and additionally reads a redirect out of the
+     * reply: the optional fields to, to_x, to_y and to_z.
+     *
+     * A cancel from any subscriber wins over every redirect, because refusing is the
+     * safe direction and the two combined have no meaning. Among redirects the first
+     * one wins and a second, differing one is logged naming the event: letting the last
+     * writer win would make the outcome depend on subscription order, which is the
+     * property dispatchHookEventCancellable already refuses to have.
+     *
+     * Only for hook points where origin can really be skipped and where the redirected
+     * arguments are still writable when the dispatch returns.
+     */
+    Decision dispatchHookEventDecided(HookEventDef& def, std::string const& snbt);
 } // namespace pier::hooks

@@ -4,9 +4,7 @@ chcp 65001 >nul
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
 
-F:
-
-cd F:\project\pier
+cd /d "%~dp0" || (echo [fatal] cannot enter %~dp0 & exit /b 1)
 
 set VCPKG_ROOT=
 set CONAN_HOME=
@@ -16,7 +14,7 @@ set "LLVM_BIN=D:\Compiler\clang+llvm-21.1.8-x86_64-pc-windows-msvc\bin"
 set "PATH=%LLVM_BIN%;%PATH%"
 
 @REM echo xmake.exe repo -u
-@REM xmake.exe repo -u
+xmake.exe repo -u
 
 echo xmake.exe f -c -m release -y -v
 xmake.exe f -c -m release -y -v

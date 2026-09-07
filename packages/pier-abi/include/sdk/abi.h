@@ -73,11 +73,36 @@ extern "C" {
  *  fallback and no historical alias. */
 #define PIER_MAIN_SYMBOL "pier_main"
 
+/** What to write in front of a pier_main definition so the name is actually exported.
+ *
+ *  Naming the symbol is not the same as exporting it. A Windows DLL exports nothing
+ *  unless asked, so a plainly declared pier_main compiles, links, and then fails to
+ *  load with "does not export pier_main". An ELF build exports it by default, which
+ *  makes this a mistake a test on one platform cannot catch for the other.
+ *
+ *      PIER_MAIN_EXPORT bool pier_main(const PierApi* api, PierModHandle self,
+ *                                      PierModVTable* out_vtable) { ... }
+ *
+ *  The macro carries the C linkage as well, so the definition needs no separate
+ *  extern block. An SDK that emits the entry point from a macro of its own does not
+ *  need this one. */
+#ifdef __cplusplus
+#define PIER_MAIN_LINKAGE extern "C"
+#else
+#define PIER_MAIN_LINKAGE
+#endif
+#if defined(_WIN32)
+#define PIER_MAIN_EXPORT PIER_MAIN_LINKAGE __declspec(dllexport)
+#else
+#define PIER_MAIN_EXPORT PIER_MAIN_LINKAGE __attribute__((visibility("default")))
+#endif
+
 /** Bits for PierApi.host_flags and PierModVTable.mod_flags. Bit 0 must match on
  *  both sides or the host refuses to load and says why: a server host cannot
  *  load a client-built mod, and vice versa. All other bits are reserved and must
  *  currently be 0. */
 #define PIER_FLAG_CLIENT 0x1u
+
 
 /**
  * UTF-8 string view. An explicit {pointer, length} struct, not an alias for any
@@ -345,7 +370,7 @@ typedef bool (*PierServiceCb)(
  * single pointer is handed over.
  *
  * The failure mode is "slow" (the consumer falls back to the service channel),
- * never undefined behaviour. That property is the entire reason this lane is
+ * never undefined behavior. That property is the entire reason this lane is
  * allowed to exist.
  *
  * The host compares fingerprints for equality and never interprets them; it has
@@ -445,7 +470,7 @@ typedef struct PierLaneRef
      * with a reason when it is non-zero, rather than unloading and crashing.
      *
      * Appended field, guarded by struct_size: an older consumer's struct_size
-     * does not reach here, the loader does not write it, and its behaviour is
+     * does not reach here, the loader does not write it, and its behavior is
      * unchanged.
      */
     uint32_t* busy;
@@ -905,7 +930,7 @@ enum PierScoreboardOp
 };
 
 /** sys_info_str keys. */
-/** Per-dimension behaviour rules for md_set_dimension_rule.
+/** Per-dimension behavior rules for md_set_dimension_rule.
  *
  *  These are deliberately NOT a mirror of any engine enum: they name things
  *  the loader intercepts itself. Values are ABI — append only, never renumber.
@@ -924,16 +949,21 @@ enum PierDimRule
     PIER_DIMRULE_LIQUID_FLOW = 8, /* water/lava spreading */
     PIER_DIMRULE_FARMLAND_DECAY = 9, /* farmland trampled back to dirt */
     PIER_DIMRULE_RIDE = 10, /* mounting boats/minecarts/animals */
-    /*  Plot-boundary confinement (needs md_set_plot_grid)  */
+    /*  Grid cell boundary confinement (needs md_set_plot_grid). A plot world is one
+     *  use of the cell grid, a showcase or city world another.  */
     /* Pistons moving blocks ACROSS a plot boundary. Distinct from
      * PIER_DIMRULE_PISTON_PUSH, which disables pistons for the whole
      * dimension: this one leaves them working inside a plot and only refuses
      * the push that would cross the edge. Both apply — either one denying is
      * enough to stop the push. Inert in dimensions with no registered grid. */
-    PIER_DIMRULE_PISTON_CROSS_PLOT = 11,
+    PIER_DIMRULE_PISTON_CROSS_CELL = 11,
+    /* The same value under the spelling a plot world uses. Both names are permanent:
+     * removing one is a deletion, which §2.2 makes advance both version numbers. */
+    PIER_DIMRULE_PISTON_CROSS_PLOT = 11, /* RETIRED since 26.20.3, use PIER_DIMRULE_PISTON_CROSS_CELL */
     /* Entities crossing a plot boundary. Players and ridden vehicles are
-     * never confined — see PlotConfine.cpp for why. */
-    PIER_DIMRULE_ENTITY_CROSS_PLOT = 12,
+     * never confined — see CellConfine.cpp for why. */
+    PIER_DIMRULE_ENTITY_CROSS_CELL = 12,
+    PIER_DIMRULE_ENTITY_CROSS_PLOT = 12, /* RETIRED since 26.20.3, use PIER_DIMRULE_ENTITY_CROSS_CELL */
 };
 
 enum PierSysInfoProp
@@ -1188,6 +1218,15 @@ typedef struct PierApi
      *  the dimension bridge must produce an engine instance whose id matches, or the
      *  call fails instead of sending the player into a mismatched dimension. */
     bool (*player_teleport)(PierPlayerSel sel, int32_t dim, double x, double y, double z);
+    /** The four *_get_num slots share one convention. The return is whether the host has
+     *  an answer, and *out is the answer; a false leaves *out untouched.
+     *
+     *  False and "the value is zero" are different results and a caller must not collapse
+     *  them (contract §5.2). False has two causes it does not distinguish: the subject was
+     *  not found, and the property is one this engine version does not expose. Neither is
+     *  an error the host logs, because a caller polling a property it cannot read would
+     *  fill the log with it; the list of properties that always answer false on a given
+     *  version is in CHANGELOG.md under the release. */
     bool (*player_get_num)(PierPlayerSel sel, int32_t prop, double* out);
     bool (*player_get_str)(PierPlayerSel sel, int32_t prop, void* ctx, PierStrSink sink);
     bool (*player_set_num)(PierPlayerSel sel, int32_t prop, double v);
@@ -1366,7 +1405,7 @@ typedef struct PierApi
      * generic primitive spawn_particle_for derives from.
      * `packet_id` is a MinecraftPacketIds value; `body`/`body_len` is the
      * packet's wire-format body for the CURRENT game version. The bridge
-     * deserialises it into a real packet object (MinecraftPackets::createPacket
+     * deserializes it into a real packet object (MinecraftPackets::createPacket
      * + Packet::read) and delivers it to the resolved player's connection only.
      * False if: player offline, unknown/unconstructible id, body fails to
      * parse, or bytes are left over after parsing (wrong shape for this
@@ -1405,6 +1444,12 @@ typedef struct PierApi
      * {ticks:N, buckets:{level_tick:{us,calls}, dimension_tick:{…}, redstone:{…},
      *  chunk_blocks:{…}, block_entities:{…}}}. Bucket times are INCLUSIVE
      * (nested subsystems), report side by side, don't sum.
+     *
+     * chunk_blocks is the drain of a chunk's pending block-tick queues, both the
+     * scheduled and the random one, summed over every chunk. Work a chunk does
+     * around that drain is outside the bucket, so the number is a floor on block
+     * ticking and not the whole of it. calls counts queue drains, of which a
+     * ticking chunk contributes two, not one.
      */
     bool (*profile_take)(void* ctx, PierStrSink sink);
 
@@ -1671,15 +1716,15 @@ typedef struct PierApi
     /** Check whether MoreDimensions is available in this loader build. */
     bool (*md_is_available)(void);
 
-    /** Add a SimpleCustomDimension.
+    /** Add a custom dimension with a native generator.
      *
      *  generatorType is ::GeneratorType verbatim — 1=Overworld, 2=Flat,
-     *  3=Nether, 4=TheEnd, 5=Void. (This comment used to claim
-     *  "0=Overworld 1=Nether 2=TheEnd 3=Flat 4=Void", which is the numbering
-     *  bug that made "superflat" generate a nether. Values outside 1..5 are
-     *  rejected rather than silently building a void world.)
+     *  3=Nether, 4=TheEnd, 5=Void. The numbering starts at 1 and not 0;
+     *  values outside 1..5 are rejected rather than silently building a void
+     *  world.
      *
      *  Returns dim id (>=3) or -1 on failure. */
+    /* RETIRED since 26.20.3, use md_add_dimension */
     int32_t (*md_add_simple_dimension)(PierStr name, uint32_t seed, int32_t generatorType);
 
     /** Per-dimension rules, consulted by the loader's own hooks.
@@ -1695,7 +1740,7 @@ typedef struct PierApi
      *  dimension id and consulted only when that id shows up in a hook.
      *
      *  Dimensions with no entry are left completely alone: the hooks fall
-     *  through to origin(), so vanilla dimensions keep vanilla behaviour
+     *  through to origin(), so vanilla dimensions keep vanilla behavior
      *  without the caller having to opt out. */
     void (*md_set_dimension_rule)(int32_t dimension, int32_t rule, bool allow);
 
@@ -1737,6 +1782,7 @@ typedef struct PierApi
      *  border when within borderWidth of the plot edge; otherwise plot.
      *
      *  Idempotent, like md_add_simple_dimension. Returns dim id (>=3) or -1. */
+    /* RETIRED since 26.20.3, use md_add_dimension */
     int32_t (*md_add_plot_dimension)(PierStr name, uint32_t seed, PierStr layout_snbt);
 
     /*  Append tail, struct_size-gated.
@@ -1867,8 +1913,8 @@ typedef struct PierApi
     uint32_t (*bus_subscriber_count)(PierStr topic);
 
     /*  Plot-boundary confinement
-     * Backing store for PIER_DIMRULE_PISTON_CROSS_PLOT and
-     * PIER_DIMRULE_ENTITY_CROSS_PLOT. Those two rules ask "are these two
+     * Backing store for PIER_DIMRULE_PISTON_CROSS_CELL and
+     * PIER_DIMRULE_ENTITY_CROSS_CELL. Those two rules ask "are these two
      * columns in the same plot?", and the answer needs the grid geometry plus
      * the merge markers. The question is asked from
      * `PistonBlockActor::_checkAttachedBlocks` and `Actor::move` — engine tick
@@ -1886,10 +1932,12 @@ typedef struct PierApi
      *  clears it. Values are clamped loader-side — `cell = plot_size +
      *  road_width` is a modulus, and a caller-supplied 0 would divide by zero
      *  in a tick path. Clears the merge table when the geometry changes. */
+    /* RETIRED since 26.20.3, use terrain.grid.confine in the md_add_dimension spec */
     void (*md_set_plot_grid)(int32_t dimension, int32_t plot_size, int32_t road_width);
 
     /** Drop a dimension's grid and merge table (world deleted, or the world
      *  stopped using the plot model). */
+    /* RETIRED since 26.20.3, nothing replaces it: the grid is withdrawn with the dimension */
     void (*md_clear_plot_grid)(int32_t dimension);
 
     /** Replace a dimension's merge markers wholesale. `entries` is `count`
@@ -2133,7 +2181,7 @@ typedef struct PierApi
      * in the packet context.
      *
      * A packet callback has only conn_id, not a player, so per-player rewriting
-     * of outbound packets is impossible without this: locking the sky colour
+     * of outbound packets is impossible without this: locking the sky color
      * needs the dimension of the person on that connection, which needs to know
      * who they are.
      *
@@ -2200,7 +2248,7 @@ typedef struct PierApi
      * "minecraft:plains".
      *
      * Returns how many columns were set. 0 means none were, either because the
-     * chunks are not loaded or because the name was not recognised.
+     * chunks are not loaded or because the name was not recognized.
      */
     int32_t (*level_set_biome)(int32_t dim,
                                int32_t minX, int32_t minZ,
@@ -2312,6 +2360,64 @@ typedef struct PierApi
      * only.
      */
     bool (*container_get_items)(PierContainerRef ref, void* ctx, PierSlotSink sink);
+
+    /** Add a custom dimension from one declarative spec. This is the one entry the
+     *  md_add_simple_dimension / md_add_plot_dimension pair are wrappers of: both
+     *  build a spec and call the same path, and their names stay (contract 2.2).
+     *
+     *  `spec_snbt` is a CompoundTag SNBT string:
+     *    {seed:123,
+     *     height:{min:-64,max:320},            optional, both multiples of 16
+     *     sky:{client:"overworld"|"nether"|"end", skylight:true, weather:true,
+     *          time:12000},                       optional, 0..23999
+     *     sky.time holds this dimension at one tick of day and leaves every other
+     *     dimension on the level clock. A nether or end client sky has no day cycle to
+     *     begin with, so the field only changes what an overworld sky shows.
+     *     terrain:{kind:"native", generator:"overworld"|"nether"|"end"|"void"}
+     *   | terrain:{kind:"layers", base_y:63, biome:"minecraft:plains",
+     *              layers:[{block,thickness}...],
+     *              grid:{cell,gap,edge,gap_block,edge_block,confine:false}}
+     *     grid.confine:true registers the same grid with the cell-confinement hooks
+     *     (PIER_DIMRULE_PISTON_CROSS_CELL / ENTITY_CROSS_CELL), so the terrain and
+     *     the confinement can never disagree about where a cell ends.
+     *   | terrain:{kind:"noise", height:{min,max},
+     *              biomes:[{biome, temperature:[lo,hi], humidity:[lo,hi]}],
+     *              shape:{gradient:{from_y,to_y}, threshold,
+     *                     octaves:[{scale_xz,scale_y,amplitude,levels}],
+     *                     islands:{scale,floor}},
+     *              palette:[{block,depth:[lo,hi]}],
+     *              fluid:{block,level}, bedrock:{block,y}} }
+     *
+     *  `sky.client` is what the client is told in DimensionDefinition: nether and
+     *  end skies have no day/night, which is how those dimensions lock time. It is
+     *  independent of the server-side generator.
+     *
+     *  A biome that is not in the registry, a height not on a subchunk boundary, or a
+     *  terrain kind the host does not know refuses with -1 and a log line; nothing
+     *  falls back to a "close enough" generator, because the spec is persisted with
+     *  the dimension and terrain generated from a wrong spec cannot be regenerated.
+     *
+     *  Idempotent by name, like the two wrappers. Returns dim id (>=3) or -1. */
+    int32_t (*md_add_dimension)(PierStr name, PierStr spec_snbt);
+
+    /** Retire a custom dimension: drop it from dimension_config.json, from the host's
+     *  own tables and from the dimension factory, so nothing registers it on the next
+     *  boot and it stops appearing in md_list_dimensions.
+     *
+     *  This is not a delete. The chunks the dimension wrote are still in the save, the
+     *  engine still holds the id it was given for this session, and a player standing
+     *  in it is not moved. What ends is the host's willingness to register the name
+     *  again from its own config.
+     *
+     *  The id is not returned to the pool. A retired name registered again is a new
+     *  dimension and gets a fresh id, which leaves the old chunks orphaned on disk and
+     *  costs space. Handing the number back instead would point the new dimension at
+     *  the terrain of the old one, and nothing about that is recoverable, so the
+     *  cheaper mistake is the one this makes.
+     *
+     *  True while the name was known and has been retired, false when the host had no
+     *  such dimension, which is also what a second call reports. */
+    bool (*md_retire_dimension)(PierStr name);
 } PierApi;
 
 /**

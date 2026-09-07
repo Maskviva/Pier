@@ -55,7 +55,11 @@ def run():
 
     found = 0
     for dp, dirs, fs in os.walk(scan_root):
-        dirs[:] = [d for d in dirs if d not in (".git", "target", "node_modules")]
+        # `bin` holds the packed copy of the root manifest, and the root manifest is
+        # exempt a few lines below. Walking into the output directory reports the same
+        # file twice, once exempt and once not.
+        dirs[:] = [d for d in dirs
+                   if d not in (".git", "target", "node_modules", "bin", "build", ".xmake")]
         if "manifest.json" not in fs:
             continue
         p = os.path.join(dp, "manifest.json")

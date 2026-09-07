@@ -16,11 +16,13 @@
 
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/deps/core/string/HashedString.h"
+#include "mc/deps/shared_types/legacy/actor/ArmorSlot.h"
 #include "mc/deps/shared_types/legacy/EquipmentSlot.h"
 #include "mc/network/NetworkIdentifier.h"
 #include "mc/network/NetworkPeer.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorFlags.h"
+#include "mc/world/actor/player/Inventory.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/effect/MobEffectInstance.h"
 #include "mc/world/item/ItemStack.h"
@@ -32,6 +34,7 @@
 #include "mc/world/level/PlayerSleepStatus.h"
 #include "mc/world/level/biome/Biome.h"
 #include "mc/world/level/block/Block.h"
+#include "mc/world/actor/provider/SynchedActorDataAccess.h"
 #include "mc/world/level/block/BlockChangeContext.h"
 #include "mc/world/level/storage/LevelStorage.h"
 #include "mc/world/level/storage/db_helpers/Category.h"
@@ -51,6 +54,27 @@ namespace pier::api_impl
 {
     namespace
     {
+        /** The stack in one of the six slots this ABI numbers 0..5.
+         *
+         *  Actor::getEquippedSlot took the whole EquipmentSlot vocabulary and is inlined
+         *  away in 26.32. The three accessors that survive cover exactly the six the ABI
+         *  exposes, so the mapping is written out rather than the vocabulary rebuilt.
+         *  An index outside 0..5 is the caller's error and yields the empty stack the
+         *  main hand reports for an empty hand. */
+        ItemStack const& equippedSlot(Actor& a, int slot)
+        {
+            using Armor = ::SharedTypes::Legacy::ArmorSlot;
+            switch (slot)
+            {
+            case 1:  return a.getOffhandSlot();
+            case 2:  return a.getArmor(Armor::Head);
+            case 3:  return a.getArmor(Armor::Torso);
+            case 4:  return a.getArmor(Armor::Legs);
+            case 5:  return a.getArmor(Armor::Feet);
+            default: return a.getCarriedItem();
+            }
+        }
+
         /*  Player: equipment, cooldowns, network  */
 
         bool api_player_get_carried_item(PierPlayerSel sel, void* ctx, PierStrSink sink)
@@ -94,24 +118,16 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Player* p = bridge::resolvePlayer(sel);
                 if (!p || !sink) return false;
-                // slot is 0 main hand, 1 offhand, 2 head, 3 chest, 4 legs, 5 feet.
-                // Actor::getEquippedSlot(EquipmentSlot) reads all six uniformly and
-                // returns an ItemStack const&, an empty item for an empty slot, which
-                // itemToSnbt renders as "{}".
-                namespace Equip = ::SharedTypes::Legacy;
+                // slot is 0 main hand, 1 offhand, 2 head, 3 chest, 4 legs, 5 feet, all
+                // read through equippedSlot above, which returns an ItemStack const&: an
+                // empty item for an empty slot, which itemToSnbt renders as "{}".
                 std::string out = "[";
-                out += "{\"slot\":0,\"item\":"
-                    + bridge::itemToSnbt(p->getEquippedSlot(Equip::EquipmentSlot::Mainhand)) + "}";
-                out += ",{\"slot\":1,\"item\":"
-                    + bridge::itemToSnbt(p->getEquippedSlot(Equip::EquipmentSlot::Offhand)) + "}";
-                out += ",{\"slot\":2,\"item\":"
-                    + bridge::itemToSnbt(p->getEquippedSlot(Equip::EquipmentSlot::Head)) + "}";
-                out += ",{\"slot\":3,\"item\":"
-                    + bridge::itemToSnbt(p->getEquippedSlot(Equip::EquipmentSlot::Torso)) + "}";
-                out += ",{\"slot\":4,\"item\":"
-                    + bridge::itemToSnbt(p->getEquippedSlot(Equip::EquipmentSlot::Legs)) + "}";
-                out += ",{\"slot\":5,\"item\":"
-                    + bridge::itemToSnbt(p->getEquippedSlot(Equip::EquipmentSlot::Feet)) + "}";
+                for (int i = 0; i <= 5; ++i)
+                {
+                    if (i) out += ",";
+                    out += "{\"slot\":" + snbtNum(i) + ",\"item\":"
+                        + bridge::itemToSnbt(equippedSlot(*p, i)) + "}";
+                }
                 out += "]";
                 sink(ctx, ps(out));
                 return true;
@@ -209,9 +225,11 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !out) return false;
-                auto* target = a->getTarget();
-                if (!target) return false;
-                *out = target->getOrCreateUniqueID().rawID;
+                // getTarget is inlined away; mTargetId is the id it resolved from, and
+                // an unset target is the invalid id rather than a null actor.
+                auto const tid = a->mTargetId->rawID;
+                if (tid == -1) return false;
+                *out = tid;
                 return true;
             PIER_API_GUARD_END
         }
@@ -222,10 +240,7 @@ namespace pier::api_impl
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !sink || slot < 0 || slot > 5) return false;
                 // slot is 0 main hand, 1 offhand, 2 head, 3 chest, 4 legs, 5 feet.
-                // Actor::getEquippedSlot covers all six through EquipmentSlot.
-                namespace Equip = ::SharedTypes::Legacy;
-                auto es = static_cast<Equip::EquipmentSlot>(slot);
-                sink(ctx, ps(bridge::itemToSnbt(a->getEquippedSlot(es))));
+                sink(ctx, ps(bridge::itemToSnbt(equippedSlot(*a, slot))));
                 return true;
             PIER_API_GUARD_END
         }
@@ -249,20 +264,20 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 Actor* a = bridge::resolveActor(id);
                 if (!a || !sink) return false;
-                // getAllEffects() returns vector<MobEffectInstance> const&. Each
-                // instance offers getId(), getAmplifier() and
-                // getDuration().getValue(), an optional that is empty for an infinite
-                // duration.
+                // getAllEffects() returns vector<MobEffectInstance> const&. The three
+                // accessors it used to be read through are inlined away in 26.32; mId,
+                // mAmplifier and mDuration are the fields they returned. mDuration is a
+                // plain value now rather than an optional, so an infinite duration is no
+                // longer distinguishable and -1 is not reported.
                 std::string out = "[";
                 bool first = true;
                 for (auto const& e : a->getAllEffects())
                 {
                     if (!first) out += ",";
                     first = false;
-                    auto dur = e.getDuration().getValue();
-                    out += "{id:" + snbtNum(e.getId());
-                    out += ",amp:" + snbtNum(e.getAmplifier());
-                    out += ",duration:" + (dur ? snbtNum(*dur) : std::string{"-1"});
+                    out += "{id:" + snbtNum(e.mId);
+                    out += ",amp:" + snbtNum(e.mAmplifier);
+                    out += ",duration:" + snbtNum(e.mDuration->mValue);
                     out += "}";
                 }
                 out += "]";
@@ -289,7 +304,10 @@ namespace pier::api_impl
                 Actor* a = bridge::resolveActor(id);
                 if (!a) return false;
                 if (flag_index < 0 || flag_index >= static_cast<int32_t>(ActorFlags::Count)) return false;
-                a->setStatusFlag(static_cast<ActorFlags>(flag_index), value);
+                // setStatusFlag is inlined away; setActorFlag is the one it forwarded
+                // to and is what Actor::getStatusFlag reads back through.
+                SynchedActorDataAccess::setActorFlag(
+                    a->getEntityContext(), static_cast<ActorFlags>(flag_index), value);
                 return true;
             PIER_API_GUARD_END
         }
@@ -420,8 +438,11 @@ namespace pier::api_impl
                 // without writing it does not lose a feature, it reports success while
                 // the world is unchanged: the caller sees Ok, the block does not move
                 // and nothing is logged.
-                return bs->setBlock(
-                    BlockPos{x, y, z}, *opt, 3, nullptr, BlockChangeContext::commandsChange());
+                // commandsChange is inlined away; the class is a variant now and the
+                // alternative that factory produced is the stateless Commands tag.
+                BlockChangeContext how{};
+                how.mContextSource = ::StatelessBlockChangeContext::Commands;
+                return bs->setBlock(BlockPos{x, y, z}, *opt, 3, nullptr, how);
             PIER_API_GUARD_END
         }
 
@@ -433,13 +454,17 @@ namespace pier::api_impl
                 if (!bs || !sink) return false;
                 BlockPos pos{x, y, z};
                 auto const& block = bs->getBlock(pos);
-                // Block::getCollisionShape fills an AABB out parameter and returns true
+                // The forward on Block is inlined away; BlockType's override returns the
+                // box rather than filling one, so an empty box is what "no collision" is.
+                // Block::getCollisionShape used to fill an AABB out parameter and return true
                 // when the block has a collision box. A multi-box shape needs
                 // BlockSource::fetchCollisionShapes. This gap-fill slot reports the
                 // primary shape only, which answers most questions about whether
                 // something can pass.
-                AABB aabb;
-                bool has = block.getCollisionShape(aabb, *bs, pos, nullptr);
+                AABB const aabb =
+                    block.getBlockType().getCollisionShape(block, *bs, pos, nullptr);
+                bool const has = aabb.min.x != aabb.max.x || aabb.min.y != aabb.max.y
+                    || aabb.min.z != aabb.max.z;
                 if (!has)
                 {
                     sink(ctx, ps(std::string_view{"[]"}));
@@ -504,7 +529,10 @@ namespace pier::api_impl
                 auto oa = bridge::itemFromSnbt(sv(a));
                 auto ob = bridge::itemFromSnbt(sv(b));
                 if (!oa || !ob) return false;
-                return oa->matches(*ob);
+                // ItemStackBase::matches is inlined away. LeviLamina implements
+                // operator== itself and it is the same comparison: same item, same aux
+                // value, same user data.
+                return *oa == *ob;
             PIER_API_GUARD_END
         }
 
@@ -513,7 +541,8 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto opt = bridge::itemFromSnbt(sv(item_snbt));
                 if (!opt || !sink) return false;
-                auto* ud = opt->getUserData();
+                // getUserData is inlined away; mUserData is the pointer it returned.
+                auto* ud = opt->mUserData.get();
                 if (!ud)
                 {
                     sink(ctx, ps(std::string_view{"{}"}));
@@ -532,12 +561,10 @@ namespace pier::api_impl
             PIER_API_GUARD_BEGIN
                 auto* bs = bridge::blockSourceOf(dim);
                 if (!bs || !sink) return false;
-                // tryGetBiome returns a nullable Biome const*, while the reference from
-                // getBiome is never null in a well-formed chunk. The nullable one is
-                // used so an unloaded chunk reports failure instead of dereferencing
-                // garbage.
-                auto const* biome = bs->tryGetBiome(BlockPos{x, y, z});
-                if (!biome) return false;
+                // tryGetBiome is inlined away, so the nullable read is gone and only the
+                // reference-returning getBiome is left. An unloaded chunk used to report
+                // failure here and now answers with whatever that call yields.
+                auto const* biome = &bs->getBiome(BlockPos{x, y, z});
                 // Biome has no getName(). The id string lives in the public member
                 // mHash, a TypedStorage<HashedString>. It is bound to a
                 // HashedString const& first and then getString() is called, because

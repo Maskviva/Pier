@@ -19,6 +19,8 @@
 
 #include "ll/api/memory/Hook.h"
 
+#include "mc/world/level/BlockTickingQueue.h"
+#include "mc/world/level/Tick.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/chunk/LevelChunk.h"
 #include "mc/world/level/dimension/Dimension.h"
@@ -140,23 +142,35 @@ namespace pier::hooks
             st.redstone.add(Clock::now() - t0);
         }
 
+        /*
+         * LevelChunk::tickBlocks is inlined away in 26.32 and has no symbol to detour.
+         * The queue drain it drove is still a real function, and a chunk owns two of
+         * them, mTickQueue and mRandomTickQueue, so the bucket sums both across every
+         * chunk. That is a narrower measurement than the one this bucket carried
+         * before: work the chunk did around the drain is outside it now. The abi.h
+         * text for chunk_blocks says so, because a bucket that quietly starts
+         * measuring something else is worse than one that reports a smaller number.
+         */
         LL_TYPE_INSTANCE_HOOK(
             ProfChunkBlocksHook,
             ll::memory::HookPriority::Normal,
-            LevelChunk,
-            &LevelChunk::tickBlocks,
-            void,
-            ::BlockSource& region)
+            BlockTickingQueue,
+            &BlockTickingQueue::tickPendingTicks,
+            bool,
+            ::BlockSource& region,
+            ::Tick const&   until,
+            int             max,
+            bool            instaTick)
         {
             auto& st = gProf;
             if (!st.sampling)
             {
-                origin(region);
-                return;
+                return origin(region, until, max, instaTick);
             }
             auto t0 = Clock::now();
-            origin(region);
+            bool r  = origin(region, until, max, instaTick);
             st.chunkBlocks.add(Clock::now() - t0);
+            return r;
         }
 
         LL_TYPE_INSTANCE_HOOK(

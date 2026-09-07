@@ -6,6 +6,143 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v1, which moves far more slowly.
 
+## [26.32.0] - 2026-09-07
+
+The BDS 1.26.32 release. Mojang's build now inlines a large part of what used to be a
+callable symbol, so LeviLamina 26.32 declares about a third fewer non-virtual functions
+than 26.20 did while virtual declarations are untouched. Nothing in the engine went away;
+the wrappers around it did. Where a wrapper is gone this release reaches the same data
+through the ECS accessor namespaces, a public member, or a surviving virtual, and where
+the reachable thing is narrower than the old one the documentation says so rather than
+keeping the old wording.
+
+The ABI stays at v1 and no slot is added or retired, so a mod built against 26.20.2 loads
+unchanged. One slot reports a narrower number, described below.
+
+### Changed
+
+- **Requires BDS 1.26.32 and LeviLamina 26.32.0.** 26.20 is no longer supported.
+- **`profile_take`'s `chunk_blocks` bucket measures less than it did.** `LevelChunk::tickBlocks`
+  is inlined away and has no address to detour, so the bucket now times the drain of a
+  chunk's pending block-tick queues, scheduled and random, summed over every chunk. Work
+  a chunk does around that drain falls outside it, so the figure is a floor on block
+  ticking. `calls` counts queue drains, and a ticking chunk contributes two.
+- **The crossbow-firework projectile guard asks at the release instead.** `CrossbowItem::_shootFirework`
+  is inlined away. The guard hooks the virtual release and reads the charged item, so an
+  arrow-loaded crossbow still costs one decision and not two.
+- **`DimensionRule::PistonCrossPlot` and `EntityCrossPlot` are now `PistonCrossCell` and
+  `EntityCrossCell`** in pier-rs, matching the ABI names since 26.20.3. The old spellings
+  stay as deprecated constants with the same values, so an existing mod compiles.
+- The Rust binding moves to pier-rs 1.2.0 / pier-sys-rs 26.32.0.
+
+### Added
+
+- **A C++ tutorial beside the Rust one, and a C++ example with four build files.**
+  `docs/cpp/` covers what the Rust wrappers do for you and you now do yourself: the entry
+  point, the capability check against `struct_size`, `PierStr`, and the bool-plus-out
+  error convention. `examples/hello-pier-cpp` is a mod that registers one command, with
+  MSVC, clang-cl, CMake and xmake files producing the same DLL from the same source.
+- **`PIER_MAIN_EXPORT` in abi.h.** The header named the entry symbol without saying how to
+  export it, so a C++ mod compiled, linked and was refused at load. An ELF build exports
+  it by default, which is why this took a Windows server to surface.
+- `pier-probe` moved from `examples/` to `tools/`. It is a diagnostic, not a thing to
+  learn from; `examples/` now holds the two mods that are.
+
+- **`md_retire_dimension(name)`.** Drops a custom dimension from
+  `dimension_config.json`, from the host's tables and from the dimension factory, so the
+  next boot does not register it and `md_list_dimensions` stops reporting it. The ABI
+  stays at v1: the slot is appended and no existing one moves.
+
+  It is not a delete. The chunks stay in the save, the engine keeps the dimension it
+  built for this session, and a player standing in it is not moved. Nor is the id handed
+  back: registering the retired name later is a new dimension with a new id. That leaves
+  the old chunks orphaned and costs disk, and the alternative is worse, because reusing
+  the number points a new dimension at the terrain of the old one and nothing about that
+  is recoverable.
+
+- **`sky.time` in the dimension spec.** An optional tick of day, 0..23999, beside
+  `skylight` and `weather`. The dimension is held at that tick and every other dimension
+  keeps following the level clock. It sits in the spec because it describes the sky and
+  not the terrain, the same as its two neighbours; the alternatives on the mod side are
+  `set_time`, which moves everyone's world, and rewriting SetTime per player, which needs
+  a packet hook and fights any other plugin that also manages time. A nether or end
+  client sky has no day cycle to begin with, so the field only changes an overworld sky.
+- **`verb` in the ExecutingCommandEvent payload.** The canonical command name with
+  aliases resolved, read from CommandRegistry. Splitting the raw line on whitespace gives
+  a different answer: `/w`, `/tell` and `/msg` are one command behind three names and a
+  gate keyed on the first word refuses one spelling while the other two pass. The alias
+  table is not visible outside the registry. `/execute ... run <command>` still reports
+  `execute`, because the inner command is parsed after this event has been decided.
+
+### Verified on a real server
+
+`tools/pier-probe` walked the whole table on BDS 1.26.32.2 with LeviLamina 26.32.2:
+225 probes, 219 answered, none refused, none threw. The six absent slots are the
+`client_*` family, which a server build does not fill. `server_info_str[1]` reported
+protocol 1001, which is the number the server's own startup banner prints, so the
+replacement for the inlined-away `NetworkProtocolVersion` reads the same value the engine
+does rather than a plausible one.
+
+### Fixed after the first run on a real server
+
+- **`game_rule_get` and `game_rule_set` answered for `pvp` and nothing else.**
+  `GameRules::nameToGameRuleIndex` is inlined away in 26.32 and the host walks
+  `GameRule::mName` instead. That field is spelled the way `GameRulesIndex` is,
+  `showCoordinates` rather than `showcoordinates`, while `/gamerule` and every existing
+  caller write it in lower case, so an exact comparison matched only the one rule name
+  with no case to get wrong. The match folds ASCII case now.
+
+### Capabilities that now report failure
+
+Every one of these is a slot that still exists and still returns; it answers false or
+nothing instead of a value. The engine function behind it is inlined away with no field
+or component left to read it from, or it is compiled only on the client platform. A mod
+that treats a false from one of these as fatal will refuse to start, so the list is here
+rather than only in the source.
+
+- `actor_property`: IS_IN_LAVA, IS_PERSISTENT, HAS_TOTEM.
+- `actor_action`: SET_VARIANT, SET_MARK_VARIANT, SET_SKIN_ID. SET_SCORE_TAG still works:
+  the engine exports the string specialization of the synched-data write and not the
+  integer one.
+- `player_property`: LUCK, IS_EMOTING, IS_IN_RAID, HAS_RESPAWN_POSITION, DIRECTION,
+  IS_USING_ITEM.
+- `player_action`: RESEND_ALL_CHUNKS, REGISTER_TRACKED_BOSS, UNREGISTER_TRACKED_BOSS.
+  The last two are client-platform only.
+- Attribute writes through `player_attribute_set`. Writing the field directly would skip
+  the listener pass that syncs the value, so the attribute would move on the server and
+  not on screen.
+- `item_property`: HAS_DURABILITY, IS_FIRE_RESISTANT, IS_MUSIC_DISC, IS_OFFHAND,
+  IS_UNBREAKABLE. `item_string`: EFFECT_NAME.
+- `item_op`: SET_CAN_DESTROY, SET_CAN_PLACE_ON. The field holds resolved block pointers
+  beside a hash the engine compares against, and a wrong hash stops the restriction from
+  applying without saying so.
+- `block_property`: IS_UNBREAKABLE.
+- Actor copying in `world_edit`: the id-remapping helper needed to avoid colliding with
+  the source actor is gone.
+- Custom dimensions in full. `md_*` slots that create one report failure; see the note
+  under Changed.
+
+Two more answer a narrower question than before rather than failing: `profile_take`'s
+`chunk_blocks` bucket, described above, and the potion effect list, which no longer
+distinguishes an infinite duration.
+
+### Fixed
+
+- **Comments that were not true.** `SpecDimension.cpp` said a file that was still in the
+  tree and still compiling had been deleted, and both it and `spec_dimension.h` said the
+  mod-side record and `dimension_config.json` hold the same bytes. The manager writes the
+  tag back out with `SnbtFormat::Minimize`, so the equality that holds is structural.
+- **Retired source was still in the tree.** `SimpleCustomDimension` and the four `plot/`
+  files are cut; `SpecDimension` and `gen/` replace them.
+
+### Requirements
+
+| | |
+|---|---|
+| Bedrock Dedicated Server | 1.26.32 |
+| LeviLamina | 26.32.0 |
+| Platform | Windows x64 |
+
 ## [26.20.2] - 2026-09-05
 
 A performance and correctness release for BDS 1.26.20 / LeviLamina 26.20.4. The ABI stays
@@ -188,5 +325,6 @@ The ABI is not compatible and no attempt is made to load a loader mod.
   could free it lives in a library that may already be unloaded. Cleanup that has to
   happen does not belong in a form callback.
 
+[26.32.0]: https://github.com/Maskviva/pier/releases/tag/26.32.0
 [26.20.2]: https://github.com/Maskviva/pier/releases/tag/26.20.2
 [26.20.1]: https://github.com/Maskviva/pier/releases/tag/26.20.1

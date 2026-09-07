@@ -27,6 +27,6 @@ target("pier-dimensions")
     add_includedirs("include", {public = true})
     add_packages("levilamina", "snappy", "magic_enum")
     if not is_config("target_type", "client") then
-        add_files("src/base/*.cpp", "src/dim/*.cpp", "src/plot/*.cpp", "src/rt/*.cpp")
+        add_files("src/base/*.cpp", "src/dim/*.cpp", "src/spec/*.cpp", "src/gen/*.cpp", "src/rt/*.cpp")
     end
 target_end()

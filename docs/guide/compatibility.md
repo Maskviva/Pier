@@ -2,12 +2,19 @@
 
 ## Versions
 
-A Pier release is numbered `<BDS major>.<BDS minor>.<release>`. `26.20.1` is the first
-release for BDS 1.26.20.
+A Pier release is numbered `<BDS major>.<BDS minor>.<release>`, so the first two parts
+name the BDS the release was built for and the third counts releases against it.
 
 | Pier | BDS | LeviLamina |
 |---|---|---|
+| 26.32.0 | 1.26.32 | 26.32.0 |
+| 26.20.2 | 1.26.20 | 26.20.4 |
 | 26.20.1 | 1.26.20 | 26.20.4 |
+
+A row is not a range. Each release is built against the one BDS its number names and does
+not run on the others: Mojang's 26.32 build inlined away about a third of the functions
+LeviLamina could declare in 26.20, so a 26.32 host calls things a 26.20 engine does not
+have and the reverse. Match the row, do not interpolate between them.
 
 ## The ABI is separate from the release
 

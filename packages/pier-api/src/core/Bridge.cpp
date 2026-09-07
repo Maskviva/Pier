@@ -29,6 +29,7 @@
 #include "mc/world/item/SaveContextFactory.h"
 #include "mc/world/level/BlockPos.h"
 #include "mc/world/level/BlockSource.h"
+#include "mc/world/level/block/actor/VanillaBlockActor.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/block/actor/BlockActor.h"
 #include "mc/world/level/dimension/Dimension.h"
@@ -245,7 +246,12 @@ namespace pier::bridge
             if (!bs) return nullptr;
             auto* be = bs->getBlockEntity(BlockPos{ref.x, ref.y, ref.z});
             if (!be) return nullptr;
-            return be->getContainer();
+            // BlockActor lost getContainer in 26.32; the override survives on
+            // VanillaBlockActor, which every container block entity derives from. A block
+            // entity that is not one has no container, which is the null the caller
+            // already handles.
+            auto* vba = dynamic_cast<VanillaBlockActor*>(be);
+            return vba ? vba->getContainer() : nullptr;
         }
         Player* p = resolvePlayer(ref.player);
         if (!p) return nullptr;

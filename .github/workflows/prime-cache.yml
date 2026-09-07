@@ -31,6 +31,31 @@ jobs:
 
       - uses: xmake-io/github-action-setup-xmake@v1
 
+      # See build.yml for why this is pinned. This job's entire purpose is to run the
+      # install that build.yml's timeout is too short for, so if the install itself
+      # fails to compile, priming the cache fails the same way the job it primes for
+      # would.
+      - name: Install LLVM 21.1.8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # The `clang+llvm-` archive carries LLVM's own libraries and tools on top of
+          # the toolchain, which is what makes it 900 MB and tens of thousands of files:
+          # a plain `tar -xf` of it took over ten minutes on a Windows runner. The `LLVM-`
+          # installer is the toolchain alone, a fifth of the size, and NSIS's own silent
+          # install is faster than shelling out to bsdtar for that many small files.
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/LLVM-21.1.8-win64.exe"
+          curl.exe -fL --retry 3 -o "$env:RUNNER_TEMP\llvm-installer.exe" $url
+          # /D sets the install directory and NSIS requires it unquoted, backslash-only,
+          # with no trailing slash, and last on the command line.
+          Start-Process -FilePath "$env:RUNNER_TEMP\llvm-installer.exe" `
+              -ArgumentList "/S", "/D=C:\llvm" -Wait -NoNewWindow
+          "C:\llvm\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Show the clang-cl that will be used
+        shell: pwsh
+        run: clang-cl --version
+
       - run: xmake repo -u
 
       # Restore first: a re-run after a partial failure then only installs what is

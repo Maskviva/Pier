@@ -100,11 +100,11 @@ namespace pier::dimensions
             try
             {
                 // Converted implicitly to Dimension&, the same form
-                // `auto& level = mLevel;` uses in PlotDimension. TypedStorage does not
+                // `auto& level = mLevel;` uses in SpecDimension. TypedStorage does not
                 // guarantee operator-> when it holds a reference. The full rules are in
                 // the file header of `tools/typed-storage.py`.
                 Dimension& dim = lc.mDimension;
-                return dim.getDimensionId().value();
+                return dim.getDimensionId().mValue;
             }
             catch (...)
             {
@@ -123,7 +123,7 @@ namespace pier::dimensions
         std::atomic<uint64_t> gSubChunkPkts{0};
     } // namespace
 
-    //  The switches. PlotGenerator reads this same copy.
+    //  The switches.
 
     bool chunkTraceEnabled()
     {
@@ -202,7 +202,7 @@ namespace pier::dimensions
     {
         auto* ret = origin(dimension, cp, readOnly, initBlocks, initializeMetaData, blockActorTrackingMode);
 
-        int const dimId = dimension.getDimensionId().value();
+        int const dimId = dimension.getDimensionId().mValue;
         if (wanted(dimId))
         {
             auto const n = gCreated.fetch_add(1) + 1;
@@ -224,38 +224,13 @@ namespace pier::dimensions
      * The client only receives the ones that reach the end. Where a chunk stops is
      * visible here.
      */
-    LL_TYPE_INSTANCE_HOOK(
-        LevelChunkChangeStateTraceHook,
-        HookPriority::Normal,
-        LevelChunk,
-        &LevelChunk::changeState,
-        void,
-        ::ChunkState from,
-        ::ChunkState to
-    )
-    {
-        int const dimId = dimIdOf(*this);
-        if (wanted(dimId))
-        {
-            auto const& cp = mPosition.get();
-            auto const cur = mLoadState->load();
-            auto const n = gTransitions.fetch_add(1) + 1;
-            if (to == ChunkState::Loaded) gLoaded.fetch_add(1);
-            hostLogger().info(
-                "[state ] dim={} chunk=({}, {}) {} -> {} (currently {}) total={}",
-                dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to), stateName(cur), n
-            );
-            if (cur != from)
-            {
-                hostLogger().warn(
-                    "[state!] dim={} chunk=({}, {}) expected to transition from {} but is currently {}, so this transition is lost",
-                    dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(cur)
-                );
-            }
-        }
-        origin(from, to);
-    }
-
+    /*
+     * The unconditional LevelChunk::changeState had a trace here and is inlined away in
+     * 26.32, leaving no address to detour. tryChangeState below still has one and carries
+     * the guarded transitions, which is where a chunk normally moves. A transition made
+     * through the unconditional setter now passes unseen, so a chunk that stops between
+     * states can look like it never attempted the move rather than like it was refused.
+     */
     LL_TYPE_INSTANCE_HOOK(
         LevelChunkTryChangeStateTraceHook,
         HookPriority::Normal,
@@ -318,7 +293,7 @@ namespace pier::dimensions
     {
         bool const ok = origin(queuedChunk, cachedTransfer);
 
-        int const dimId = queuedChunk.mType->value();
+        int const dimId = queuedChunk.mType->mValue;
         if (wanted(dimId))
         {
             auto const& cp = queuedChunk.mPos.get();
@@ -407,7 +382,7 @@ namespace pier::dimensions
                 hostLogger().info(
                     "[dimdata]   '{}' id={} height={}..{} generator={}",
                     entry.first,
-                    entry.second.mDimensionType->value(),
+                    entry.second.mDimensionType->mValue,
                     entry.second.mHeightMinimum,
                     entry.second.mHeightMaximum,
                     static_cast<int>(entry.second.mGeneratorType)
@@ -430,136 +405,20 @@ namespace pier::dimensions
     }
 
     /*
-     * Which subchunks the client is actually asking for.
-     * Two observed data sets: on dim=0, the control that renders correctly, the client requests
-     * indices -4..19 and every one succeeds, 2 to 4 per packet. On dim=1000 it requests -24..-32,
-     * every one out of range, always 27 per packet. That dimension really has terrain at -4..4, and
-     * the difference to -24..-32 is a constant 28, which means one side treats the bottom of the
-     * dimension as subchunk -28, y = -448, instead of -4, y = -64.
+     * Which subchunks the client asks for, and why it is no longer printed.
      *
-     * The reply alone does not say which side is wrong, and the two cases need entirely different
-     * fixes. SubChunkRequestPacket carries mArePositionsAbsolute: a position may be absolute or an
-     * offset from mCenterPos, and the absolute values and the offsets live in two different arrays,
-     * mSubChunkPos and mSubChunkPosOffsets. If the two dimensions differ on that flag, that is the
-     * answer. Only the first 6 are printed per dimension. / */
-    LL_TYPE_INSTANCE_HOOK(
-        SubChunkRequestReadTraceHook,
-        HookPriority::Normal,
-        SubChunkRequestPacket,
-        &SubChunkRequestPacket::$_read,
-        ::Bedrock::Result<void>,
-        ::ReadOnlyBinaryStream& stream
-    )
-    {
-        auto result = origin(stream);
-        try
-        {
-            int const dimId = mDimensionType->value();
-            static std::mutex mtx;
-            static std::map<int, int> shown;
-            {
-                std::lock_guard lock{mtx};
-                if (shown[dimId] >= 6) return result;
-                shown[dimId] += 1;
-            }
-
-            auto const& absList = mSubChunkPos.get();
-            auto const& offList = mSubChunkPosOffsets.get();
-            auto const& centre = mCenterPos.get();
-
-            std::string absY;
-            for (auto const& p : absList) absY += std::to_string(p.y) + " ";
-            std::string offY;
-            for (auto const& o : offList) offY += std::to_string(static_cast<int>(o.mY)) + " ";
-
-            hostLogger().info(
-                "[req] dim={} absolute={} center=({}, {}, {}) requests={} "
-                "absolute table {} entries (y: {}) offset table {} entries (y: {})",
-                dimLabel(dimId),
-                mArePositionsAbsolute ? 1 : 0,
-                centre.x, centre.y, centre.z,
-                mRequestCount,
-                absList.size(), absY.empty() ? std::string{"-"} : absY,
-                offList.size(), offY.empty() ? std::string{"-"} : offY
-            );
-        }
-        catch (...)
-        {
-            // A tracer that cannot read the packet contents prints one line fewer and
-            // never affects the observed flow: origin already ran above and only a return
-            // follows here.
-        }
-        return result;
-    }
-
-    /*
-     * What the out-of-range decision is actually made against.
+     * Two observed data sets: on dim=0, the control that renders correctly, the client
+     * requests indices -4..19 and every one succeeds. On dim=1000 it requests -24..-32,
+     * every one out of range. That dimension has terrain at -4..4, and the constant
+     * difference of 28 means one side treats the bottom as subchunk -28, y = -448.
      *
-     * When every subchunk reply is IndexOutOfBounds while the dimension's own
-     * mHeightRange matches the definition sent to the client exactly, the fault is not
-     * two disagreeing heights but the index being judged disagreeing with the numbering
-     * base of the dimension. The typical shape: the client computes (y - minY) / 16 and
-     * gets 0..23 while the server expects absolute subchunk indices -4..19. Neither is
-     * wrong on its own and they differ by 4.
-     *
-     * This prints the moment the decision is made: the index that came in, the range of
-     * the dimension, and the verdict. The function runs on every subchunk request, tens
-     * of thousands of times per join, so the same (dimension, index, result) prints once.
+     * SubChunkRequestPacket keeps only mSerializationMode in 26.32. The position list,
+     * the offset list, the center, the count and the absolute-positions flag are all
+     * gone, and those five were the whole of what this printed. The reply trace below
+     * still reports what came back, so a numbering mismatch shows as a run of
+     * IndexOutOfBounds replies without the request that provoked them beside it.
      */
-    LL_TYPE_INSTANCE_HOOK(
-        DimensionSubChunkRangeTraceHook,
-        HookPriority::Normal,
-        Dimension,
-        &Dimension::isSubChunkHeightWithinRange,
-        bool,
-        short const& subChunkHeight
-    )
-    {
-        bool const ok = origin(subChunkHeight);
-        try
-        {
-            int const dimId = getDimensionId().value();
-            static std::mutex mtx;
-            static std::set<std::tuple<int, int, bool>> seen;
-            {
-                std::lock_guard lock{mtx};
-                if (!seen.insert({dimId, static_cast<int>(subChunkHeight), ok}).second) return ok;
-            }
-            auto const& range = mHeightRange.get();
-            hostLogger().info(
-                "[range] dim={} judged subchunk index {} as {}; dimension range {}..{} "
-                "({} subchunks, lowest {}), client-side generation={}",
-                dimLabel(dimId),
-                static_cast<int>(subChunkHeight),
-                ok ? "in range" : "out of range",
-                static_cast<int>(range.mMin),
-                static_cast<int>(range.mMax),
-                getHeightInSubchunks(),
-                getMinHeight(),
-                isClientSideGenerationEnabled() ? 1 : 0
-            );
-        }
-        catch (...)
-        {
-            // As above: one line fewer and no change to the verdict, which origin
-            // already computed into ok.
-        }
-        return ok;
-    }
 
-    /*
-     *  What the step-one packet actually carries
-     *
-     *   mSubChunksCount = 0 with mClientNeedsToRequestSubchunks = 1
-     *       -> an empty shell packet; the block data waits for the client to ask, which
-     *          is step two
-     *   mSubChunksCount > 0 with mSerializedChunk carrying length
-     *       -> the block data is in this packet and step two never happens
-     *
-     * The two modes lead to entirely different investigations. If the overworld and the
-     * plot world differ on this line, that is the answer. One line per chunk, a few
-     * hundred per join.
-     */
     LL_TYPE_INSTANCE_HOOK(
         LevelChunkPacketWriteTraceHook,
         HookPriority::Normal,
@@ -572,7 +431,7 @@ namespace pier::dimensions
         try
         {
             gLevelChunkPkts.fetch_add(1);
-            int const dimId = mDimensionId->value();
+            int const dimId = mDimensionId->mValue;
             // No dimension filter here either: the overworld is the control.
             auto const& cp = mPos.get();
             hostLogger().info(
@@ -619,7 +478,7 @@ namespace pier::dimensions
         try
         {
             gSubChunkPkts.fetch_add(1);
-            int const dimId = mDimensionType->value();
+            int const dimId = mDimensionType->mValue;
             // wanted() is deliberately not applied here: the overworld is the only
             // dimension that renders correctly and its result codes are the control.
             // Seeing "dim=0 success=N" next to "dim=1000 wrongDimension=N" in one log
@@ -660,7 +519,6 @@ namespace pier::dimensions
     {
         using ChunkTraceHookReg = ll::memory::HookRegistrar<
             LevelChunkCtorTraceHook,
-            LevelChunkChangeStateTraceHook,
             LevelChunkTryChangeStateTraceHook,
             NetworkChunkPublisherSendTraceHook,
             NetworkChunkPublisherMoveRegionTraceHook>;
@@ -668,9 +526,7 @@ namespace pier::dimensions
         using PacketTraceHookReg = ll::memory::HookRegistrar<
             DimensionDataPacketWriteTraceHook,
             LevelChunkPacketWriteTraceHook,
-            SubChunkPacketWriteTraceHook,
-            SubChunkRequestReadTraceHook,
-            DimensionSubChunkRangeTraceHook>;
+            SubChunkPacketWriteTraceHook>;
     } // namespace
 
     void registerChunkTraceHooks()

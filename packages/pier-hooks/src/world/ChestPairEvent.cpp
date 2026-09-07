@@ -45,7 +45,7 @@ namespace pier::hooks
             try
             {
                 dim = static_cast<int>(region.getDimensionId());
-                auto const& self = this->getPosition();
+                auto const& self = this->mPosition.get();
                 sx = self.x;
                 sy = self.y;
                 sz = self.z;

@@ -1,0 +1,10 @@
+{
+    "name": "hello-pier-cpp",
+    "entry": "hello_pier_cpp.dll",
+    "type": "pier",
+    "version": "26.32.0",
+    "description": "The smallest C++ mod that does something: one command and one line per lifecycle step. Four build files produce the same DLL.",
+    "dependencies": [
+        { "name": "pier" }
+    ]
+}

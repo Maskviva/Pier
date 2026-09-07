@@ -265,11 +265,11 @@ namespace pier::bridge
                         // compile error C2039. A named reference is taken first rather
                         // than chaining member access, because operator-> is not
                         // guaranteed when a reference is stored. The id comes from
-                        // getDimensionId().value() rather than mId directly, whose
+                        // getDimensionId().mValue rather than mId directly, whose
                         // TypedStorage shape is unverified and not worth one saved
                         // virtual call.
                         Dimension& dim = bs->mDimension;
-                        copy["dim"] = CompoundTagVariant(dim.getDimensionId().value());
+                        copy["dim"] = CompoundTagVariant(dim.getDimensionId().mValue);
                         haveDim = true;
                         changed = true;
                     }

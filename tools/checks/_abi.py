@@ -58,8 +58,14 @@ def slots_of(src, struct="PierApi"):
     return out
 
 
-# An include guard is not part of the contract and takes no part in the mirror comparison.
-_GUARD = {"PIER_SDK_ABI_H"}
+# Macros that carry no value across the boundary, so a mirror has nothing to hold.
+#
+# The include guard is one. So are the two that spell out how a C or C++ definition gets
+# exported: they expand to compiler keywords, not to a number or a string, and an SDK in
+# another language solves the same problem in its own way rather than by mirroring these.
+# Requiring a mirror entry for them would be requiring a constant whose value cannot be
+# written down in the other language.
+_GUARD = {"PIER_SDK_ABI_H", "PIER_MAIN_EXPORT", "PIER_MAIN_LINKAGE"}
 
 
 def defines(src):

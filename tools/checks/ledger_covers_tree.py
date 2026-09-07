@@ -17,9 +17,13 @@ item.
 
 ## The criterion
 
-Every version-controlled file in the workspace is either mentioned in the new-location
-column of some ledger row, or is on the exemption list: build artifacts, the ledger
-itself, and the tools added in this round.
+Every file on disk under the workspace root, minus the two exemption lists below, is
+either mentioned in the new-location column of some ledger row or fails. The walk is the
+filesystem and not git: nothing here reads `.gitignore` or asks git what is tracked, so
+an untracked stray at the root is caught, which is the point, and a build artifact is
+caught too, which is not. That is why the exemption lists exist and why they have to be
+kept level with `.gitignore` by hand. Each entry below says which line of `.gitignore` it
+answers.
 
 The reverse is not checked: a row in the ledger with nothing in the workspace is the
 definition of outstanding.
@@ -34,7 +38,10 @@ from _abi import ROOT, Result  # noqa: E402
 
 LEDGER = os.path.join(ROOT, "MIGRATION.md")
 
-SKIP_DIRS = {".git", "target", "build", ".xmake", "node_modules", "__pycache__"}
+# `bin` is where the mod packer writes and `.idea` / `.vs` / `.vscode` are IDE state. Neither
+# is a migrated capability, and the same reasoning already exempts `build` and `target`.
+SKIP_DIRS = {".git", "target", "build", "bin", ".xmake", "node_modules", "__pycache__",
+             ".idea", ".vs", ".vscode"}
 
 # Exempt: these files inherently do not belong in an old-repository to new-repository
 # migration ledger.
@@ -42,9 +49,12 @@ EXEMPT_EXACT = {
     "MIGRATION.md",       # The ledger does not count itself
     ".gitignore",
     "Cargo.lock",
+    "docs/pnpm-lock.yaml",  # `.gitignore` line: a lockfile the docs site resolves, not a migrated capability
 }
 EXEMPT_PREFIX = (
     "tools/",             # The checks and surrogates came with the new architecture and have no old counterpart
+    "docs/.vitepress/dist/",   # `.gitignore` line: what `vitepress build` writes, from sources already in the ledger
+    "docs/.vitepress/cache/",  # `.gitignore` line: what `vitepress dev`/`build` writes for its own dependency cache
 )
 
 
@@ -83,7 +93,10 @@ def run():
                "counted. Checking that capabilities only increase against a checklist that is "
                "missing an item can never reveal that item" % rel)
     if not missing:
-        r.note("all %d file(s) have a source in the ledger; exempt are MIGRATION.md itself, .gitignore and tools/" % n)
+        r.note("all %d file(s) have a source in the ledger. Exempt are %s and the prefixes %s, "
+               "each kept level with .gitignore by hand; an artifact .gitignore knows and this "
+               "list does not will fail here"
+               % (n, ", ".join(sorted(EXEMPT_EXACT)), ", ".join(sorted(EXEMPT_PREFIX))))
     return r
 
 

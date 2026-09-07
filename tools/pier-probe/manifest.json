@@ -1,0 +1,10 @@
+{
+    "name": "pier-probe",
+    "entry": "pier_probe.dll",
+    "type": "pier",
+    "version": "26.32.0",
+    "description": "Walks the whole Pier API table and reports, slot by slot, whether the host provides it and what it answers. Reads only; changes no server state.",
+    "dependencies": [
+        { "name": "pier" }
+    ]
+}

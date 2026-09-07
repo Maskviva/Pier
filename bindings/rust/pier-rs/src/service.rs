@@ -286,18 +286,19 @@ impl Drop for Registration {
 type Provider = dyn FnMut(&str, &str) -> std::result::Result<String, String> + Send + 'static;
 
 /// Registers a service.
-/// ```ignore let _reg = service::register("plot:worlds", |_name, _req| {
+/// ```ignore
+/// let _reg = service::register("plot:worlds", |_name, _req| {
 ///     Ok(serde_json::to_string(&worlds()).unwrap_or_default())
 ///
-/// })?; ```
+/// })?;
+/// ```
 ///
 /// A few host-side rules, which cannot be changed here and are worth knowing:
 /// * the callback runs synchronously on the caller's thread, so nothing slow belongs in it;
 /// * a name already taken fails outright and does not displace the holder;
-/// * a service stays reachable while its mod is disabled, because LeviLamina enables only
-///     after every `on_load` has run, and being unreachable in that window would fail every
-///     consumer resolving its dependency inside its own `on_load`. Refusing while disabled is
-///     left to the provider to decide.
+/// * a service stays reachable while its mod is disabled, since resolving it inside
+///   another mod's `on_load` would otherwise fail; refusing while disabled is left to
+///   the provider.
 pub fn register(
     name: &str,
     provider: impl FnMut(&str, &str) -> std::result::Result<String, String> + Send + 'static,

@@ -1,19 +1,20 @@
 /**
- * PlotConfine.cpp: plot boundary confinement. Grid table, merge graph, actor interception. The
- * design is in plot_confine.h; three implementation trades are added here. The lock follows the
+ * CellConfine.cpp: grid cell boundary confinement. Grid table, merge graph, actor interception.
+ * The design is in cell_confine.h; three implementation trades are added here. The lock follows the
  * judgement DimensionRules.cpp makes: writes happen on registration or a merge change, reads on the
  * tick path, and one Actor::move already runs bounding box intersection, block queries and damage
  * decisions, so an uncontended mutex vanishes into that noise. What saves work is the outermost
- * atomic count: with no plot world, no lock is taken. Reaching for a lock-free structure because
- * reads dominate is a feeling, not a measurement. The group root cache is cleared whole with no
- * invalidation analysis: the merge table arrives as a whole-table replacement (see setPlotMerges)
- * and one edge can fuse two groups of hundreds of plots, so no cheap incremental answer exists.
+ * atomic count: with no dimension registering a grid, no lock is taken. Reaching for a lock-free
+ * structure because reads dominate is a feeling, not a measurement. The group root cache is
+ * cleared whole with no invalidation analysis: the merge table arrives as a whole-table
+ * replacement (see setCellMerges) and one edge can fuse two groups of hundreds of cells, so
+ * no cheap incremental answer exists.
  * Clearing is O(1). The group walk is bounded at 4096 like the mod side, but hitting the bound
  * behaves differently on purpose: the mod side deduplicates a title and takes what it reached,
- * while this is a protection decision, and an unfinished walk means not knowing whether two plots
- * share a group, which must be refused. Otherwise merging past 4096 plots would switch the
+ * while this is a protection decision, and an unfinished walk means not knowing whether two cells
+ * share a group, which must be refused. Otherwise merging past 4096 cells would switch the
  * confinement off entirely. / */
-#include "pier/dimensions/plot/plot_confine.h"
+#include "pier/dimensions/gen/cell_confine.h"
 
 #include <atomic>
 #include <cmath>
@@ -46,9 +47,9 @@ namespace pier::dimensions
                 | static_cast<uint64_t>(static_cast<uint32_t>(z));
         }
 
-        constexpr PlotXZ unpk(uint64_t k)
+        constexpr CellXZ unpk(uint64_t k)
         {
-            return PlotXZ{
+            return CellXZ{
                 static_cast<int32_t>(static_cast<uint32_t>(k >> 32)),
                 static_cast<int32_t>(static_cast<uint32_t>(k & 0xFFFFFFFFull))
             };
@@ -57,14 +58,14 @@ namespace pier::dimensions
         /** The grid, merge table and group root memo of one dimension. */
         struct DimGrid
         {
-            int plotSize{0};
-            int roadWidth{0};
-            /** Only plots carrying a merge mark. key = pk(x,z), value = the bitwise or
+            int cellSize{0};
+            int gapWidth{0};
+            /** Only cells carrying a merge mark. key = pk(x,z), value = the bitwise or
              *  of MergeBit. */
             std::unordered_map<uint64_t, uint32_t> merges;
             /** The group root memo, cleared whole whenever the merge table changes. */
             std::unordered_map<uint64_t, uint64_t> roots;
-            /** Plots whose group walk hit the bound, remembered so the refusal stays
+            /** Cells whose group walk hit the bound, remembered so the refusal stays
              *  conservative instead of rewalking the graph every time. */
             std::unordered_set<uint64_t> oversized;
         };
@@ -85,15 +86,15 @@ namespace pier::dimensions
          * The number of dimensions with a registered grid. The outermost lock-free fast
          * path.
          *
-         * With no plot world at all, the `Actor::move` hook reads one relaxed atomic and
+         * With no dimension registering a grid, the `Actor::move` hook reads one relaxed atomic and
          * returns, which is what a server that installed the loader without using the
-         * plot system should pay: nothing.
+         * confinement system should pay: nothing.
          */
         std::atomic<int> gGridCount{0};
 
-        /** One bit per dimension 0..63 that has a grid with plotSize > 0, the second
-         *  lock-free gate. With one plot world registered, every non-player actor move in
-         *  every other dimension still reaches hasPlotGrid, on the hottest function of the
+        /** One bit per dimension 0..63 that has a grid with cellSize > 0, the second
+         *  lock-free gate. With one grid registered, every non-player actor move in
+         *  every other dimension still reaches hasCellGrid, on the hottest function of the
          *  engine, and answers from this word without a mutex or a map find. Ids of 64 or
          *  above set the overflow flag and keep the locked path. */
         std::atomic<uint64_t> gGridDimBits{0};
@@ -144,26 +145,26 @@ namespace pier::dimensions
             }
         }
 
-        constexpr PlotXZ neighbourOf(PlotXZ id, int dir)
+        constexpr CellXZ neighbourOf(CellXZ id, int dir)
         {
             switch (dir)
             {
-            case 0: return PlotXZ{id.x, id.z - 1};
-            case 1: return PlotXZ{id.x + 1, id.z};
-            case 2: return PlotXZ{id.x, id.z + 1};
-            default: return PlotXZ{id.x - 1, id.z};
+            case 0: return CellXZ{id.x, id.z - 1};
+            case 1: return CellXZ{id.x + 1, id.z};
+            case 2: return CellXZ{id.x, id.z + 1};
+            default: return CellXZ{id.x - 1, id.z};
             }
         }
 
-        /** This plot itself declares a merge toward `dir`. */
-        bool claims(DimGrid const& g, PlotXZ id, int dir)
+        /** This cell itself declares a merge toward `dir`. */
+        bool claims(DimGrid const& g, CellXZ id, int dir)
         {
             auto it = g.merges.find(pk(id.x, id.z));
             return it != g.merges.end() && (it->second & bitOf(dir)) != 0;
         }
 
         /**
-         * Whether two adjacent plots are connected. The test is either side declaring
+         * Whether two adjacent cells are connected. The test is either side declaring
          * it, not both.
          *
          * Word for word the same as `connected` on the mod side, for the same reason:
@@ -173,14 +174,14 @@ namespace pier::dimensions
          * unique root the question of one area has no stable answer and the same piston
          * push is blocked sometimes and allowed at others.
          */
-        bool connected(DimGrid const& g, PlotXZ a, int dir)
+        bool connected(DimGrid const& g, CellXZ a, int dir)
         {
             return claims(g, a, dir) || claims(g, neighbourOf(a, dir), (dir + 2) % 4);
         }
 
-        /** `a` is smaller under the Ord of `PlotId`, comparing x first and then z.
+        /** `a` is smaller under the Ord of the cell id, comparing x first and then z.
          *  Matches the mod side. */
-        constexpr bool lessThan(PlotXZ a, PlotXZ b)
+        constexpr bool lessThan(CellXZ a, CellXZ b)
         {
             return a.x != b.x ? a.x < b.x : a.z < b.z;
         }
@@ -189,12 +190,12 @@ namespace pier::dimensions
          * The representative number of a merge group. Returns false when the walk did
          * not finish because it hit the bound, and the caller must refuse on that.
          *
-         * The vast majority of plots were never merged, so a plot with no connected
+         * The vast majority of cells were never merged, so a cell with no connected
          * neighbor returns itself and saves a container allocation. Carrying no merge
          * mark of its own is not enough, since a neighbor may still hold a one-sided
          * mark, so all four directions are asked through `connected`.
          */
-        bool groupRootLocked(DimGrid& g, PlotXZ id, PlotXZ* out)
+        bool groupRootLocked(DimGrid& g, CellXZ id, CellXZ* out)
         {
             uint64_t const key = pk(id.x, id.z);
             if (g.oversized.count(key) != 0) return false;
@@ -221,28 +222,28 @@ namespace pier::dimensions
             }
 
             std::unordered_set<uint64_t> seen{key};
-            std::vector<PlotXZ> stack{id};
+            std::vector<CellXZ> stack{id};
             std::vector<uint64_t> members{key};
-            PlotXZ best = id;
+            CellXZ best = id;
 
             while (!stack.empty())
             {
-                PlotXZ cur = stack.back();
+                CellXZ cur = stack.back();
                 stack.pop_back();
                 for (int d = 0; d < 4; ++d)
                 {
                     if (!connected(g, cur, d)) continue;
-                    PlotXZ nb = neighbourOf(cur, d);
+                    CellXZ nb = neighbourOf(cur, d);
                     uint64_t nk = pk(nb.x, nb.z);
                     if (!seen.insert(nk).second) continue;
                     if (members.size() >= static_cast<size_t>(kGroupScanLimit))
                     {
                         // An unfinished walk means unknown. The entire visited set is
-                        // marked oversized, otherwise entering from another plot of the
+                        // marked oversized, otherwise entering from another cell of the
                         // group rewalks the same unfinishable graph.
                         for (uint64_t m : seen) g.oversized.insert(m);
                         hostLogger().warn(
-                            "[plot] the merge group exceeds {} plots, walked from {};{}, so "
+                            "[cell] the merge group exceeds {} cells, walked from {};{}, so "
                             "the crossing decision refuses everything in this group; this is "
                             "not a configuration problem, since at that size the question of "
                             "one area has no affordable answer and a protection decision "
@@ -258,7 +259,7 @@ namespace pier::dimensions
             }
 
             uint64_t const rootKey = pk(best.x, best.z);
-            // The whole group is written at once, so any plot of it hits the memo
+            // The whole group is written at once, so any cell of it hits the memo
             // afterwards.
             for (uint64_t m : members) g.roots[m] = rootKey;
             *out = best;
@@ -266,44 +267,44 @@ namespace pier::dimensions
         }
 
         /**
-         * Which plot a cell belongs to. Must match `owning_plot` on the mod side
+         * Which cell a coordinate belongs to. Must match the mod side
          * exactly.
          *
-         * Returns false when the cell belongs to no plot, meaning it is on a road.
+         * Returns false when it belongs to no cell, meaning it is in a gap.
          */
-        bool owningPlotLocked(DimGrid const& g, int x, int z, PlotXZ* out)
+        bool owningCellLocked(DimGrid const& g, int x, int z, CellXZ* out)
         {
-            int const cell = g.plotSize + g.roadWidth;
+            int const cell = g.cellSize + g.gapWidth;
             if (cell <= 0) return false;
             int const px = floorDivLocal(x, cell);
             int const pz = floorDivLocal(z, cell);
-            bool const onRoadX = positiveModLocal(x, cell) >= g.plotSize;
-            bool const onRoadZ = positiveModLocal(z, cell) >= g.plotSize;
+            bool const onGapX = positiveModLocal(x, cell) >= g.cellSize;
+            bool const onGapZ = positiveModLocal(z, cell) >= g.cellSize;
 
-            PlotXZ const base{px, pz};
-            if (!onRoadX && !onRoadZ)
+            CellXZ const base{px, pz};
+            if (!onGapX && !onGapZ)
             {
                 *out = base;
                 return true;
             }
-            if (onRoadX && !onRoadZ)
+            if (onGapX && !onGapZ)
             {
                 // A north-south seam, separating base from its eastern neighbor.
                 if (!connected(g, base, 1)) return false;
                 *out = base;
                 return true;
             }
-            if (!onRoadX && onRoadZ)
+            if (!onGapX && onGapZ)
             {
                 // An east-west seam, separating base from its southern neighbor.
                 if (!connected(g, base, 2)) return false;
                 *out = base;
                 return true;
             }
-            // A junction counts as plot interior only when all four edges of the
+            // A junction counts as cell interior only when all four edges of the
             // surrounding 2x2 are merged.
-            PlotXZ const ne = neighbourOf(base, 1);
-            PlotXZ const sw = neighbourOf(base, 2);
+            CellXZ const ne = neighbourOf(base, 1);
+            CellXZ const sw = neighbourOf(base, 2);
             if (!(connected(g, base, 1) && connected(g, base, 2) && connected(g, ne, 2)
                   && connected(g, sw, 1)))
             {
@@ -316,38 +317,38 @@ namespace pier::dimensions
 
     //  Public interface
 
-    void setPlotGrid(int dimension, int plotSize, int roadWidth)
+    void setCellGrid(int dimension, int cellSize, int gapWidth)
     {
-        if (plotSize <= 0)
+        if (cellSize <= 0)
         {
-            clearPlotGrid(dimension);
+            clearCellGrid(dimension);
             return;
         }
-        // A value from a caller is never trusted: a negative roadWidth makes cell zero
+        // A value from a caller is never trusted: a negative gapWidth makes cell zero
         // or negative, and cell is the divisor of the modulus. The same reason
-        // PlotLayout::clamp gives.
-        if (roadWidth < 0) roadWidth = 0;
-        if (plotSize > 512) plotSize = 512;
-        if (roadWidth > 64) roadWidth = 64;
+        // TerrainSpec::clamp gives.
+        if (gapWidth < 0) gapWidth = 0;
+        if (cellSize > 512) cellSize = 512;
+        if (gapWidth > 64) gapWidth = 64;
 
         std::lock_guard lock{gridMutex()};
         auto [it, inserted] = grids().try_emplace(dimension);
         if (inserted) gGridCount.fetch_add(1, std::memory_order_relaxed);
         auto& g = it->second;
-        if (g.plotSize != plotSize || g.roadWidth != roadWidth)
+        if (g.cellSize != cellSize || g.gapWidth != gapWidth)
         {
-            g.plotSize = plotSize;
-            g.roadWidth = roadWidth;
+            g.cellSize = cellSize;
+            g.gapWidth = gapWidth;
             // Changed geometry changes every ownership answer. The merge table itself is
             // unchanged, but the memo must be cleared.
             g.roots.clear();
             g.oversized.clear();
         }
-        mirrorGridLocked(dimension, g.plotSize > 0);
+        mirrorGridLocked(dimension, g.cellSize > 0);
         installMoveHookOnce();
     }
 
-    void clearPlotGrid(int dimension)
+    void clearCellGrid(int dimension)
     {
         std::lock_guard lock{gridMutex()};
         if (grids().erase(dimension) > 0)
@@ -357,7 +358,7 @@ namespace pier::dimensions
         mirrorGridLocked(dimension, false);
     }
 
-    void setPlotMerges(int dimension, int32_t const* entries, int32_t count)
+    void setCellMerges(int dimension, int32_t const* entries, int32_t count)
     {
         if (count < 0) count = 0;
         if (entries == nullptr) count = 0;
@@ -367,12 +368,12 @@ namespace pier::dimensions
         {
             // A merge table pushed before the grid is registered is dropped, and said
             // so. Accepting it silently is worse: the table is stored while the geometry
-            // is empty, ownership always answers not on a plot, and the symptom is that
-            // plots are merged and a piston still cannot push through.
+            // is empty, ownership always answers not in a cell, and the symptom is that
+            // cells are merged and a piston still cannot push through.
             hostLogger().warn(
-                "[plot] dimension {} received a merge table of {} entries before a plot "
-                "grid was registered and it was ignored; the order is set_plot_grid first, "
-                "then set_plot_merges",
+                "[cell] dimension {} received a merge table of {} entries before a cell "
+                "grid was registered and it was ignored; the order is the grid first, "
+                "then the merge table",
                 dimension, count
             );
             return;
@@ -391,7 +392,7 @@ namespace pier::dimensions
         }
     }
 
-    bool hasPlotGrid(int dimension)
+    bool hasCellGrid(int dimension)
     {
         if (gGridCount.load(std::memory_order_relaxed) == 0) return false;
         if (dimension >= 0 && dimension < 64)
@@ -401,17 +402,17 @@ namespace pier::dimensions
         if (dimension >= 64 && !gGridAbove64.load(std::memory_order_relaxed)) return false;
         std::lock_guard lock{gridMutex()};
         auto it = grids().find(dimension);
-        return it != grids().end() && it->second.plotSize > 0;
+        return it != grids().end() && it->second.cellSize > 0;
     }
 
-    bool owningPlot(int dimension, int x, int z, PlotXZ* out)
+    bool owningCell(int dimension, int x, int z, CellXZ* out)
     {
         if (gGridCount.load(std::memory_order_relaxed) == 0) return false;
         std::lock_guard lock{gridMutex()};
         auto it = grids().find(dimension);
         if (it == grids().end()) return false;
-        PlotXZ id{};
-        if (!owningPlotLocked(it->second, x, z, &id)) return false;
+        CellXZ id{};
+        if (!owningCellLocked(it->second, x, z, &id)) return false;
         if (out) *out = id;
         return true;
     }
@@ -424,19 +425,19 @@ namespace pier::dimensions
         if (it == grids().end()) return true;
         auto& g = it->second;
 
-        PlotXZ a{}, b{};
-        bool const inA = owningPlotLocked(g, x1, z1, &a);
-        bool const inB = owningPlotLocked(g, x2, z2, &b);
+        CellXZ a{}, b{};
+        bool const inA = owningCellLocked(g, x1, z1, &a);
+        bool const inB = owningCellLocked(g, x2, z2, &b);
         // Both on a road. A road is public ground and moving on it is not a crossing.
         if (!inA && !inB) return true;
-        // One side on a plot and the other not is the boundary. The direction is
+        // One side in a cell and the other not is the boundary. The direction is
         // symmetric: pushing out and pushing in are the same operation, and blocking one
         // direction only is the same as blocking neither.
         if (inA != inB) return false;
-        // The same plot, the most common case, needs no graph walk.
+        // The same cell, the most common case, needs no graph walk.
         if (a == b) return true;
 
-        PlotXZ ra{}, rb{};
+        CellXZ ra{}, rb{};
         if (!groupRootLocked(g, a, &ra)) return false;
         if (!groupRootLocked(g, b, &rb)) return false;
         return ra == rb;
@@ -458,7 +459,7 @@ namespace pier::dimensions
          * frozen server, while keeping y makes it hit an invisible wall, which a player
          * recognizes. */
         LL_TYPE_INSTANCE_HOOK(
-            PlotConfineActorMoveHook,
+            CellConfineActorMoveHook,
             ll::memory::HookPriority::Normal,
             Actor,
             &Actor::move,
@@ -466,7 +467,7 @@ namespace pier::dimensions
             ::Vec3 const& posDelta
         )
         {
-            // The outermost path: with no plot world at all, one relaxed read and
+            // The outermost path: with no grid registered at all, one relaxed read and
             // return.
             if (gGridCount.load(std::memory_order_relaxed) == 0)
             {
@@ -490,7 +491,7 @@ namespace pier::dimensions
                 if (!isPlayerActor)
                 {
                     dim = static_cast<int>(this->getDimensionId());
-                    ridden = this->hasPassenger() || this->isRemoved();
+                    ridden = this->hasPassenger() || this->mRemoved;
                     from = this->getPosition();
                 }
             }
@@ -509,8 +510,8 @@ namespace pier::dimensions
 
             bool allowCross = true;
             bool const hasRule =
-                getDimensionRule(dim, static_cast<int>(DimRule::EntityCrossPlot), &allowCross);
-            bool const hasGrid = hasPlotGrid(dim);
+                getDimensionRule(dim, static_cast<int>(DimRule::EntityCrossCell), &allowCross);
+            bool const hasGrid = hasCellGrid(dim);
 
             if (!hasRule || allowCross || !hasGrid)
             {
@@ -557,7 +558,7 @@ namespace pier::dimensions
         }
 
         /**
-         * Installed when the first plot grid is registered and never removed.
+         * Installed when the first cell grid is registered and never removed.
          *
          * The same discipline every file under hooks/ follows: an unsubscribe can arrive
          * from inside the hooked function and removing the patch there is unsafe. An idle
@@ -568,16 +569,16 @@ namespace pier::dimensions
         void installMoveHookOnce()
         {
             if (gMoveHookInstalled.load(std::memory_order_relaxed)) return;
-            int const r = PlotConfineActorMoveHook::hook();
+            int const r = CellConfineActorMoveHook::hook();
             gMoveHookInstalled.store(true, std::memory_order_relaxed);
             if (r == 0)
             {
-                hostLogger().debug("[plot] plot boundary confinement enabled");
+                hostLogger().debug("[cell] cell boundary confinement enabled");
             }
             else
             {
                 hostLogger().error(
-                    "[plot] installing the Actor::move detour failed with status {}; the "
+                    "[cell] installing the Actor::move detour failed with status {}; the "
                     "usual cause is a mismatch between the BDS or LeviLamina version this "
                     "loader was linked against and the one the server runs, so a symbol "
                     "address resolved wrongly. Actor crossing is now entirely unconfined; "

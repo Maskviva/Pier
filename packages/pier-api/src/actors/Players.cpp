@@ -329,23 +329,26 @@ namespace pier::api_impl
             // mPtr is a scalar TypedStorage, a bare pointer with no .get() wrapper.
             auto* inst = cref.mPtr;
             if (!inst) return false;
-            *out = static_cast<double>(inst->getCurrentValue());
+            // getCurrentValue is inlined away; mCurrentValue is the field it read.
+            *out = static_cast<double>(inst->mCurrentValue);
             return true;
         }
 
         /**
-         * Writes the current value of an attribute through AttributeInstanceForwarder,
-         * so listeners fire and player-synced attributes reach the client.
+         * Refuses, on this engine version. Attribute writes are unavailable and the
+         * signature is kept so the call site stays put for the day they come back.
          */
         bool writeAttribute(Player& p, Attribute const& attr, float value)
         {
-            // getMutableAttribute binds the instance to a modification context and
-            // exposes the forwarder through operator->. Its bool test guards the
-            // not-present case.
-            auto mut = p.getMutableAttribute(attr);
-            if (!mut) return false;
-            mut->setCurrentValue(value);
-            return true;
+            // The whole write path is inlined away: MutableAttributeWithContext lost its
+            // bool test and its operator->, and AttributeInstanceForwarder lost
+            // setCurrentValue, which AttributeInstance itself never had. Writing
+            // mCurrentValue directly would skip the listener pass that syncs the value to
+            // the client, so the attribute would move on the server and not on screen.
+            (void)p;
+            (void)attr;
+            (void)value;
+            return false;
         }
 
         //  Properties
@@ -374,8 +377,9 @@ namespace pier::api_impl
                     *out = static_cast<double>(p->getXpNeededForNextLevel());
                     return true;
                 case PIER_PPROP_LUCK:
-                    *out = static_cast<double>(p->getLuck());
-                    return true;
+                    // Inlined away. Luck is an attribute the accessor resolved by name,
+                    // and the attribute read path above cannot name it from here.
+                    return false;
                 case PIER_PPROP_SELECTED_SLOT:
                     *out = static_cast<double>(p->getSelectedItemSlot());
                     return true;
@@ -392,11 +396,13 @@ namespace pier::api_impl
                     *out = p->canJump() ? 1.0 : 0.0;
                     return true;
                 case PIER_PPROP_IS_EMOTING:
-                    *out = p->isEmoting() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away. mEmoteTicks counts an emote's frames and answers a
+                    // different question: it stays non-zero for a while after one ends.
+                    return false;
                 case PIER_PPROP_IS_IN_RAID:
-                    *out = p->isInRaid() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away; the raid membership it consulted is village state this
+                    // side cannot reach.
+                    return false;
                 case PIER_PPROP_IS_HURT:
                     *out = p->isHurt() ? 1.0 : 0.0;
                     return true;
@@ -409,17 +415,19 @@ namespace pier::api_impl
                     *out = p->canSleep() ? 1.0 : 0.0;
                     return true;
                 case PIER_PPROP_HAS_RESPAWN_POSITION:
-                    *out = p->hasRespawnPosition() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away. The respawn fields that survive describe a respawn in
+                    // progress, not whether a bed or anchor was ever set.
+                    return false;
                 case PIER_PPROP_CLIENT_SUB_ID:
                     *out = static_cast<double>(static_cast<int>(p->getClientSubId()));
                     return true;
                 /*  Appended: player gap fills  */
                 case PIER_PPROP_DIRECTION:
-                    *out = static_cast<double>(p->getDirection());
-                    return true;
+                    // Inlined away. It quantized the yaw into a facing, which the ROT_YAW
+                    // property already reports unquantized.
+                    return false;
                 case PIER_PPROP_CHUNK_RADIUS:
-                    *out = static_cast<double>(p->getChunkRadius());
+                    *out = static_cast<double>(p->mChunkRadius);
                     return true;
                 case PIER_PPROP_NETWORK_RTT:
                 {
@@ -431,14 +439,14 @@ namespace pier::api_impl
                     return true;
                 }
                 case PIER_PPROP_PLATFORM:
-                    *out = static_cast<double>(static_cast<int>(p->getPlatform()));
+                    *out = static_cast<double>(static_cast<int>(p->mBuildPlatform));
                     return true;
                 case PIER_PPROP_ENCHANTMENT_SEED:
-                    *out = static_cast<double>(p->getEnchantmentSeed());
+                    *out = static_cast<double>(p->mEnchantmentSeed);
                     return true;
                 case PIER_PPROP_IS_USING_ITEM:
-                    *out = p->isUsingItem() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away with no reachable field.
+                    return false;
                 case PIER_PPROP_IS_BLOCKING:
                     *out = p->isBlocking() ? 1.0 : 0.0;
                     return true;
@@ -546,7 +554,7 @@ namespace pier::api_impl
                     return true;
                 }
                 case PIER_PSTR_PLATFORM_ONLINE_ID:
-                    sink(ctx, ps(p->getPlatformOnlineId()));
+                    sink(ctx, ps(p->mPlatformOnlineId.get()));
                     return true;
                 default:
                     return false;
@@ -744,7 +752,10 @@ namespace pier::api_impl
                     // name into a quoted string, which a quote in the name tears apart,
                     // and /title also runs command parsing and a permission check, all
                     // of which is wasted on sending one packet to one player.
-                    SetTitlePacketPayload payload{SetTitlePacketPayload::TitleType::Clear};
+                    // The one-argument constructor is inlined away; the three-argument
+                    // one survives and an empty text is what Clear carried anyway.
+                    SetTitlePacketPayload payload{
+                        SetTitlePacketPayload::TitleType::Clear, std::string{}, std::nullopt};
                     SetTitlePacket{std::move(payload)}.sendTo(*p);
                     return true;
                 }
@@ -825,31 +836,36 @@ namespace pier::api_impl
                     p->setChunkRadius(static_cast<int>(a));
                     return true;
                 case PIER_PACT_SET_ENCHANTMENT_SEED:
-                    p->setEnchantmentSeed(static_cast<int>(a));
+                    // setEnchantmentSeed is inlined away; mEnchantmentSeed is the field
+                    // it wrote.
+                    p->mEnchantmentSeed = static_cast<int>(a);
                     return true;
                 case PIER_PACT_REGISTER_TRACKED_BOSS:
                 {
                     auto* boss = bridge::resolveActor(static_cast<PierActorId>(a));
                     if (!boss) return false;
-                    // registerTrackedBoss takes an ActorUniqueID and not an Actor
-                    // reference.
-                    p->registerTrackedBoss(boss->getOrCreateUniqueID());
-                    return true;
+                    // registerTrackedBoss is compiled only on the client platform in
+                    // 26.32 and this TU is built for the server, so the boss bar cannot be
+                    // registered from here.
+                    (void)boss;
+                    return false;
                 }
                 case PIER_PACT_UNREGISTER_TRACKED_BOSS:
                 {
                     auto* boss = bridge::resolveActor(static_cast<PierActorId>(a));
                     if (!boss) return false;
-                    p->unRegisterTrackedBoss(boss->getOrCreateUniqueID());
-                    return true;
+                    // Client-platform only, the same as the register above.
+                    (void)boss;
+                    return false;
                 }
                 case PIER_PACT_PLAY_EMOTE:
                     // playEmote(string const& pieceId, bool playChatMessage)
                     p->playEmote(toString(sarg), false);
                     return true;
                 case PIER_PACT_RESEND_ALL_CHUNKS:
-                    p->resendAllChunks();
-                    return true;
+                    // Inlined away. It walked the chunk publisher's sent set and cleared
+                    // it, which is not reachable from here.
+                    return false;
                 case PIER_PACT_OPEN_INVENTORY:
                     p->openInventory();
                     return true;

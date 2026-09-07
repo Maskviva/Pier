@@ -17,7 +17,7 @@ local is_client = (get_config("target_type") or "server") == "client"
 -- It is a function called from each package rather than root-scope `add_defines`,
 -- `add_cxflags` and `set_languages`. xmake folds root-scope build settings into the
 -- install hash it computes for a required package: with them at root scope,
--- `levilamina 26.20.4` resolved to a different hash than the identical requirement in
+-- `levilamina 26.32.0` resolved to a different hash than the identical requirement in
 -- a project without them, no prebuilt install matched, and xmake cloned and compiled
 -- LeviLamina from source on every clean machine. That build does not finish inside a
 -- CI timeout, so the failure presents as a hang rather than as a configuration
@@ -45,16 +45,18 @@ function pier_common()
 end
 
 if is_client then
-    add_requires("levilamina 26.20.4", {configs = {target_type = "client"}})
+    add_requires("levilamina 26.32.0", {configs = {target_type = "client"}})
+    add_requires("legacymoney 0.20.0", {configs = {target_type = "client"}})
+    add_requires("bedrockdata 26.32.2-client.4")
 else
-    add_requires("levilamina 26.20.4", {configs = {target_type = "server"}})
-    add_requires("legacymoney 0.19.0", {configs = {target_type = "server"}})
-    add_requires("bedrockdata v26.20.5-server.4")
+    add_requires("levilamina 26.32.0", {configs = {target_type = "server"}})
+    add_requires("legacymoney 0.20.0", {configs = {target_type = "server"}})
+    add_requires("bedrockdata 26.32.2-server.4")
     add_requires("snappy")
     add_requires("magic_enum")
 end
-add_requires("prelink v0.7.1")
-add_requires("levibuildscript")
+add_requires("prelink 0.8.4")
+add_requires("levibuildscript 0.6.1")
 add_requires("zlib 1.3.1")
 
 if not has_config("vs_runtime") then

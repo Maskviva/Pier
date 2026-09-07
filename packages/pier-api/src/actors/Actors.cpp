@@ -1,6 +1,7 @@
 /** actors/Actors.cpp: actor enumeration, snapshots, properties, actions and spawning.
  *  An actor handle is an ActorUniqueID, re-resolved through Level::fetchEntity on
  *  every call. */
+#include <cmath>
 #include <string>
 
 #include "mc/deps/core/math/Vec2.h"
@@ -10,7 +11,13 @@
 #include "mc/util/VariantParameterList.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
+#include "mc/deps/vanilla_components/StateVectorComponent.h"
+#include "mc/entity/components/ActorRotationComponent.h"
+#include "mc/world/actor/ActorDataIDs.h"
+#include "mc/world/actor/ActorFlags.h"
 #include "mc/world/actor/Mob.h"
+#include "mc/world/actor/SynchedActorDataEntityWrapper.h"
+#include "mc/world/actor/provider/SynchedActorDataAccess.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/effect/MobEffect.h"
 #include "mc/world/effect/MobEffectInstance.h"
@@ -96,8 +103,9 @@ namespace pier::api_impl
                     *out = actor->isInWater() ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_IS_IN_LAVA:
-                    *out = actor->isInLava() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away. It tested a liquid-contact flag that is not one of the
+                    // ActorFlags reachable through SynchedActorDataAccess.
+                    return false;
                 case PIER_APROP_IS_ON_FIRE:
                     *out = actor->isOnFire() ? 1.0 : 0.0;
                     return true;
@@ -111,14 +119,23 @@ namespace pier::api_impl
                     *out = actor->isBaby() ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_IS_RIDING:
-                    *out = actor->isRiding() ? 1.0 : 0.0;
+                    // The no-argument overload is inlined away. The surviving one asks
+                    // whether this actor rides a particular vehicle, and a null vehicle is
+                    // how it is asked about any of them.
+                    *out = actor->isRiding(nullptr) ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_IS_TAME:
                     *out = actor->isTame() ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_SPEED:
-                    *out = static_cast<double>(actor->getSpeedInMetersPerSecond());
+                {
+                    // getSpeedInMetersPerSecond() was inlined away in 26.32 and has no
+                    // symbol left. mPosDelta is the per-tick movement the accessor read,
+                    // and the engine runs at 20 ticks per second.
+                    auto const& d = actor->getPosDelta();
+                    *out = static_cast<double>(std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z) * 20.0f);
                     return true;
+                }
                 /*  Appended: actor gap fills  */
                 case PIER_APROP_VIEW_X:
                     *out = actor->getViewVector().x;
@@ -160,8 +177,9 @@ namespace pier::api_impl
                     *out = static_cast<double>(actor->getFallDistance());
                     return true;
                 case PIER_APROP_IS_PERSISTENT:
-                    *out = actor->isPersistent() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away with no reachable field; setPersistent still works, so
+                    // the flag can be written but not read back.
+                    return false;
                 case PIER_APROP_IS_LEASHED:
                     *out = actor->isLeashed() ? 1.0 : 0.0;
                     return true;
@@ -181,14 +199,24 @@ namespace pier::api_impl
                     // unavailable.
                     return false;
                 case PIER_APROP_BRIGHTNESS:
-                    *out = static_cast<double>(actor->getBrightness());
+                {
+                    // The no-argument overload is inlined away. The virtual survives and
+                    // wants the region to read the light from, which is the one this actor
+                    // stands in.
+                    *out = static_cast<double>(
+                        actor->getBrightness(0.0f, actor->getDimensionBlockSource()));
                     return true;
+                }
                 case PIER_APROP_RADIUS:
-                    *out = static_cast<double>(actor->getRadius());
+                    // getRadius() is gone; the bounding box size it derived from is
+                    // reachable through the ECS. x is the width, and the radius is half.
+                    *out = static_cast<double>(
+                        SynchedActorDataAccess::getBoundingBoxSize(actor->getEntityContext()).x / 2.0f);
                     return true;
                 case PIER_APROP_HAS_TOTEM:
-                    *out = actor->hasTotemEquipped() ? 1.0 : 0.0;
-                    return true;
+                    // Inlined away. It walked the hand containers looking for the item,
+                    // which needs an item identity this side cannot name.
+                    return false;
                 case PIER_APROP_IS_IN_RAIN:
                     *out = actor->isInRain() ? 1.0 : 0.0;
                     return true;
@@ -333,8 +361,9 @@ namespace pier::api_impl
                 {
                     auto* effect = MobEffect::getByName(toString(sarg));
                     if (!effect) return false;
-                    MobEffectInstance inst{effect->getId()};
-                    inst.mDuration.get().mValue = static_cast<int>(a);
+                    // The one-argument constructor is inlined away. The two-argument one
+                    // survives and takes the duration that was assigned right after.
+                    MobEffectInstance inst{effect->mId, ::EffectDuration{static_cast<int>(a)}};
                     inst.mAmplifier = static_cast<int>(b);
                     inst.mEffectVisible = (c != 0.0);
                     actor->addEffect(inst);
@@ -344,7 +373,7 @@ namespace pier::api_impl
                 {
                     auto* effect = MobEffect::getByName(toString(sarg));
                     if (!effect) return false;
-                    actor->removeEffect(static_cast<int>(effect->getId()));
+                    actor->removeEffect(static_cast<int>(effect->mId));
                     return true;
                 }
                 case PIER_AACT_CLEAR_EFFECTS:
@@ -365,12 +394,18 @@ namespace pier::api_impl
                 case PIER_AACT_ATTRIBUTE_GET:
                     return false; // Reserved for generic attributes by name
                 /*  Appended  */
+                /*
+                 * The synched-data writes below reach the field the removed setters wrote.
+                 * set is a template declared MCAPI with no explicit instantiation, so which
+                 * specializations exist is decided by what the engine binary happens to
+                 * export, not by the header. set<std::string> is exported and set<int> is
+                 * not, so the score tag is written and the three ids that are integers are
+                 * refused.
+                 */
                 case PIER_AACT_SET_VARIANT:
-                    actor->setVariant(static_cast<int>(a));
-                    return true;
                 case PIER_AACT_SET_MARK_VARIANT:
-                    actor->setMarkVariant(static_cast<int>(a));
-                    return true;
+                    // Both want set<int>, which the engine does not export.
+                    return false;
                 case PIER_AACT_SET_PERSISTENT:
                     actor->setPersistent();
                     return true;
@@ -384,7 +419,10 @@ namespace pier::api_impl
                     actor->setSneaking(a != 0.0);
                     return true;
                 case PIER_AACT_SET_NAME_TAG_VISIBLE:
-                    actor->setNameTagVisible(a != 0.0);
+                    // setNameTagVisible() wrote this one flag. setActorFlag is the same
+                    // write and is the route Actor::getStatusFlag now reads back through.
+                    SynchedActorDataAccess::setActorFlag(
+                        actor->getEntityContext(), ::ActorFlags::CanShowName, a != 0.0);
                     return true;
                 case PIER_AACT_SET_TARGET:
                 {
@@ -406,19 +444,28 @@ namespace pier::api_impl
                     actor->stopFire();
                     return true;
                 case PIER_AACT_SET_VELOCITY:
-                    actor->setVelocity(
-                        Vec3{static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)});
+                    // setVelocity and applyImpulse are inlined away. mPosDelta is the
+                    // per-tick movement both wrote, reachable through the component the
+                    // surviving getPosDelta reads, so a set replaces the first and an add
+                    // the second.
+                    actor->mBuiltInComponents->mStateVectorComponent->mPosDelta =
+                        Vec3{static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)};
                     return true;
                 case PIER_AACT_APPLY_IMPULSE:
-                    actor->applyImpulse(
-                        Vec3{static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)});
+                {
+                    auto& delta = actor->mBuiltInComponents->mStateVectorComponent->mPosDelta.get();
+                    delta.x += static_cast<float>(a);
+                    delta.y += static_cast<float>(b);
+                    delta.z += static_cast<float>(c);
                     return true;
+                }
                 case PIER_AACT_SET_SCORE_TAG:
-                    actor->setScoreTag(toString(sarg));
+                    actor->mEntityData->set<std::string>(
+                        static_cast<ushort>(::ActorDataIDs::Score), toString(sarg));
                     return true;
                 case PIER_AACT_SET_SKIN_ID:
-                    actor->setSkinID(static_cast<int>(a));
-                    return true;
+                    // set<int> again.
+                    return false;
                 case PIER_AACT_SET_STRENGTH:
                     actor->setStrength(static_cast<int>(a));
                     return true;
@@ -436,10 +483,20 @@ namespace pier::api_impl
                     return actor->executeEvent(toString(sarg), VariantParameterList{});
                 case PIER_AACT_SET_ROTATION:
                     // Vec2 is (x = pitch, y = yaw), matching the order the ROT_*
-                    // properties read. Wrapped rather than Directly, because
-                    // setRotationDirectly skips normalization to -180..180 and a yaw of
-                    // 400 renders as an over-twisted head.
-                    actor->setRotationWrapped(Vec2{static_cast<float>(a), static_cast<float>(b)});
+                    // properties read. setRotationWrapped is inlined away; mRot is the
+                    // field it wrote, reachable through the component the surviving
+                    // getRotation reads. Its normalization to -180..180 is done here too,
+                    // because a yaw of 400 renders as an over-twisted head.
+                    {
+                        auto wrap = [](double v)
+                        {
+                            double r = std::fmod(v + 180.0, 360.0);
+                            if (r < 0.0) r += 360.0;
+                            return static_cast<float>(r - 180.0);
+                        };
+                        actor->mBuiltInComponents->mActorRotationComponent->mRot =
+                            Vec2{wrap(a), wrap(b)};
+                    }
                     return true;
                 default:
                     return false;

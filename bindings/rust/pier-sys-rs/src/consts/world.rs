@@ -276,15 +276,24 @@ pub const PIER_DIMRULE_LIQUID_FLOW: i32 = 8;
 pub const PIER_DIMRULE_FARMLAND_DECAY: i32 = 9;
 /// mounting boats/minecarts/animals
 pub const PIER_DIMRULE_RIDE: i32 = 10;
-/// ── Plot-boundary confinement (needs md_set_plot_grid) ──
-/// Pistons moving blocks ACROSS a plot boundary. Distinct from
+/// ── Cell-boundary confinement (terrain.grid.confine in the spec) ──
+/// Pistons moving blocks ACROSS a cell boundary. Distinct from
 /// PIER_DIMRULE_PISTON_PUSH, which disables pistons for the whole
-/// dimension: this one leaves them working inside a plot and only refuses
+/// dimension: this one leaves them working inside a cell and only refuses
 /// the push that would cross the edge. Both apply — either one denying is
 /// enough to stop the push. Inert in dimensions with no registered grid.
+pub const PIER_DIMRULE_PISTON_CROSS_CELL: i32 = 11;
+/// Entities crossing a cell boundary. Players and ridden vehicles are
+/// never confined — see CellConfine.cpp for why.
+pub const PIER_DIMRULE_ENTITY_CROSS_CELL: i32 = 12;
+
+/// Retired since 26.20.3, same value as PIER_DIMRULE_PISTON_CROSS_CELL. Kept
+/// because deleting a name bumps the ABI version and that rejects every mod
+/// already compiled. The value is written out rather than aliased to the new
+/// name: sys-mirrors-abi compares the text of a value against abi.h, and an
+/// alias reads as a different value there.
 pub const PIER_DIMRULE_PISTON_CROSS_PLOT: i32 = 11;
-/// Entities crossing a plot boundary. Players and ridden vehicles are
-/// never confined — see PlotConfine.cpp for why.
+/// Retired since 26.20.3; see PIER_DIMRULE_PISTON_CROSS_PLOT.
 pub const PIER_DIMRULE_ENTITY_CROSS_PLOT: i32 = 12;
 
 // ── PierSysInfoProp ──────────────────────────────────────────

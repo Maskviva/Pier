@@ -280,12 +280,13 @@ passed" into "this property holds".
 | `optional-drops` | no symbol of an optional package is referenced across packages | **the necessary condition only**; the sufficient criterion is really deleting that line and running `xmake f` |
 | `build-config` | target names are unique; `add_packages` is contained in `add_requires`; using a header means declaring its package | packages that ship headers; a link-time-only package is invisible |
 | `include-resolves` | every internal `#include` resolves character for character to a real file | complete |
+| `sources-are-built` | every `.cpp` under a package is reached by an `add_files` pattern of that package | it reimplements the `*` and `**` globs and ignores which `is_config` branch a pattern sits in, so it proves nothing under `src/` is unreferenced and not that every file builds on every target |
 | `sys-mirrors-abi` | the slot order, **each slot signature parameter by parameter**, the struct fields, the constants and the enum members all match `abi.h` cell for cell; the mirror carries no conditional compilation | complete, and stricter than `cargo check`, since a wrong width compiles on both sides |
 | `comment-claims` | a comment claiming something is swallowed, caught or never thrown has a try or a catch in the same function | an exception word has to appear as well, to avoid confusion with the swallow of packet-dropping |
-| `comment-style` | the mechanical part of `COMMENTS.md`: budgets, banned wording, ticket numbers, markdown layout, line width, the language of the contract header | it cannot see whether a comment is true or restates the code, and those need a human |
+| `comment-style` | the mechanical part of `COMMENTS.md`: budgets, banned wording, ticket numbers, markdown layout, line width, spelling, and the English requirement over every file rather than the contract header alone | it cannot see whether a comment is true or restates the code, and those need a human |
 | `manifest-matches-host` | the type, the dependency name and the entry of an example `manifest.json` really load under the host | complete |
 | `host-loadable` | the unified memory operators and the mod registration appear exactly once each, and their package necessarily reaches the artifact | complete |
-| `ledger-covers-tree` | every file in the workspace has a row in the ledger, the reverse direction of the ledger | complete |
+| `ledger-covers-tree` | every file on disk has a row in the ledger, the reverse direction of the ledger | the walk is the filesystem and not git, so its two exemption lists have to be kept level with `.gitignore` by hand |
 | `no-silent-fallback` | a `catch` block that neither logs, rethrows, returns, resets the target, nor puts it into an error value | **that one shape only**; a default filled in across functions is invisible |
 
 The last four are new in v2. `build-config`, `include-resolves` and `manifest-matches-host`

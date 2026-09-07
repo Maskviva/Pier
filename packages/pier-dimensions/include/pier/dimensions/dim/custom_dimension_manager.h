@@ -7,7 +7,7 @@
  * derived-dimension constructor parameters from the engine, valid only while the closure runs;
  * data holds this package's payload, the seed and layout; dimId is the id already decided, which
  * the closure must not guess at again. addDimension is a template and a caller writes
- * addDimension<PlotDimension>(name, seed, layout). The dimension type is fixed at compile time
+ * addDimension<SpecDimension>(name, spec_snbt). The dimension type is fixed at compile time
  * and both the factory closure and generateNewData follow from it, as a template parameter rather
  * than a runtime enum so that adding a dimension kind needs no change here. This package is an
  * object package compiled into the host and exports no symbol, so there is no export macro. No
@@ -15,6 +15,7 @@
  * reads back garbage for a custom dimension, for the reason rt/Bridge.cpp gives. / */
 
 #include <concepts>
+#include <optional>
 #include <functional>
 #include <memory>
 #include <string>
@@ -79,6 +80,22 @@ namespace pier::dimensions
                 [&] { return D::generateNewData(std::forward<Args>(args)...); }
             );
         }
+
+        /**
+         * Drops a dimension from the config, from the host's tables and from the factory
+         * map. The id it held, or nullopt when the host had no such dimension. The id is
+         * reported rather than looked up afterwards because this clears the ledger the
+         * lookup goes through.
+         *
+         * That id is not made available again: registering the retired name later gets a
+         * fresh one, which orphans the old chunks and costs disk, while reusing the
+         * number would hand the new dimension the terrain of the old one.
+         *
+         * Nothing in the running engine is undone. The dimension it built for this
+         * session stays, a player inside it stays there, and what ends is the host
+         * registering the name again on the next boot.
+         */
+        std::optional<int> retireDimension(std::string const& dimName);
 
     protected:
         DimensionType addDimension(

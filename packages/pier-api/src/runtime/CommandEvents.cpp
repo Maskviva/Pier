@@ -24,11 +24,13 @@
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/Listener.h"
 #include "ll/api/event/command/ExecuteCommandEvent.h"
+#include "ll/api/service/Bedrock.h"
 #include "ll/api/utils/ErrorUtils.h"
 
 #include "mc/deps/nbt/CompoundTag.h"
 #include "mc/platform/UUID.h"
 #include "mc/server/commands/CommandOrigin.h"
+#include "mc/server/commands/CommandRegistry.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/player/Player.h"
 
@@ -84,6 +86,33 @@ namespace pier::api_impl
             return {};
         }
 
+        /** The canonical name of the command a line invokes, or empty when the registry
+         *  does not know it.
+         *
+         *  Splitting the line on whitespace is not the same answer. `/w`, `/tell` and
+         *  `/msg` are one command behind three names, and a gate keyed on the first word
+         *  refuses one spelling while the other two go through. The alias table lives in
+         *  CommandRegistry and nothing outside it can see the mapping.
+         *
+         *  `/execute ... run <command>` still reports `execute`: the inner command is
+         *  parsed by execute itself, after this event has already been decided. A gate
+         *  that has to cover the inner one has to refuse execute as a whole. */
+        std::string commandVerb(std::string const& line)
+        {
+            auto reg = ll::service::getCommandRegistry();
+            if (!reg) return {};
+            try
+            {
+                return reg->getCommandName(line);
+            }
+            catch (...)
+            {
+                // A line the registry cannot parse at all. Reporting no verb is the
+                // honest answer and lets the subscriber fall back to the raw command.
+                return {};
+            }
+        }
+
         /** True when a subscriber asked for this command to be refused.
          *
          *  The write-back must be honored here. Dropping it makes
@@ -110,6 +139,7 @@ namespace pier::api_impl
             std::string snbt = "{\"eventId\":\"" + idName
                 + "\",\"name\":\"" + snbtEscape(playerName)
                 + "\",\"command\":\"" + snbtEscape(command)
+                + "\",\"verb\":\"" + snbtEscape(commandVerb(command))
                 + "\",\"_player\":{\"name\":\"" + snbtEscape(playerName)
                 + "\",\"xuid\":\"" + snbtEscape(xuid)
                 + "\",\"uuid\":\"" + snbtEscape(uuid) + "\"}}";

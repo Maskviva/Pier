@@ -82,16 +82,29 @@ pub enum DimensionRule {
     LiquidFlow = 8,
     FarmlandDecay = 9,
     Ride = 10,
-    /// Blocks only a piston push crossing a plot boundary, leaving the plot interior alone. It
+    /// Blocks only a piston push crossing a cell boundary, leaving the cell interior alone. It
     /// applies together with [`DimensionRule::PistonPush`] and either one forbidding stops
     /// the push.
-    PistonCrossPlot = 11,
-    /// Blocks only actor movement crossing a plot boundary. Players and ridden vehicles are
+    PistonCrossCell = 11,
+    /// Blocks only actor movement crossing a cell boundary. Players and ridden vehicles are
     /// never restricted.
-    EntityCrossPlot = 12,
+    EntityCrossCell = 12,
 }
 
+// The retired names keep the variant spelling they had, so an existing caller compiles
+// unchanged; that spelling is not the one a const wants, so the lint is silenced for the
+// whole block rather than per constant.
+#[allow(non_upper_case_globals)]
 impl DimensionRule {
+    /// The spelling a plot world used, retired since 26.20.3. Same value as
+    /// [`DimensionRule::PistonCrossCell`]; the ABI keeps both names permanently, so an
+    /// existing caller keeps compiling and resolves to the same rule.
+    #[deprecated(since = "26.20.3", note = "renamed to PistonCrossCell")]
+    pub const PistonCrossPlot: Self = Self::PistonCrossCell;
+    /// Retired since 26.20.3; see [`DimensionRule::PistonCrossPlot`].
+    #[deprecated(since = "26.20.3", note = "renamed to EntityCrossCell")]
+    pub const EntityCrossPlot: Self = Self::EntityCrossCell;
+
     pub fn as_i32(self) -> i32 {
         self as i32
     }
@@ -104,6 +117,10 @@ impl DimensionRule {
 /// `mod(x,cell) >= plot_size || mod(z,cell) >= plot_size`; otherwise it is border within
 /// `border_width` of the plot edge; otherwise it is plot.
 #[derive(Debug, Clone, PartialEq)]
+#[deprecated(
+    since = "26.20.3",
+    note = "the layout lives in the dimension spec; see add_dimension"
+)]
 pub struct PlotLayout {
     pub plot_size: i32,
     pub road_width: i32,
@@ -116,6 +133,7 @@ pub struct PlotLayout {
     pub biome: String,
 }
 
+#[allow(deprecated)]
 impl Default for PlotLayout {
     fn default() -> PlotLayout {
         PlotLayout {
@@ -132,6 +150,7 @@ impl Default for PlotLayout {
     }
 }
 
+#[allow(deprecated)]
 impl PlotLayout {
     /// The width of one plot plus one road, which is the modulus of the grid.
     pub fn cell_size(&self) -> i32 {
@@ -175,6 +194,10 @@ pub fn is_available() -> bool {
 }
 
 /// Registers a simple custom dimension. It returns the dimension id, 3 or above.
+#[deprecated(
+    since = "26.20.3",
+    note = "retired on the host; use add_dimension with terrain:{kind:\"native\"}"
+)]
 pub fn add_simple(name: &str, seed: u32, generator: GeneratorType) -> Result<i32> {
     let f = crate::require_slot!(md_add_simple_dimension, "registering a custom dimension");
     let id = unsafe { f(s(name), seed, generator.as_i32()) };
@@ -189,6 +212,11 @@ pub fn add_simple(name: &str, seed: u32, generator: GeneratorType) -> Result<i32
 
 /// Registers a plot world. The generator lays the grid down during generation rather than
 /// blocks being placed afterwards.
+#[allow(deprecated)]
+#[deprecated(
+    since = "26.20.3",
+    note = "retired on the host; use add_dimension with terrain:{kind:\"layers\", grid:{...}}"
+)]
 pub fn add_plot(name: &str, seed: u32, layout: &PlotLayout) -> Result<i32> {
     let f = crate::require_slot!(md_add_plot_dimension, "registering a plot dimension");
     let spec = layout.to_snbt();
@@ -334,12 +362,20 @@ impl PlotMerge {
 ///
 /// Changed geometry clears the merge table, since an old merge mark points at a different
 /// plot under the new grid.
+#[deprecated(
+    since = "26.20.3",
+    note = "retired on the host; put grid.confine:true in the dimension spec"
+)]
 pub fn set_plot_grid(dimension: i32, plot_size: i32, road_width: i32) -> Result<()> {
     let f = crate::require_slot!(md_set_plot_grid, "registering a plot grid");
     unsafe { f(dimension, plot_size, road_width) };
     Ok(())
 }
 
+#[deprecated(
+    since = "26.20.3",
+    note = "retired on the host; the grid is withdrawn with the dimension"
+)]
 pub fn clear_plot_grid(dimension: i32) -> Result<()> {
     let f = crate::require_slot!(md_clear_plot_grid, "clearing a plot grid");
     unsafe { f(dimension) };
@@ -366,4 +402,40 @@ pub fn set_plot_merges(dimension: i32, merges: &[PlotMerge]) -> Result<()> {
     }
     unsafe { f(dimension, flat.as_ptr(), merges.len() as i32) };
     Ok(())
+}
+
+/// Adds a custom dimension from one declarative spec; see `md_add_dimension` in `abi.h`.
+///
+/// The spec is opaque to this SDK: the shape is owned by the host and the RSW world
+/// manager (`rsw_world_spec::Generator::to_spec_snbt`) writes it. This function only
+/// carries the string across.
+/// The one entry for creating a dimension since 26.20.3. The four retired wrappers above
+/// still compile, warn at the call site, and fail at runtime with a host log line.
+pub fn add_dimension(name: &str, spec_snbt: &str) -> Result<i32> {
+    let f = crate::require_slot!(md_add_dimension, "registering a dimension from a spec");
+    let r = unsafe { f(s(name), s(spec_snbt)) };
+    if r < 0 {
+        return Err(Error(format!(
+            "the host refused the dimension '{name}'; the reason is in the host log"
+        )));
+    }
+    Ok(r)
+}
+
+/// Retires a custom dimension; see `md_retire_dimension` in `abi.h`.
+///
+/// The host drops the name from `dimension_config.json`, from its own tables and from the
+/// dimension factory, so it is not registered again on the next boot. Nothing in the
+/// running engine is undone: the dimension built for this session stays and a player
+/// inside it is not moved.
+///
+/// The chunks stay in the save and the id is not handed out again. Registering the same
+/// name afterwards is a new dimension with a new id, so the old terrain is orphaned
+/// rather than inherited.
+///
+/// `Ok(false)` when the host had no dimension of that name, which is also the answer to a
+/// second call.
+pub fn retire_dimension(name: &str) -> Result<bool> {
+    let f = crate::require_slot!(md_retire_dimension, "retiring a dimension");
+    Ok(unsafe { f(s(name)) })
 }

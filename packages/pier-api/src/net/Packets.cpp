@@ -16,6 +16,7 @@
 #ifndef PIER_BUILD_CLIENT
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -68,7 +69,11 @@ namespace pier::api_impl
                 // The body must be exactly one packet. Trailing garbage means the
                 // caller serialized the wrong shape for this game version, so it is
                 // refused early rather than sending a half-parsed packet to a client.
-                if (!stream.ensureReadCompleted()) return false;
+                //
+                // ensureReadCompleted is inlined away in 26.32. The two fields it read are
+                // public: a read past the end sets mHasOverflowed, and bytes the packet
+                // did not consume leave mReadPointer short of the view.
+                if (stream.mHasOverflowed || stream.mReadPointer != stream.mView.size()) return false;
 
                 return sendToPlayer(sel, *pkt);
             PIER_API_GUARD_END
@@ -107,8 +112,12 @@ namespace pier::api_impl
                 // sending a Times packet is behavior vanilla itself relies on.
                 if (withTimes)
                 {
-                    SetTitlePacket times;
-                    times.mType = TitleType::Times;
+                    // The payload's default constructor is declared and not exported in
+                    // 26.32, so a default-constructed packet does not link. Both packet
+                    // types forward their arguments to the payload, and the three-argument
+                    // payload constructor is exported, so the type goes in there and the
+                    // rest of the fields are assigned as before.
+                    SetTitlePacket times{TitleType::Times, std::string{}, std::nullopt};
                     times.mFadeInTime = fadeInTicks;
                     times.mStayTime = stayTicks;
                     times.mFadeOutTime = fadeOutTicks;
@@ -125,8 +134,7 @@ namespace pier::api_impl
                 // ll::PayloadPacket<T> derives from T (mc/network/Packet.h:204), so the
                 // payload fields sit directly on the packet, the same access pattern
                 // SpawnParticleEffectPacket uses above. No wire format is involved.
-                SetTitlePacket pkt;
-                pkt.mType = kind;
+                SetTitlePacket pkt{kind, std::string{}, std::nullopt};
                 if (kind == TitleType::Title || kind == TitleType::Subtitle
                     || kind == TitleType::Actionbar)
                 {
@@ -165,10 +173,13 @@ namespace pier::api_impl
                             dimension, static_cast<int>(static_cast<uchar>(dimension)));
                     }
                 }
-                SpawnParticleEffectPacket pkt;
-                pkt.mVanillaDimensionId = static_cast<uchar>(dimension);
-                pkt.mPos = Vec3{(float)x, (float)y, (float)z};
-                pkt.mEffectName = toString(effectName);
+                // Same as the title packets above: the payload's default constructor is
+                // not exported, and the four-argument one is.
+                SpawnParticleEffectPacket pkt{
+                    Vec3{(float)x, (float)y, (float)z},
+                    toString(effectName),
+                    static_cast<uchar>(dimension),
+                    std::nullopt};
                 return sendToPlayer(sel, pkt);
             PIER_API_GUARD_END
         }

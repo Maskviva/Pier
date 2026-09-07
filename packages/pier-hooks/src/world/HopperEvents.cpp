@@ -48,9 +48,9 @@ namespace pier::hooks
             // this detour is entered for those block entities too. this is then a
             // ChestBlockActor*, a virtual call through it reads the vptr at the hopper's
             // Container subobject offset, and jumping through that garbage vptr crashes on
-            // DEP. getType() is non-virtual, reads BlockActor::mType at offset 0, means the
-            // same for every block entity, and stays safe under folding.
-            if (this->getType() != ::BlockActorType::Hopper)
+            // DEP. mType is a plain field of BlockActor, means the same for every block
+            // entity, and stays safe under folding.
+            if (this->mType != ::BlockActorType::Hopper)
             {
                 // The discriminator. If the crash really came from ICF folding, this
                 // fires for chests and furnaces, which means the guard fixed it. If the
@@ -64,7 +64,7 @@ namespace pier::hooks
                         "[hooks/HopperEvents] the guard refused a non-hopper block entity "
                         "(getType={}); that is expected under ICF folding, and a counter that "
                         "stays empty means the hook point has to change",
-                        static_cast<int>(this->getType()));
+                        static_cast<int>(this->mType));
                 }
                 origin(slot, item);
                 return;
@@ -88,7 +88,7 @@ namespace pier::hooks
 
             int newCount = item.mCount;
             std::string newName = newCount > 0 ? item.getTypeName() : std::string{};
-            BlockPos const& pos = this->getPosition();
+            BlockPos const& pos = this->mPosition.get();
 
             std::string snbt = "{\"eventId\":\"HopperTransferEvent\""
                 ",\"x\":" + snbtNum(pos.x)

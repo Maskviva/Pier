@@ -25,7 +25,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "magic_enum.hpp"
 
 #include "ll/api/command/CommandRegistrar.h"
 #include "ll/api/memory/Hook.h"
@@ -37,14 +36,13 @@
 #include "mc/server/PropertiesSettings.h"
 #include "mc/util/BidirectionalUnorderedMap.h"
 #include "mc/world/actor/player/Player.h"
-#include "mc/world/level/GeneratorType.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/dimension/Dimension.h"
 #include "mc/world/level/dimension/VanillaDimensions.h"
 #include "mc/world/level/storage/LevelStorage.h"
 
 #include "pier/dimensions/base/native_dimensions.h"
-#include "pier/dimensions/base/simple_custom_dimension.h"
+#include "pier/dimensions/spec/dimension_spec.h"
 #include "pier/dimensions/dim/chunk_trace.h"
 #include "pier/dimensions/dim/custom_dimension_config.h"
 #include "pier/dimensions/dim/dimension_height.h"
@@ -59,47 +57,13 @@ namespace pier::dimensions
         using ::pier::hostLogger;
 
         /**
-         * `SimpleCustomDimension` writes the generator type into the payload as a
-         * magic_enum name. `PlotDimension` has no such field, since it takes over
-         * `createGenerator` itself.
-         * The value does decide the terrain for SimpleCustomDimension, whose
-         * `createGenerator` switches on it. A fallback when it cannot be read is
-         * therefore not harmless: it decides whether a player sees flat, nether or void,
-         * so every fallback says what it fell back to (contract §5.1).
-         * The name is written by `generateNewData` when the dimension is first created
-         * and is never overwritten by a later argument, so a wrong choice can only be
-         * fixed by editing the config or deleting and recreating the dimension.
+         * The payload is written by `generateNewData` when the dimension is first created
+         * and is never overwritten by a later argument, so a wrong terrain choice can only
+         * be fixed by editing dimension_config.json or deleting and recreating the
+         * dimension. It decides whether a player sees flat, nether or void, so a fallback
+         * when it cannot be read is not harmless and every fallback says what it fell back
+         * to (contract §5.1).
          */
-        GeneratorType readGeneratorType(CompoundTag const& nbt)
-        {
-            if (!nbt.contains("generatorType"))
-            {
-                // PlotDimension does not write this field at all, which is normal, so
-                // this is debug level.
-                hostLogger().debug("[dim] no generatorType in the dimension data, treating it as Flat");
-                return GeneratorType::Flat;
-            }
-            std::string stored;
-            try
-            {
-                auto const name = static_cast<std::string_view>(nbt.at("generatorType"));
-                stored.assign(name);
-                if (auto parsed = magic_enum::enum_cast<GeneratorType>(name)) return *parsed;
-            }
-            catch (...)
-            {
-                // Unreadable and read-but-unparsable are the same thing to a caller:
-                // the generator type is unavailable. Both paths join the error below,
-                // which carries the raw text that was read.
-                stored.clear();
-            }
-            hostLogger().error(
-                "[dim] generatorType='{}' in the dimension data could not be parsed, falling "
-                "back to Flat; the terrain will differ from what was chosen at creation",
-                stored
-            );
-            return GeneratorType::Flat;
-        }
 
         /** Announces ready once per dimension name. A reload calls addDimension
          *  again. */
@@ -236,23 +200,37 @@ namespace pier::dimensions
 
         /*
          * LL_AUTO_* installs itself during static initialization, which is what is
-         * wanted here because `initializeHttp` runs long before any dimension
+         * wanted here because the server loop starts long before any dimension
          * registration. It must therefore not also appear in the HookRegistrar below:
          * listing it in both places installs the detour twice and the reference count
          * never returns to zero on unhook.
+         *
+         * The detour used to sit on `initializeHttp`, which is inlined away in 26.32.
+         * `runDedicatedServerLoop` takes the same PropertiesSettings and is the call that
+         * every initialize step runs under, so the flag is cleared before anything reads
+         * it, as before. It is entered once per process.
          */
         LL_AUTO_TYPE_INSTANCE_HOOK(
             PropertiesSettingsClientSideGenHook,
             HookPriority::Normal,
             DedicatedServer,
-            &DedicatedServer::initializeHttp,
-            void,
-            PropertiesSettings const& properties
+            &DedicatedServer::runDedicatedServerLoop,
+            ::DedicatedServer::ServerExitCode,
+            ::Core::FilePathManager&                                     filePathManager,
+            ::PropertiesSettings const&                                  properties,
+            ::LevelSettings&                                             settings,
+            ::AllowListFile&                                             userAllowList,
+            ::std::unique_ptr<::PermissionsFile>&                        permissionsFile,
+            ::std::optional<::PacketGroupDefinition::PacketGroupBuilder> packetGroupBuilder,
+            ::Bedrock::ActivationArguments const&                        args,
+            ::TestConfig&                                                testConfig
         )
         {
-            auto& mutableProperties = const_cast<PropertiesSettings&>(properties);
-            mutableProperties.mClientSideGenerationEnabled = false;
-            return origin(mutableProperties);
+            const_cast<PropertiesSettings&>(properties).mClientSideGenerationEnabled = false;
+            return origin(
+                filePathManager, properties, settings, userAllowList, permissionsFile,
+                std::move(packetGroupBuilder), args, testConfig
+            );
         }
 
         using HookReg = ll::memory::HookRegistrar<
@@ -365,6 +343,70 @@ namespace pier::dimensions
         return instance;
     }
 
+    /*
+     * Retiring undoes the four places addDimension writes and stops there.
+     *
+     * The engine side is left alone on purpose. The dimension it built for this session
+     * still exists, a player inside it is not moved, and the chunks stay in the save.
+     * There is no engine call that unregisters a dimension, and reaching into
+     * DimensionRegistry to remove one while chunks of it may still be in flight is not a
+     * trade worth making for a bookkeeping operation.
+     *
+     * usedIds keeps the number. That set is what stops one boot from handing the same id
+     * to two names, and dropping the entry here would let the next registration reuse it:
+     * the new dimension would then read the terrain the retired one wrote, which is the
+     * one outcome from which there is no way back.
+     */
+    std::optional<int> CustomDimensionManager::retireDimension(std::string const& dimName)
+    {
+        std::lock_guard lock{impl->mMapMutex};
+
+        // Read before anything is dropped: forgetDimension below clears the ledger this
+        // goes through, and the caller needs the number to release what hangs off it.
+        int const id = dimensionIdOf(dimName);
+
+        auto& list = CustomDimensionConfig::getConfig().dimensionList;
+        bool const knownHere = impl->customDimensionMap.erase(dimName) != 0;
+        bool const salvaged = impl->salvagedIds.erase(dimName) != 0;
+        bool const inConfig = list.erase(dimName) != 0;
+        impl->registeredDimension.erase(dimName);
+
+        if (!knownHere && !salvaged && !inConfig)
+        {
+            hostLogger().warn("[dim] '{}' is not a dimension this host knows, so there is nothing to retire", dimName);
+            return std::nullopt;
+        }
+
+        // The factory closure goes last of the in-memory drops: while it is in the map
+        // the engine can still build the dimension, which is what should happen for a
+        // player who is standing in it right now.
+        if (auto level = ll::service::getLevel())
+        {
+            level->getDimensionFactory().mFactoryMap.erase(dimName);
+        }
+        forgetDimension(dimName);
+
+        if (inConfig && !CustomDimensionConfig::saveConfigFile())
+        {
+            hostLogger().error(
+                "[dim] writing dimension_config.json failed; '{}' is retired in memory and will "
+                "come back on the next boot",
+                dimName
+            );
+            return std::nullopt;
+        }
+
+        // Retiring is a success and §5.3 keeps info off the success path, but this one
+        // is a destructive edit to a file the operator did not open, so it stays at info
+        // as the only record of who removed the dimension and when.
+        hostLogger().info(
+            "[dim] '{}' retired: removed from dimension_config.json and not registered "
+            "again; its chunks stay in the save and the id is not reused",
+            dimName
+        );
+        return id;
+    }
+
     DimensionType CustomDimensionManager::addDimension(
         std::string const& dimName,
         std::function<DimensionFactoryT> factory,
@@ -398,7 +440,7 @@ namespace pier::dimensions
             info.id = DimensionType{salvaged->second};
             info.nbt = data();
             impl->salvagedIds.erase(salvaged);
-            hostLogger().warn("[dim] '{}' lost its data, regenerating it and keeping id {}", dimName, info.id.value());
+            hostLogger().warn("[dim] '{}' lost its data, regenerating it and keeping id {}", dimName, info.id.mValue);
         }
         else
         {
@@ -423,7 +465,7 @@ namespace pier::dimensions
                 DerivedDimensionArguments&& arguments) -> OwnerPtr<Dimension>
             {
                 DimensionType id = shared->id;
-                if (id.value() < 3)
+                if (id.mValue < 3)
                 {
                     // Not written back yet, which means this is a re-entrant call from
                     // inside serverRegisterCustomDimension. The engine is asked
@@ -457,8 +499,14 @@ namespace pier::dimensions
         //    corrupts the engine's own comparisons against Undefined(). A failed
         //    registration throws, which the GUARD in Slots.cpp turns into -1.
 
-        auto const nativeId =
-            native::registerCustomDimension(dimName, kWorldMinY, kWorldMaxY, readGeneratorType(info.nbt));
+        // Height and client sky both come from the stored payload, through the same two
+        // readers the SpecDimension base constructor uses. When the two consumers read
+        // different sources the client requests subchunks outside its buffer and crashes
+        // on entering.
+        auto const range = spec::dimensionHeightOf(info.nbt);
+        auto const nativeId = native::registerCustomDimension(
+            dimName, static_cast<int>(range.mMin), static_cast<int>(range.mMax), spec::clientGeneratorOf(info.nbt)
+        );
 
         if (!nativeId)
         {
@@ -472,7 +520,7 @@ namespace pier::dimensions
             throw std::runtime_error("native registration of dimension '" + dimName + "' failed");
         }
 
-        if (knownLocally && info.id.value() != *nativeId)
+        if (knownLocally && info.id.mValue != *nativeId)
         {
             // The id the engine gave differs from the one in the config. The engine
             // wins and the config is corrected. Such an id can only come from a config
@@ -480,7 +528,7 @@ namespace pier::dimensions
             // the engine side, so there is no save compatibility concern.
             hostLogger().warn(
                 "[dim] '{}': the config records id {} while the engine allocated {}; the engine wins",
-                dimName, info.id.value(), *nativeId
+                dimName, info.id.mValue, *nativeId
             );
         }
         info.id = DimensionType{*nativeId};
@@ -492,7 +540,7 @@ namespace pier::dimensions
         shared->nbt = info.nbt;
 
         impl->customDimensionMap.insert_or_assign(dimName, info);
-        rememberDimension(dimName, info.id.value());
+        rememberDimension(dimName, info.id.mValue);
 
         ll::memory::modify(VanillaDimensions::DimensionMap(), [&](auto& dimMap)
         {
@@ -502,7 +550,7 @@ namespace pier::dimensions
             // no longer exists.
             if (auto it = dimMap.mRight.find(dimName); it != dimMap.mRight.end())
             {
-                if (it->second.value() != info.id.value()) dimMap.mLeft.erase(it->second);
+                if (it->second.mValue != info.id.mValue) dimMap.mLeft.erase(it->second);
             }
             dimMap.insert_or_assign(dimName, info.id);
         });
@@ -520,9 +568,9 @@ namespace pier::dimensions
             auto& list = CustomDimensionConfig::getConfig().dimensionList;
             auto snbt = info.nbt.toSnbt(SnbtFormat::Minimize);
             auto cur = list.find(dimName);
-            if (cur == list.end() || cur->second.dimId != info.id.value() || cur->second.sNbt != snbt)
+            if (cur == list.end() || cur->second.dimId != info.id.mValue || cur->second.sNbt != snbt)
             {
-                list.insert_or_assign(dimName, CustomDimensionConfig::DimensionInfo{info.id.value(), snbt});
+                list.insert_or_assign(dimName, CustomDimensionConfig::DimensionInfo{info.id.mValue, snbt});
                 if (!CustomDimensionConfig::saveConfigFile())
                 {
                     hostLogger().error(
@@ -554,12 +602,12 @@ namespace pier::dimensions
             // has a std::string ABI problem in this build and reads back garbage for a
             // custom dimension, observed as -1870061440, so it is not trusted for the
             // self-check.
-            if (auto const engineId = native::engineDimensionId(dimName); !engineId || *engineId != info.id.value())
+            if (auto const engineId = native::engineDimensionId(dimName); !engineId || *engineId != info.id.mValue)
             {
                 hostLogger().error(
                     "[dim] '{}' (id {}) is not present in the engine DimensionManager, so "
                     "teleporting will fail; the engine read back: {}",
-                    dimName, info.id.value(),
+                    dimName, info.id.mValue,
                     engineId ? std::to_string(*engineId) : std::string{"(not registered)"}
                 );
             }
@@ -567,7 +615,7 @@ namespace pier::dimensions
             {
                 hostLogger().debug(
                     "[dim] '{}' passed its self-check with id {}, engine active={}",
-                    dimName, info.id.value(), native::isActive(info.id.value())
+                    dimName, info.id.mValue, native::isActive(info.id.mValue)
                 );
             }
         }
@@ -587,14 +635,14 @@ namespace pier::dimensions
             throw std::runtime_error("dimension '" + dimName + "' could not be instantiated");
         }
 
-        int const realId = probe->getDimensionId().value();
-        if (realId != info.id.value())
+        int const realId = probe->getDimensionId().mValue;
+        if (realId != info.id.mValue)
         {
             hostLogger().error(
                 "[dim] the ledger id of '{}' is {} while the instance the engine built "
                 "reports {}; teleporting a player into {} would make the engine throw on a "
                 "chunk thread and abort, so registration failed",
-                dimName, info.id.value(), realId, info.id.value()
+                dimName, info.id.mValue, realId, info.id.mValue
             );
             // The ledger is already dirty and is rolled back, so dimensionSelector can
             // no longer find it.

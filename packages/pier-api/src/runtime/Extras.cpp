@@ -103,10 +103,15 @@ namespace pier::api_impl
                                 // ChunkBlockPos(x, 0, z) does not compile: the middle
                                 // parameter is a ChunkLocalHeight and does not convert
                                 // implicitly from int. A column needs no y, so from2D.
-                                chunk->setBiome2d(
+                                //
+                                // setBiome2d is inlined away in 26.32. _setBiome is the
+                                // one it forwarded to, and filling the y dimension is what
+                                // made it the 2d variant: one call paints the column.
+                                chunk->_setBiome(
                                     *target,
                                     ChunkBlockPos::from2D(
-                                        static_cast<uint8_t>(x & 15), static_cast<uint8_t>(z & 15)));
+                                        static_cast<uint8_t>(x & 15), static_cast<uint8_t>(z & 15)),
+                                    /*fillYDimension=*/true);
                                 ++done;
                             }
                         }

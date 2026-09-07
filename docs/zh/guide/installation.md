@@ -4,8 +4,8 @@
 
 | | |
 |---|---|
-| 服务端 | 基岩版专用服务器 1.26.20 |
-| 装载器 | LeviLamina 26.20.4 |
+| 服务端 | 基岩版专用服务器 1.26.32 |
+| 装载器 | LeviLamina 26.32.0 |
 | 可选 | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney)，经济相关调用需要 |
 
 LegacyMoney 是真的可选。Pier 对它走延迟加载，所以没装的服务器照常启动，
@@ -29,8 +29,11 @@ lip install github.com/Maskviva/pier
 启动服务器。宿主就绪后日志里有一行：
 
 ```
-[host] ready, ABI v1, api table 1560 bytes
+[host] ready, ABI v1, api table 1608 bytes
 ```
+
+字节数是宿主编出来多少就是多少，每追加一个能力就会变大，所以看这行是为了确认 ABI 版本，
+不是核对那个数字。
 
 然后在控制台里：
 

@@ -20,7 +20,7 @@ crate 名贴着你实际在写的东西——LeviLamina 的模组代码。
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.20.1" }
+pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.32.0" }
 ```
 
 ## 最小的模组

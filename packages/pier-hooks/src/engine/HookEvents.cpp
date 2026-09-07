@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <atomic>
 #include <string>
+// ll/api/utils/StacktraceUtils.h, reached through ErrorUtils.h below, names
+// std::thread::id without including <thread> in 26.32. Pulling it in first is the
+// smallest fix on this side of the boundary.
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -106,6 +110,49 @@ namespace pier::hooks
             return false;
         }
 
+        /** Reads the optional redirect fields out of one reply. Silence means no
+         *  redirect: a subscriber that only wants to observe answers with nothing, and
+         *  every field here being optional is what lets it. */
+        Redirect replyRedirect(std::string const& reply)
+        {
+            Redirect out;
+            if (reply.empty()) return out;
+            auto tag = CompoundTag::fromSnbt(reply);
+            if (!tag) return out; // replyCancelled already reported the parse failure.
+            if (tag->contains("to"))
+            {
+                auto const& v = tag->at("to");
+                if (v.is_number())
+                {
+                    out.hasDimension = true;
+                    out.dimension = static_cast<int>(static_cast<double>(v));
+                }
+            }
+            // The three coordinates move together. A partial position would silently
+            // mix a caller axis with an engine axis, and the player lands somewhere
+            // neither side asked for.
+            if (tag->contains("to_x") && tag->contains("to_y") && tag->contains("to_z"))
+            {
+                auto const& x = tag->at("to_x");
+                auto const& y = tag->at("to_y");
+                auto const& z = tag->at("to_z");
+                if (x.is_number() && y.is_number() && z.is_number())
+                {
+                    out.hasPosition = true;
+                    out.x = static_cast<float>(static_cast<double>(x));
+                    out.y = static_cast<float>(static_cast<double>(y));
+                    out.z = static_cast<float>(static_cast<double>(z));
+                }
+            }
+            return out;
+        }
+
+        bool sameRedirect(Redirect const& a, Redirect const& b)
+        {
+            return a.hasDimension == b.hasDimension && a.dimension == b.dimension
+                && a.hasPosition == b.hasPosition && a.x == b.x && a.y == b.y && a.z == b.z;
+        }
+
         /** A snapshot of the subscriptions taken before dispatch, since a callback may
          *  modify def.subs mid-dispatch and iterating it directly is undefined behavior.
          *  subs itself stays ordered by priority (see subscribe), so the snapshot order
@@ -175,6 +222,50 @@ namespace pier::hooks
             }
         }
         return cancelled;
+    }
+
+    Decision dispatchHookEventDecided(HookEventDef& def, std::string const& snbt)
+    {
+        // The same snapshot discipline as dispatchHookEventCancellable, reading one more
+        // thing out of each reply.
+        auto snap = snapshot(def);
+        Decision decision;
+        bool haveRedirect = false;
+        for (auto& [cb, user, mod] : snap)
+        {
+            CallbackScope scope{mod};
+            std::string reply;
+            callOne(cb, user, def.idText, snbt, &reply, [](void* ctx, PierStr v)
+            {
+                if (ctx) *static_cast<std::string*>(ctx) = toString(v);
+            });
+            if (replyCancelled(reply, def.idText))
+            {
+                decision.cancelled = true;
+                // Keep going: every subscriber must see the event. Stopping early would
+                // make whether a listener was called depend on registration order.
+            }
+            Redirect const r = replyRedirect(reply);
+            if (!r.any()) continue;
+            if (!haveRedirect)
+            {
+                decision.redirect = r;
+                haveRedirect = true;
+                continue;
+            }
+            if (!sameRedirect(decision.redirect, r))
+            {
+                // Two mods steering the same transfer apart is a configuration problem
+                // and not something to resolve silently. The first one keeps winning so
+                // the behavior stays deterministic while it is being fixed.
+                hostLogger().warn(
+                    "[hooks] two subscribers of '{}' asked for different redirects; keeping the first", def.idText
+                );
+            }
+        }
+        // A cancel means nothing happens at all, so a redirect alongside it is void.
+        if (decision.cancelled) decision.redirect = Redirect{};
+        return decision;
     }
 
     namespace

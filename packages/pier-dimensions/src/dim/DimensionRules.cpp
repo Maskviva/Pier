@@ -11,7 +11,7 @@
  * Eight hook points cover twelve rules. SpawnMonster, SpawnAnimal and SpawnSpawner
  * share Spawner::spawnMob, ExplodeBlocks and MobGriefing share Level::explode, and
  * PistonPush and PistonCrossPlot share PistonBlockActor::_checkAttachedBlocks.
- * EntityCrossPlot is not in this file; PlotConfine.cpp implements it on its own hook.
+ * EntityCrossPlot is not in this file; CellConfine.cpp implements it on its own hook.
  */
 #include "pier/dimensions/dim/dimension_rules.h"
 
@@ -39,7 +39,7 @@
 
 #include "sdk/abi.h"
 
-#include "pier/dimensions/plot/plot_confine.h"
+#include "pier/dimensions/gen/cell_confine.h"
 #include "pier/support/log.h"
 
 namespace pier::dimensions
@@ -60,9 +60,9 @@ namespace pier::dimensions
     static_assert(static_cast<int>(DimRule::LiquidFlow) == PIER_DIMRULE_LIQUID_FLOW);
     static_assert(static_cast<int>(DimRule::FarmlandDecay) == PIER_DIMRULE_FARMLAND_DECAY);
     static_assert(static_cast<int>(DimRule::Ride) == PIER_DIMRULE_RIDE);
-    static_assert(static_cast<int>(DimRule::PistonCrossPlot) == PIER_DIMRULE_PISTON_CROSS_PLOT);
-    static_assert(static_cast<int>(DimRule::EntityCrossPlot) == PIER_DIMRULE_ENTITY_CROSS_PLOT);
-    static_assert(kDimRuleCount == PIER_DIMRULE_ENTITY_CROSS_PLOT + 1, "a rule was appended without updating the count");
+    static_assert(static_cast<int>(DimRule::PistonCrossCell) == PIER_DIMRULE_PISTON_CROSS_CELL);
+    static_assert(static_cast<int>(DimRule::EntityCrossCell) == PIER_DIMRULE_ENTITY_CROSS_CELL);
+    static_assert(kDimRuleCount == PIER_DIMRULE_ENTITY_CROSS_CELL + 1, "a rule was appended without updating the count");
 
     namespace
     {
@@ -533,7 +533,7 @@ namespace pier::dimensions
             }
             // Nothing further is computed when crossing is allowed, or the dimension is
             // unmanaged, or there is no grid.
-            if (!managed || allowed(dim, DimRule::PistonCrossPlot) || !hasPlotGrid(dim))
+            if (!managed || allowed(dim, DimRule::PistonCrossCell) || !hasCellGrid(dim))
             {
                 return true;
             }
@@ -629,7 +629,7 @@ namespace pier::dimensions
         DimRuleHookReg::hook();
         gInstalled = true;
         // The counts are stated exactly: 8 hook points covering 12 rules, with the 13th,
-        // EntityCrossPlot, in PlotConfine.cpp. A log line whose numbers do not add up
+        // EntityCrossPlot, in CellConfine.cpp. A log line whose numbers do not add up
         // sends whoever reads it counting in the wrong place.
         hostLogger().debug("[dim] per-dimension behavior rules enabled: 8 hook points covering 12 rules");
     }

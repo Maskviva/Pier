@@ -6,6 +6,7 @@
 Cargo.lock
 docs/pnpm-lock.yaml
 docs/.vitepress/dist
+docs/.vitepress/cache
 
 # Tool runtime
 __pycache__/

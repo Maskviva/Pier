@@ -449,6 +449,8 @@ pub struct PierApi {
     >,
     pub container_get_items:
         Option<unsafe extern "C" fn(PierContainerRef, *mut c_void, PierSlotSink) -> bool>,
+    pub md_add_dimension: Option<unsafe extern "C" fn(PierStr, PierStr) -> i32>,
+    pub md_retire_dimension: Option<unsafe extern "C" fn(PierStr) -> bool>,
 }
 
 impl PierApi {

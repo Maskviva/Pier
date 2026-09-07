@@ -13,7 +13,8 @@ Every criterion sits at the text level, so the coverage is narrow and certain:
   * ticket and stage numbers (§3 item 3)
   * markdown layout and ASCII rules inside a comment (§3 item 5, and §5)
   * TODO and FIXME (§3 item 7)
-  * CJK characters inside the abi.h comments (§6, comments in English)
+  * CJK characters in the comments of any file (§4, comments in English)
+  * British spelling (§4, American spelling, not mixed within one repository)
   * a line width of 100 columns (§5)
 
 What it cannot see: whether a comment tells the truth, which belongs to comment-claims
@@ -37,17 +38,39 @@ MAX_DOC = 14  # §1 L2: a /** */ above a declaration
 MAX_LINE = 8  # §1 L3: consecutive // lines above a statement
 MAX_COL = 100  # §5
 
-# §3 items 2 and 4. The list takes only unambiguous wording: a check that misreports daily
-# gets added to an ignore list and never speaks again. Words that a technical statement
-# also needs stay out of the list.
+# §3 items 2, 4 and 6. The list takes only unambiguous wording: a check that misreports
+# daily gets added to an ignore list and never speaks again. Words that a technical
+# statement also needs stay out of the list, which is why `previously`, `no longer` and
+# `was` are absent: each of them describes runtime state somewhere in this tree.
+#
+# The patterns are written against the language §4 requires of every comment. A list in
+# any other language passes this whole file silently, which is what happened while the
+# list was still in the language the repository was first written in.
 BANNED = [
-    (r"第一版|第一次重写|最初(?:的)?(?:做法|版本|实现)|曾经声称|旧仓|老仓", "process narrative"),
-    (r"重写了[一二三四五六七八九十\d]+(?:次|遍)|改了[一二三四五六七八九十\d]+(?:次|遍)", "process narrative"),
-    (r"血买来的|下一个人|上一个人|花了.{0,6}才(?:发现|查出)", "rhetoric"),
-    (r"(?<![A-Za-z])我们(?![A-Za-z])|(?<![A-Za-z])咱(?:们)?(?![A-Za-z])", "conversational person"),
-    (r"实测[一二三四五六七八九十\d]+(?:次|遍)|试过[一二三四五六七八九十\d]+(?:次|遍)", "process narrative"),
+    (r"\b(?:this|the)\s+comment\s+used\s+to\b", "the comment narrating its own edits"),
+    (r"\bused\s+to\s+(?:claim|say|read|be\s+called|live)\b", "process narrative"),
+    (r"\b(?:originally|at\s+first\s+we|in\s+the\s+first\s+version)\b", "process narrative"),
+    (r"\bthe\s+first\s+(?:draft|run|version)\s+of\s+th(?:is|e)\b", "process narrative"),
+    (r"\bwhich\s+is\s+how\s+(?:this|the\s+first)\b", "process narrative"),
+    (r"\bthe\s+old\s+(?:repo|repository)\b", "process narrative"),
+    (r"\brewritten\s+(?:twice|three\s+times|\d+\s+times)\b", "process narrative"),
+    (r"\bpaid\s+for\s+in\s+blood\b|\bthe\s+next\s+person\s+will\b", "rhetoric"),
+    # `us` is left out on purpose: it is microseconds in the profile report schema of
+    # abi.h, and §3 keeps out words a technical statement also needs.
+    (r"(?<![A-Za-z])(?:we|our|ours)(?![A-Za-z])", "conversational person"),
+    (r"(?<![A-Za-z])(?:you|your|yours)(?![A-Za-z])", "conversational person"),
+    (r"\b(?:renamed\s+from|moved\s+here\s+from|migrated\s+from)\b", "a change log, which belongs to git"),
+    (r"\bthat\s+file\s+is\s+(?:deleted|gone|removed)\b", "a change log, which belongs to git"),
 ]
-BANNED = [(re.compile(p), why) for p, why in BANNED]
+BANNED = [(re.compile(p, re.I), why) for p, why in BANNED]
+
+# §4: American spelling, not mixed within one repository. The pairs are the ones that
+# actually occur in English technical prose; a word that is spelled the same in both is
+# not listed.
+BRITISH = re.compile(
+    r"\b(behaviour|behaviours|colour|colours|centre|centres|centred|initialise[ds]?|"
+    r"serialise[ds]?|deserialise[ds]?|normalise[ds]?|recognise[ds]?|analyse[ds]?|"
+    r"licence)\b", re.I)
 
 # §3 item 3: an internal review ticket number, pointing at a document the reader cannot get.
 # `stage N` is not taken: a stage here is the teardown order of spi::TeardownReg, a real
@@ -196,9 +219,14 @@ def run():
                 if m:
                     r.fail("%s:%d %s belongs in an issue and not in the code (§3.7)" % (rel, start, m.group(0)))
 
-                # abi.h is in English (§6)
-                if is_abi and CJK.search(joined):
-                    r.fail("%s:%d comments in the contract header must be in English (§6)" % (rel, start))
+                # Every comment is in English, with no exception anywhere (§4). Binding this
+                # to abi.h alone left the rest of the repository unchecked.
+                if CJK.search(joined):
+                    r.fail("%s:%d every comment is in English, with no exception (§4)" % (rel, start))
+                m = BRITISH.search(joined)
+                if m:
+                    r.fail("%s:%d %r is a British spelling and §4 requires American, not "
+                           "mixed within one repository" % (rel, start, m.group(0)))
 
             # Trailing comments: no budget, everything else applies
             for k, body in inline_comments(text):
@@ -212,13 +240,17 @@ def run():
                 m = TODO.search(body)
                 if m:
                     r.fail("%s:%d %s belongs in an issue and not in the code (§3.7)" % (rel, k, m.group(0)))
-                if is_abi and CJK.search(body):
-                    r.fail("%s:%d comments in the contract header must be in English (§6)" % (rel, k))
+                if CJK.search(body):
+                    r.fail("%s:%d every comment is in English, with no exception (§4)" % (rel, k))
+                m = BRITISH.search(body)
+                if m:
+                    r.fail("%s:%d %r is a British spelling and §4 requires American, not "
+                           "mixed within one repository" % (rel, k, m.group(0)))
 
     r.note("scanned %d source file(s) and %d comment block(s)" % (files, blocks))
     r.note(
         "The criteria cover only the mechanical part of COMMENTS.md: budgets, banned "
-        "wording, ticket numbers, markdown layout, line width and the language of the "
+        "wording, ticket numbers, markdown layout, line width, spelling and the language of the "
         "contract header. Whether a comment is true, whether it is one of the five kinds of "
         "§2 and whether it restates the code are invisible at the text level, so a pass does "
         "not mean the standard holds, only that the mechanical rules do."

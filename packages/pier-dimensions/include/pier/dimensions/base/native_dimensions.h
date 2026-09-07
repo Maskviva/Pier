@@ -9,13 +9,11 @@
  * The engine resolves a name through DimensionManager::mDimensionNameIdStore when building a
  * dimension from an id, and with no entry there it returns an expired WeakRef, which is why
  * blockSourceOf returns nullptr and a teleport is reported as failed. registerCustomDimension()
- * hands registration back to the engine: it first ensures the definition is in
- * DimensionDefinitionGroup, then calls serverRegisterCustomDimension() for the id the engine
- * allocates, which the engine writes into the NameIdStore of the save and restores on the next
- * boot. The mFactoryMap entry is still overwritten afterwards, because by default the engine
- * builds a generic data-driven dimension while DimensionFactory::create looks that map up by name
- * and the later write wins. No function throws. A failure returns nullopt, false or nullptr and
- * logs. / */
+ * handed registration back to the engine, which allocated the id and wrote it into the NameIdStore
+ * of the save. On 26.32 that entry point and the lookup that read the table back are both gone, so
+ * the function refuses and no custom dimension can be created; NativeDimensions.cpp states the
+ * reasoning and what was rejected in its place. No function throws. A failure returns nullopt,
+ * false or nullptr and logs. */
 
 #include <functional>
 #include <optional>
@@ -35,20 +33,19 @@ namespace pier::dimensions
         bool available();
 
         /**
-         * Registers a custom dimension through the native engine flow.
+         * Refuses, and logs why once per process. The engine entry point that allocated
+         * the id is not reachable on this version, so a dimension cannot be created and
+         * one a save already holds cannot be found again. The parameters are kept so the
+         * signature survives the day the entry point comes back.
          *
-         * @param name    the dimension name, which is also the key of the factory map
-         * @param minY    the world bottom, written into the DimensionDefinition
-         * @param maxY    the world top
-         * @param gen     the generator type. createGenerator is taken over by this
-         *                package, so this only affects a few engine defaults for the
-         *                dimension, and Flat is the safest value
-         * @return        the dimension id the engine allocated, or nullopt on failure
+         * @return        always nullopt
          */
         std::optional<int>
         registerCustomDimension(std::string const& name, int minY, int maxY, GeneratorType gen);
 
-        /** Asks the engine for the id of a name. nullopt when it is not registered. */
+        /** Always nullopt on this engine version. The table it read is not reachable, so
+         *  the id a save already holds cannot be reported; NativeDimensions.cpp states
+         *  why answering out of the host's own ledger was rejected instead. */
         std::optional<int> engineDimensionId(std::string const& name);
 
         /** Whether the engine considers this id currently valid. */
@@ -74,6 +71,10 @@ namespace pier::dimensions
     // out of the config file unreliable.
 
     void rememberDimension(std::string const& name, int id);
+
+    /** Drops both faces of one entry. rememberDimension(name, -1) is not the same thing:
+     *  it leaves -1 mapped back to the name, so dimensionNameOf(-1) starts answering. */
+    void forgetDimension(std::string const& name);
     std::string dimensionNameOf(int id);      // Empty string when not found
     int dimensionIdOf(std::string_view name); // -1 when not found
     void forEachRegisteredDimension(std::function<void(std::string const&, int)> const& fn);

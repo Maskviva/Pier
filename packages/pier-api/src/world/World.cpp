@@ -18,6 +18,8 @@
 #include "mc/world/item/SaveContext.h"
 #include "mc/world/item/SaveContextFactory.h"
 #include "mc/world/level/BlockPos.h"
+#include "mc/world/item/ItemInstance.h"
+#include "mc/world/item/ItemStack.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/block/Block.h"
@@ -85,8 +87,11 @@ namespace pier::api_impl
         void forEachBlockInRegion(
             BlockSource& bs, int minX, int minY, int minZ, int maxX, int maxY, int maxZ, Fn&& visit)
         {
-            short const minH = bs.getDimension().getMinHeight();
-            short const height = bs.getDimension().getHeight();
+            // Both forwards are inlined away; mHeightRange is the pair they read, and
+            // the height is the span between its two ends.
+            auto const& hr = bs.getDimension().mHeightRange.get();
+            short const minH = hr.mMin;
+            short const height = static_cast<short>(hr.mMax - hr.mMin);
             int const loY = std::max<int>(minY, minH);
             int const hiY = std::min<int>(maxY, static_cast<int>(minH) + height - 1);
             auto const floorDiv16 = [](int v) { return v >= 0 ? v >> 4 : -((-v + 15) >> 4); };
@@ -99,7 +104,9 @@ namespace pier::api_impl
                 {
                     int const zLo = std::max(minZ, cz * 16), zHi = std::min(maxZ, cz * 16 + 15);
                     LevelChunk* chunk = bs.getChunkAt(BlockPos{xLo, 0, zLo});
-                    bool const direct = chunk && chunk->isFullyLoaded();
+                    // isFullyLoaded is inlined away. mLoadState is the atomic it read and
+                    // Loaded is the state it tested for.
+                    bool const direct = chunk && chunk->mLoadState->load() == ChunkState::Loaded;
                     for (int y = minY; y <= maxY; ++y)
                     {
                         bool const inRange = direct && y >= loY && y <= hiY;
@@ -333,81 +340,93 @@ namespace pier::api_impl
                     return true;
                 /*  Appended: block gap fills  */
                 case PIER_BPROP_LIGHT:
-                    *out = static_cast<double>(block->getLight().mValue);
+                    *out = static_cast<double>(block->getBlockType().getLight(*block).mValue);
                     return true;
                 case PIER_BPROP_LIGHT_EMISSION:
-                    *out = static_cast<double>(block->getLightEmission().mValue);
+                    *out = static_cast<double>(block->getBlockType().getLightEmission(*block).mValue);
                     return true;
                 case PIER_BPROP_DESTROY_SPEED:
-                    *out = static_cast<double>(block->getDestroySpeed());
+                    // The no-argument overload is inlined away. The one that survives
+                    // asks how fast a given item breaks the block, and an empty stack is
+                    // the bare-hand speed the no-argument one reported.
+                    *out = static_cast<double>(block->getDestroySpeed(ItemStack{}));
                     return true;
                 case PIER_BPROP_EXPLOSION_RESISTANCE:
-                    *out = static_cast<double>(block->getExplosionResistance());
+                    *out = static_cast<double>(block->getBlockType().getExplosionResistance());
                     return true;
                 case PIER_BPROP_FRICTION:
-                    *out = static_cast<double>(block->getFriction());
+                    // The three below read Block::mDirectData, which is where the accessors
+                    // that are inlined away in 26.32 read them from.
+                    *out = static_cast<double>(block->mDirectData->mFriction);
                     return true;
                 case PIER_BPROP_IS_CONTAINER:
-                    *out = block->isContainerBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isContainerBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_DOOR:
-                    *out = block->isDoorBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isDoorBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_FENCE:
-                    *out = block->isFenceBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isFenceBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_RAIL:
-                    *out = block->isRailBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isRailBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_SLAB:
-                    *out = block->isSlabBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isSlabBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_STAIR:
-                    *out = block->isStairBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isStairBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_WALL:
-                    *out = block->isWallBlock() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isWallBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_CROP:
                     *out = block->isCropBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_UNBREAKABLE:
-                    *out = block->isUnbreakable() ? 1.0 : 0.0;
-                    return true;
+                    // isUnbreakable is inlined away and its source is not a single field:
+                    // it compared the destroy speed against a sentinel that is not
+                    // reachable from here, so the answer is refused rather than guessed
+                    // from mDestroySpeed alone.
+                    return false;
                 case PIER_BPROP_REDSTONE_SIGNAL:
                     *out = static_cast<double>(
-                        bs->getBlock(BlockPos{x, y, z}).getDirectSignal(*bs, BlockPos{x, y, z}, 0));
+                        bs->getBlock(BlockPos{x, y, z})
+                            .getBlockType()
+                            .getDirectSignal(*bs, BlockPos{x, y, z}, 0));
                     return true;
                 case PIER_BPROP_COMPARATOR_SIGNAL:
                     // getComparatorSignal(BlockSource&, BlockPos const&, uchar dir).
                     // dir=0, downward, is the safe default, and a caller needing a
                     // specific direction uses the block action API.
                     *out = static_cast<double>(
-                        block->getComparatorSignal(*bs, BlockPos{x, y, z}, 0));
+                        block->getBlockType().getComparatorSignal(*bs, BlockPos{x, y, z}, *block, 0));
                     return true;
                 case PIER_BPROP_IS_SIGNAL_SOURCE:
-                    *out = block->isSignalSource() ? 1.0 : 0.0;
+                    *out = block->getBlockType().isSignalSource() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_VARIANT:
-                    *out = static_cast<double>(block->getVariant());
+                    *out = static_cast<double>(block->getBlockType().getVariant(*block));
                     return true;
                 case PIER_BPROP_BURN_ODDS:
-                    *out = static_cast<double>(block->getBurnOdds());
+                    *out = static_cast<double>(static_cast<ushort>(block->mDirectData->mBurnOdds));
                     return true;
                 case PIER_BPROP_FLAME_ODDS:
-                    *out = static_cast<double>(block->getFlameOdds());
+                    *out = static_cast<double>(static_cast<ushort>(block->mDirectData->mFlameOdds));
                     return true;
                 case PIER_BPROP_BOUNCINESS:
                     // getBounciness(IConstBlockSource const&, BlockPos const&).
                     // Bounciness that depends on the region, as for a slime block,
                     // needs the context.
-                    *out = static_cast<double>(block->getBounciness(*bs, BlockPos{x, y, z}));
+                    *out = static_cast<double>(block->getBlockType().getBounciness(*bs, BlockPos{x, y, z}));
                     return true;
                 case PIER_BPROP_IS_SOLID:
-                    *out = block->isSolid() ? 1.0 : 0.0;
+                    *out = block->_isSolid() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_REQUIRES_TOOL:
-                    *out = block->requiresCorrectToolForDrops() ? 1.0 : 0.0;
+                    // BlockType keeps the flag as a bit field; the two forwards that read
+                    // it are inlined away.
+                    *out = block->getBlockType().mRequiresCorrectToolForDrops ? 1.0 : 0.0;
                     return true;
                 default:
                     return false;
@@ -462,8 +481,14 @@ namespace pier::api_impl
                     // when the block has a collision box. A multi-box shape needs
                     // BlockSource::fetchCollisionShapes; only the primary shape is
                     // reported here.
-                    AABB aabb;
-                    bool has = block->getCollisionShape(aabb, *bs, BlockPos{x, y, z}, nullptr);
+                    // The forward on Block is inlined away. BlockType's override returns
+                    // the box rather than filling one and reporting whether there is one,
+                    // so an empty box is what "no collision" now looks like.
+                    AABB const aabb = block->getBlockType().getCollisionShape(
+                        *block, *bs, BlockPos{x, y, z}, nullptr);
+                    bool const has =
+                        aabb.min.x != aabb.max.x || aabb.min.y != aabb.max.y
+                        || aabb.min.z != aabb.max.z;
                     std::string out = has
                         ? ("[{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y)
                            + "," + snbtDouble(aabb.min.z) + "],max:[" + snbtDouble(aabb.max.x)
@@ -478,7 +503,8 @@ namespace pier::api_impl
                     // AABB& buffer) returns a const reference to buffer, which stays
                     // valid with buffer on the stack.
                     AABB buffer;
-                    auto const& aabb = block->getOutline(*bs, BlockPos{x, y, z}, buffer);
+                    auto const& aabb =
+                        block->getBlockType().getOutline(*block, *bs, BlockPos{x, y, z}, buffer);
                     std::string out = "[{min:[" + snbtDouble(aabb.min.x) + "," + snbtDouble(aabb.min.y)
                         + "," + snbtDouble(aabb.min.z) + "],max:[" + snbtDouble(aabb.max.x) + ","
                         + snbtDouble(aabb.max.y) + "," + snbtDouble(aabb.max.z) + "]}]";
@@ -486,7 +512,9 @@ namespace pier::api_impl
                     return true;
                 }
                 case PIER_BSTR_DISPLAY_NAME:
-                    sink(ctx, ps(block->getDisplayName()));
+                    // getDisplayName is inlined away. getDescriptionId survives and is the
+                    // string it resolved, before the client's language pass.
+                    sink(ctx, ps(block->getDescriptionId()));
                     return true;
                 default:
                     return false;
@@ -542,8 +570,11 @@ namespace pier::api_impl
                     // ItemInstance and not an ItemStack. ItemInstance has no SNBT
                     // serializer compatible with the itemToSnbt signature, so its
                     // user-data CompoundTag is serialized instead.
-                    auto item = block->asItemInstance(*bs, BlockPos{x, y, z});
-                    auto* ud = item.getUserData();
+                    // The two-argument asItemInstance is inlined away; the three-argument
+                    // one survives and true is the data-carrying behavior the short one
+                    // had. getUserData is gone too, and mUserData is the pointer it read.
+                    auto item = block->asItemInstance(*bs, BlockPos{x, y, z}, true);
+                    auto* ud = item.mUserData.get();
                     out(ctx, ps(ud ? ud->toSnbt(SnbtFormat::Minimize) : std::string{"{}"}));
                     return true;
                 }
