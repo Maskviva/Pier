@@ -13,8 +13,8 @@
 //! host stores the file hash and every bound value with the dimension.
 
 use crate::rt::error::{Error, Result};
-use crate::sys;
 use crate::rt::ffi::{collect_strs, s};
+use crate::sys;
 
 /// The vanilla generator of a `terrain:{kind:"native"}` spec.
 ///
@@ -429,7 +429,11 @@ pub fn pack_inspect(config_path: &str) -> std::result::Result<String, PackError>
     // back rather than parsed, since the SDK carries no JSON reader.
     Err(PackError {
         status: PackStatus::from_code(r),
-        problems: if json.is_empty() { Vec::new() } else { vec![json] },
+        problems: if json.is_empty() {
+            Vec::new()
+        } else {
+            vec![json]
+        },
     })
 }
 
