@@ -29,6 +29,10 @@ features:
     details: Nothing answers a question it could not determine with a plausible value. Cannot-be-determined and no are kept apart all the way down.
     link: /guide/design
     linkText: The reasoning
+  - title: Worlds are data
+    details: A custom dimension takes its terrain from a pack file, verified by hash and stored with the world. A template pack fixes the range and leaves parameters; a volume pack is a Java density function graph.
+    link: /guide/terrain-packs
+    linkText: Terrain packs
   - title: The contract only grows
     details: Adding a capability appends a slot. A mod built against an older Pier keeps working, and a change that would break it is refused at load with a message saying so.
     link: /guide/compatibility

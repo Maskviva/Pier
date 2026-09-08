@@ -11,6 +11,7 @@
 #include "ll/api/service/Bedrock.h"
 
 #include "mc/deps/game_refs/OwnerPtr.h"
+#include "mc/platform/UUID.h"
 #include "mc/world/level/IDimensionFactory.h"
 #include "mc/world/level/DimensionManager.h"
 #include "mc/world/level/dimension/DimensionRegistry.h"
@@ -353,8 +354,12 @@ namespace pier::dimensions
 
             try
             {
+                // The third argument, from 26.40, is the resource pack the definition
+                // came from. This one comes from no pack, and a zero UUID is what the
+                // engine's own emptiness check reads as none; the field is provenance
+                // and nothing selects a dimension by it.
                 if (!mgr->_registerCustomDimensionWithDimensionDefinitionGroup(
-                        std::string_view{name}, ::DimensionType{suggested}
+                        std::string_view{name}, ::DimensionType{suggested}, ::mce::UUID{}
                     ))
                 {
                     hostLogger().error(

@@ -6,6 +6,53 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more slowly.
 
+## [26.40.0] - 2026-09-08
+
+Built for BDS 1.26.40 and LeviLamina 26.40.0. A release is built against the one BDS its
+number names, so 26.32.2 stays the build for BDS 1.26.32 and does not run on 1.26.40.
+The engine changes are small and none of them reaches the ABI: `PIER_ABI_VERSION` stays
+at 2 and a mod built against 26.32.2 keeps working without a rebuild.
+
+### Changed
+
+- **Custom dimension registration carries a pack id.**
+  `DimensionManager::_registerCustomDimensionWithDimensionDefinitionGroup` takes a third
+  argument in 26.40, the resource pack a definition came from, and
+  `DimensionDefinitionGroup::DimensionDefinition` gained the matching `mPackId`. A Pier
+  dimension comes from no pack and registers with a zero UUID.
+- **The scoreboard packet became a payload packet.** `SetScorePacket` derives from
+  `ll::PayloadPacket<SetScorePacketPayload>`, its `mType` is gone, and a row is one
+  alternative of `std::variant<RemoveScore, ChangePlayerScore, ChangeEntityScore,
+  ChangeFakePlayerScore>` instead of a `ScorePacketInfo` with an identity type field. The
+  sidebar builds `ChangeFakePlayerScore` rows, which is what the identity field said.
+- **`Player::startSleepInBed` takes `setsRespawn` and `sleepOffset`**, and the sleep hook
+  passes both through unchanged.
+- **`DedicatedServer::runDedicatedServerLoop` returns `::ServerExitCode`** rather than a
+  nested one and takes an `EditorAllowList`; the client-side-generation hook follows.
+- **`DimensionDataPacket`, `LevelChunkPacket` and `SubChunkPacket` are payload packets**,
+  so their fields are inherited and `$write` has two overloads. The chunk trace names the
+  one-argument overload explicitly. `LevelChunkPacket` no longer carries
+  `mClientNeedsToRequestSubchunks`: a set `mClientRequestSubChunkLimit` is the request,
+  and the trace reports it that way.
+- **`NetworkChunkPublisher::moveRegion` is gone**, and every other entry point of that
+  class carrying a region sits behind `LL_PLAT_C`, so none of them is declared on a
+  server build. The send-region trace reads `mLastChunkUpdatePosition` and
+  `mLastChunkUpdateRadius` from inside the queued-chunk hook instead, and reports the
+  region when it changes rather than on every call.
+- **`MobEffectInstance` has no constructor of its own.** Adding an effect builds the
+  instance empty and assigns the id, duration, amplifier and visibility, which is what
+  the removed two-argument constructor did.
+
+### Removed
+
+- **`PIER_BPROP_IS_DOOR` and `PIER_BPROP_IS_STAIR` are unsupported.**
+  `BlockType::isDoorBlock` and `isStairBlock` are gone in 26.40 and nothing replaces
+  them; a block tag would be a guess at the name the engine files carry.
+- **`PIER_APROP_IS_IN_LOVE` is unsupported.** `Actor::isInLove` is gone in 26.40 and
+  nothing replaces it. The `mInLovePartner` field survives, and reading it would be a
+  guess at what the accessor tested, so the property is reported as unsupported rather
+  than answered with a value that may be wrong.
+
 ## [26.32.2] - 2026-09-08
 
 Terrain packs replace the declarative `layers` and `noise` terrains, and the ABI moves

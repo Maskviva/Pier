@@ -91,8 +91,14 @@ Append only. Adding a capability appends a slot at the end and leaves the versio
 Reordering, deleting or changing a signature advances `PIER_ABI_VERSION` and
 `PIER_ABI_MIN_SUPPORTED` together to the same number.
 
+That has happened once. The ABI is at **v2**: 26.32.2 deleted the four dimension slots
+retired in 26.20.3, so both numbers moved to 2 and a mod built against v1 is refused at
+load and needs a rebuild against the v2 SDK. Everything added since, including the two
+terrain pack entry points, was appended and left the version alone.
+
 `tools/abi-v1.slots` is the baseline, and the `abi-additive` check compares against it on
-every push, so a non-append change cannot land quietly.
+every push, so a non-append change cannot land quietly. The file name is the original one
+and the file itself records the version it was blessed at.
 
 ## Seeing it on a real host
 

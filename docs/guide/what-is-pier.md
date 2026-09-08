@@ -43,9 +43,10 @@ in the design prefers it, and a Go or Zig binding needs no change here to exist.
 | Events | The LeviLamina registry, plus 29 events Pier synthesizes with native detours |
 | Commands | Raw-text commands and typed overloads with client-side completion |
 | Cross-mod | A named service channel, a broadcast bus, and a same-toolchain fast lane |
+| Dimensions | Custom dimensions with a vanilla or [pack terrain](./terrain-packs), per-dimension rules, cell confinement |
 
 Plus forms, scoreboards, containers, an economy bridge, a key-value store, raw packet
-interception, custom dimensions, simulated players, tick control and profiling.
+interception, simulated players, tick control and profiling.
 
 ## Where to go
 

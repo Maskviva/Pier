@@ -80,7 +80,7 @@ back with `container.set_item(0, &stack)` and then `container.refresh()`.
 | `money` | The economy bridge. Degrades to failure values without a backend. |
 | `kvdb` | A key-value store scoped to your mod's data directory. Thread safe. |
 | `packet` | Raw packet interception. **Not on the server thread.** |
-| `dimensions` | Custom dimensions, terrain packs, cell grids, per-dimension rules. Optional package. |
+| `dimensions` | Custom dimensions, [terrain packs](/guide/terrain-packs), cell grids, per-dimension rules. Optional package. |
 | `client` | Client-only capabilities. Empty slots on a server host. |
 | `sim` | Simulated players. |
 | `nbt` | `NbtValue`, SNBT parsing and writing, the binary bridge. |

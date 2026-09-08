@@ -9,7 +9,7 @@
   <a href="https://github.com/Maskviva/pier/releases"><img src="https://img.shields.io/github/v/release/Maskviva/pier?color=334155" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/BDS-1.26.32-62B47A" alt="BDS 1.26.32">
-  <img src="https://img.shields.io/badge/LeviLamina-26.32.1-8B5CF6" alt="LeviLamina 26.32.1">
+  <img src="https://img.shields.io/badge/LeviLamina-26.40.0-8B5CF6" alt="LeviLamina 26.40.0">
 </p>
 
 <p align="center">
@@ -179,7 +179,7 @@ lip install github.com/Maskviva/pier
 
 Or unpack the release archive into `plugins/pier/`.
 
-Pier needs LeviLamina 26.32.1 on BDS 1.26.32.
+Pier needs LeviLamina 26.40.0 on BDS 1.26.40.
 [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) is optional: it is delay-loaded, so
 a server without it starts normally and only the economy calls return failure values.
 

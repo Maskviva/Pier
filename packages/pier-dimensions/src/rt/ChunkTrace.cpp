@@ -8,13 +8,12 @@
  * effect rather than the phenomenon. Those lines are not errors either, since a chunk source probes
  * the whole state machine and false only means it is not currently in that state.
  * PIER_TRACE_CHUNK_FAIL=1 turns them on. Picking a hook point in these headers starts with the
- * platform macro. Anything wrapped in LL_PLAT_C is a client-side query whose symbol is in the
- * export table of bedrock_server.exe, so it compiles and links while the server path never calls it
- * and the hook never fires. What works on the server is what carries no platform macro, or only
- * LL_PLAT_S. / */
+ * platform macro: a declaration wrapped in LL_PLAT_C is not declared at all on a server build and
+ * cannot be named, so what can be hooked is what carries no platform macro or only LL_PLAT_S. */
 #include "pier/dimensions/dim/chunk_trace.h"
 
 #include <atomic>
+#include <cstdint>
 #include <cstdlib>
 #include <map>
 #include <mutex>
@@ -293,6 +292,30 @@ namespace pier::dimensions
     {
         bool const ok = origin(queuedChunk, cachedTransfer);
 
+        // The send region, reported from here. moveRegion carried the center and the
+        // radius and is gone in 26.40; prepareRegion and the rest of that group sit
+        // behind LL_PLAT_C and are not declared on a server build. The two members
+        // below hold the same pair, so the region is still traced, and only when it
+        // changes rather than on every chunk.
+        {
+            auto const& center = mLastChunkUpdatePosition.get();
+            uint const radius = mLastChunkUpdateRadius;
+            static std::atomic<int> lastX{INT32_MIN};
+            static std::atomic<int> lastZ{INT32_MIN};
+            static std::atomic<uint> lastRadius{0};
+            // Each exchange runs, since || would skip the rest and leave them stale.
+            bool const movedX = lastX.exchange(center.x) != center.x;
+            bool const movedZ = lastZ.exchange(center.z) != center.z;
+            bool const resized = lastRadius.exchange(radius) != radius;
+            if (movedX || movedZ || resized)
+            {
+                hostLogger().info(
+                    "[region] send region center=({}, {}, {}) radius={} blocks (about {} chunks) sent this session={}",
+                    center.x, center.y, center.z, radius, radius / 16, gSendOk.load()
+                );
+            }
+        }
+
         int const dimId = queuedChunk.mType->mValue;
         if (wanted(dimId))
         {
@@ -320,33 +343,6 @@ namespace pier::dimensions
         return ok;
     }
 
-    /*
-     * The send region itself. The center and the radius decide which chunks the
-     * publisher is willing to send, and an unexpectedly small radius or a center that
-     * does not match the player position both show up as distant chunks never appearing.
-     */
-    LL_TYPE_INSTANCE_HOOK(
-        NetworkChunkPublisherMoveRegionTraceHook,
-        HookPriority::Normal,
-        NetworkChunkPublisher,
-        &NetworkChunkPublisher::moveRegion,
-        void,
-        ::BlockPos const& position,
-        uint blockRadius,
-        ::Vec3 const& direction,
-        float minDistance
-    )
-    {
-        // getChunksSentSinceStart() is not used: the header wraps it in LL_PLAT_S, this
-        // project never defines that macro, and whether referencing it compiles depends
-        // on the build configuration. Counting here is steadier.
-        hostLogger().info(
-            "[region] send region center=({}, {}, {}) radius={} blocks (about {} chunks) sent this session={}",
-            position.x, position.y, position.z, blockRadius, blockRadius / 16, gSendOk.load()
-        );
-        origin(position, blockRadius, direction, minDistance);
-    }
-
     /*  What the client was actually told
      * DimensionDataPacket is the only channel through which a client learns about a
      * custom dimension. It serializes the whole DimensionDefinitionGroup, and from it the
@@ -364,7 +360,7 @@ namespace pier::dimensions
         DimensionDataPacketWriteTraceHook,
         HookPriority::Normal,
         DimensionDataPacket,
-        &DimensionDataPacket::$write,
+        static_cast<void (DimensionDataPacket::*)(::BinaryStream&) const>(&DimensionDataPacket::$write),
         void,
         ::BinaryStream& stream
     )
@@ -423,7 +419,7 @@ namespace pier::dimensions
         LevelChunkPacketWriteTraceHook,
         HookPriority::Normal,
         LevelChunkPacket,
-        &LevelChunkPacket::$write,
+        static_cast<void (LevelChunkPacket::*)(::BinaryStream&) const>(&LevelChunkPacket::$write),
         void,
         ::BinaryStream& stream
     )
@@ -439,8 +435,9 @@ namespace pier::dimensions
                 "requestLimit={} payloadBytes={} cache={} cacheEntries={}",
                 dimLabel(dimId), cp.x, cp.z,
                 mSubChunksCount,
-                mClientNeedsToRequestSubchunks ? 1 : 0,
-                mClientRequestSubChunkLimit,
+                // The separate flag is gone in 26.40: a limit that is set is the request.
+                mClientRequestSubChunkLimit->has_value() ? 1 : 0,
+                mClientRequestSubChunkLimit->value_or(0),
                 mSerializedChunk.get().size(),
                 mCacheEnabled ? 1 : 0,
                 mCacheMetadata.get().size()
@@ -456,7 +453,7 @@ namespace pier::dimensions
     /*
      * The subchunk reply: what the server answered when the client asked for terrain.
      * Modern Bedrock sends a chunk in two steps. LevelChunkPacket carries only the fact that a
-     * chunk column exists plus an mClientNeedsToRequestSubchunks flag, with no block data, and the
+     * chunk column exists plus the subchunk request limit, with no block data, and the
      * client builds an empty column from it. The client then asks for each subchunk with
      * SubChunkRequestPacket and the server answers with SubChunkPacket, which is where the block
      * data crosses. Step one succeeding while the columns stay empty is exactly what makes a chunk
@@ -470,7 +467,7 @@ namespace pier::dimensions
         SubChunkPacketWriteTraceHook,
         HookPriority::Normal,
         SubChunkPacket,
-        &SubChunkPacket::$write,
+        static_cast<void (SubChunkPacket::*)(::BinaryStream&) const>(&SubChunkPacket::$write),
         void,
         ::BinaryStream& stream
     )
@@ -520,8 +517,7 @@ namespace pier::dimensions
         using ChunkTraceHookReg = ll::memory::HookRegistrar<
             LevelChunkCtorTraceHook,
             LevelChunkTryChangeStateTraceHook,
-            NetworkChunkPublisherSendTraceHook,
-            NetworkChunkPublisherMoveRegionTraceHook>;
+            NetworkChunkPublisherSendTraceHook>;
 
         using PacketTraceHookReg = ll::memory::HookRegistrar<
             DimensionDataPacketWriteTraceHook,

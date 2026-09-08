@@ -77,7 +77,7 @@ cargo doc --open -p pier-rs
 | `money` | 经济桥。没有后端时降级成失败值。 |
 | `kvdb` | 圈在模组自己数据目录里的键值库。线程安全。 |
 | `packet` | 原始数据包拦截。**不在服务器线程上。** |
-| `dimensions` | 自定义维度、地形包、格子网格、逐维度规则。可选包。 |
+| `dimensions` | 自定义维度、[地形包](/zh/guide/terrain-packs)、格子网格、逐维度规则。可选包。 |
 | `client` | 客户端专属能力。服务端宿主上是空槽。 |
 | `sim` | 模拟玩家。 |
 | `nbt` | `NbtValue`、SNBT 解析与写出、二进制互转。 |

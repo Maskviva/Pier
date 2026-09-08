@@ -729,7 +729,7 @@ enum PierActorNumProp
     PIER_APROP_IS_IN_SNOW = 42, /* (G) Actor::isInSnow */
     PIER_APROP_IS_IN_THUNDERSTORM = 43, /* (G) Actor::isInThunderstorm */
     PIER_APROP_IS_FROZEN = 44, /* (G) Actor::isFrozen */
-    PIER_APROP_IS_IN_LOVE = 45, /* (G) Actor::isInLove */
+    PIER_APROP_IS_IN_LOVE = 45, /* (G) unsupported since BDS 1.26.40: Actor::isInLove is gone */
     PIER_APROP_DEATH_TIME = 46, /* (G) Actor::getDeathTime */
     PIER_APROP_HAS_PASSENGER = 47, /* (G) Actor::hasPassenger */
 };
@@ -800,11 +800,11 @@ enum PierBlockNumProp
     PIER_BPROP_EXPLOSION_RESISTANCE = 9, /* Block::getExplosionResistance */
     PIER_BPROP_FRICTION = 10, /* Block::getFriction */
     PIER_BPROP_IS_CONTAINER = 11, /* Block::isContainerBlock */
-    PIER_BPROP_IS_DOOR = 12, /* Block::isDoorBlock */
+    PIER_BPROP_IS_DOOR = 12, /* unsupported since BDS 1.26.40: BlockType::isDoorBlock is gone */
     PIER_BPROP_IS_FENCE = 13, /* Block::isFenceBlock */
     PIER_BPROP_IS_RAIL = 14, /* Block::isRailBlock */
     PIER_BPROP_IS_SLAB = 15, /* Block::isSlabBlock */
-    PIER_BPROP_IS_STAIR = 16, /* Block::isStairBlock */
+    PIER_BPROP_IS_STAIR = 16, /* unsupported since BDS 1.26.40: BlockType::isStairBlock is gone */
     PIER_BPROP_IS_WALL = 17, /* Block::isWallBlock */
     PIER_BPROP_IS_CROP = 18, /* Block::isCropBlock */
     PIER_BPROP_IS_UNBREAKABLE = 19, /* Block::isUnbreakable */

@@ -363,8 +363,12 @@ namespace pier::api_impl
                     *out = block->getBlockType().isContainerBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_DOOR:
-                    *out = block->getBlockType().isDoorBlock() ? 1.0 : 0.0;
-                    return true;
+                case PIER_BPROP_IS_STAIR:
+                    // BlockType::isDoorBlock and isStairBlock are gone in 26.40 and no
+                    // accessor replaces them. A block tag would be a guess at which name
+                    // the engine files carry, so both are reported as unsupported rather
+                    // than answered with a value that may be wrong.
+                    return false;
                 case PIER_BPROP_IS_FENCE:
                     *out = block->getBlockType().isFenceBlock() ? 1.0 : 0.0;
                     return true;
@@ -373,9 +377,6 @@ namespace pier::api_impl
                     return true;
                 case PIER_BPROP_IS_SLAB:
                     *out = block->getBlockType().isSlabBlock() ? 1.0 : 0.0;
-                    return true;
-                case PIER_BPROP_IS_STAIR:
-                    *out = block->getBlockType().isStairBlock() ? 1.0 : 0.0;
                     return true;
                 case PIER_BPROP_IS_WALL:
                     *out = block->getBlockType().isWallBlock() ? 1.0 : 0.0;

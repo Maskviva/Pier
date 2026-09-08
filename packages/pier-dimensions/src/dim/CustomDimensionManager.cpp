@@ -215,11 +215,12 @@ namespace pier::dimensions
             HookPriority::Normal,
             DedicatedServer,
             &DedicatedServer::runDedicatedServerLoop,
-            ::DedicatedServer::ServerExitCode,
+            ::ServerExitCode,
             ::Core::FilePathManager&                                     filePathManager,
             ::PropertiesSettings const&                                  properties,
             ::LevelSettings&                                             settings,
             ::AllowListFile&                                             userAllowList,
+            ::EditorAllowList&                                           userEditorAllowList,
             ::std::unique_ptr<::PermissionsFile>&                        permissionsFile,
             ::std::optional<::PacketGroupDefinition::PacketGroupBuilder> packetGroupBuilder,
             ::Bedrock::ActivationArguments const&                        args,
@@ -228,8 +229,8 @@ namespace pier::dimensions
         {
             const_cast<PropertiesSettings&>(properties).mClientSideGenerationEnabled = false;
             return origin(
-                filePathManager, properties, settings, userAllowList, permissionsFile,
-                std::move(packetGroupBuilder), args, testConfig
+                filePathManager, properties, settings, userAllowList, userEditorAllowList,
+                permissionsFile, std::move(packetGroupBuilder), args, testConfig
             );
         }
 

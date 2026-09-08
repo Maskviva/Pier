@@ -29,6 +29,10 @@ features:
     details: 没有任何东西会用一个看起来合理的值，去回答它其实答不上来的问题。「问不出来」和「答案是否」自始至终分开。
     link: /zh/guide/design
     linkText: 背后的理由
+  - title: 世界就是数据
+    details: 自定义维度的地形来自一个包文件，按哈希校验并随世界一起存档。模板包锁死范围、留下参数；体积包是 Java 风格的密度函数图。
+    link: /zh/guide/terrain-packs
+    linkText: 地形包
   - title: 契约只增不减
     details: 新增能力就是追加一个槽。按老版本 Pier 编的模组照常能用，而会破坏它的变更会在装载时被明确拒绝并说明原因。
     link: /zh/guide/compatibility

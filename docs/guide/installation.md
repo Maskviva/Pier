@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Server | Bedrock Dedicated Server 1.26.32 |
-| Loader | LeviLamina 26.32.1 |
+| Loader | LeviLamina 26.40.0 |
 | Optional | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) for the economy calls |
 
 LegacyMoney really is optional. Pier delay-loads it, so a server without it starts
@@ -71,3 +71,12 @@ mods/
 See [The manifest](/guide/manifest) for what goes in that file. The one field worth
 checking twice is `"type": "pier"`, because a wrong value means the mod is never scanned
 and nothing is reported.
+
+## Installing a terrain pack
+
+A mod that creates a custom dimension from a pack ships the pack with itself: a directory
+holding a config file and a binary, anywhere under the server root, named to the host by a
+relative path. The host reads four keys of the config and verifies the binary against the
+hash in it before the dimension is registered, so a pack that was replaced or truncated
+refuses at startup with a line naming the file rather than generating something else.
+See [Terrain packs](/guide/terrain-packs).

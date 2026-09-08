@@ -233,8 +233,11 @@ namespace pier::api_impl
                     // unsupported.
                     return false;
                 case PIER_APROP_IS_IN_LOVE:
-                    *out = actor->isInLove() ? 1.0 : 0.0;
-                    return true;
+                    // Actor::isInLove is gone in 26.40 and nothing replaces it. The
+                    // mInLovePartner field survives, and reading it would be a guess at
+                    // what the accessor tested, so the property is reported as
+                    // unsupported instead of answering with a value that may be wrong.
+                    return false;
                 case PIER_APROP_DEATH_TIME:
                     *out = static_cast<double>(actor->getDeathTime());
                     return true;
@@ -361,9 +364,14 @@ namespace pier::api_impl
                 {
                     auto* effect = MobEffect::getByName(toString(sarg));
                     if (!effect) return false;
-                    // The one-argument constructor is inlined away. The two-argument one
-                    // survives and takes the duration that was assigned right after.
-                    MobEffectInstance inst{effect->mId, ::EffectDuration{static_cast<int>(a)}};
+                    // 26.40 leaves the class with no constructor of its own and no
+                    // declaration blocking the implicit one, so the instance is built
+                    // empty and the four fields the caller supplies are assigned. Every
+                    // other field is value-initialized, which is what the removed
+                    // two-argument constructor left them as.
+                    MobEffectInstance inst{};
+                    inst.mId = effect->mId;
+                    inst.mDuration = ::EffectDuration{static_cast<int>(a)};
                     inst.mAmplifier = static_cast<int>(b);
                     inst.mEffectVisible = (c != 0.0);
                     actor->addEffect(inst);

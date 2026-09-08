@@ -13,6 +13,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "mc/deps/core/math/Vec2.h"
@@ -23,8 +24,10 @@
 #include "mc/network/MinecraftPackets.h"
 #include "mc/network/NetworkPeer.h"
 #include "mc/network/packet/RemoveObjectivePacket.h"
-#include "mc/network/packet/ScorePacketInfo.h"
-#include "mc/network/packet/ScorePacketType.h"
+#include "mc/network/packet/ChangeEntityScore.h"
+#include "mc/network/packet/ChangeFakePlayerScore.h"
+#include "mc/network/packet/ChangePlayerScore.h"
+#include "mc/network/packet/RemoveScore.h"
 #include "mc/network/packet/SetDisplayObjectivePacket.h"
 #include "mc/network/packet/SetScorePacket.h"
 #include "mc/network/packet/SetTitlePacket.h"
@@ -50,7 +53,6 @@
 #include "mc/world/item/ItemStack.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/dimension/DimensionType.h"
-#include "mc/world/scores/IdentityDefinition.h"
 #include "mc/world/scores/ObjectiveSortOrder.h"
 #include "mc/world/scores/ScoreboardId.h"
 
@@ -953,20 +955,24 @@ namespace pier::api_impl
                     // scoreboard uses.
                     int64_t const kSidebarIdBase = INT64_C(0x40000000)
                         + (static_cast<int64_t>(objectiveSlotHash(objective)) * INT64_C(4096));
-                    std::vector<ScorePacketInfo> infos;
+                    // From 26.40 the packet carries a variant per row instead of a
+                    // ScorePacketInfo with an identity type field: which alternative is
+                    // used is what says the row belongs to a fake player.
+                    using ScoreEntry =
+                        std::variant<::RemoveScore, ::ChangePlayerScore, ::ChangeEntityScore, ::ChangeFakePlayerScore>;
+                    std::vector<ScoreEntry> infos;
                     infos.reserve(lines.size() - 2);
                     int score = static_cast<int>(lines.size()) - 2;
                     for (size_t i = 2; i < lines.size(); ++i, --score)
                     {
                         // Same shape: only the rows whose text changed go out.
                         if (sameShape && known->second.rows[i - 2] == lines[i]) continue;
-                        ScorePacketInfo info{};
+                        ::ChangeFakePlayerScore info{};
                         info.mScoreboardId->mRawID = kSidebarIdBase + static_cast<int64_t>(i - 1);
                         info.mObjectiveName = objective;
                         info.mScoreValue = score;
-                        info.mIdentityType = IdentityDefinition::Type::FakePlayer;
                         info.mFakePlayerName = lines[i].empty() ? std::string{" "} : lines[i];
-                        infos.push_back(std::move(info));
+                        infos.emplace_back(std::move(info));
                     }
 
                     auto const rows = infos.size();
@@ -979,7 +985,6 @@ namespace pier::api_impl
                             return false;
                         }
                         auto* sp = static_cast<SetScorePacket*>(scores.get());
-                        sp->mType = ScorePacketType::Change;
                         sp->mScoreInfo = std::move(infos);
                         p->sendNetworkPacket(*scores);
                     }

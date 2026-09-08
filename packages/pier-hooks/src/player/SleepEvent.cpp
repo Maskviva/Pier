@@ -33,10 +33,12 @@ namespace pier::hooks
             Player,
             &Player::$startSleepInBed,
             ::BedSleepingResult,
-            ::BlockPos const& bedBlockPos)
+            ::BlockPos const& bedBlockPos,
+            bool              setsRespawn,
+            float             sleepOffset)
         {
             auto& def = sleepDef();
-            if (!def.live()) return origin(bedBlockPos);
+            if (!def.live()) return origin(bedBlockPos, setsRespawn, sleepOffset);
 
             std::string snbt = "{\"eventId\":\"PlayerSleepEvent\""
                 ",\"x\":" + snbtNum(bedBlockPos.x)
@@ -49,7 +51,7 @@ namespace pier::hooks
             {
                 return ::BedSleepingResult::NotPossibleHere;
             }
-            return origin(bedBlockPos);
+            return origin(bedBlockPos, setsRespawn, sleepOffset);
         }
 
         HookEventDef gDef{
