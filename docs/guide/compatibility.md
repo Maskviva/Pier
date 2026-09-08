@@ -7,6 +7,7 @@ name the BDS the release was built for and the third counts releases against it.
 
 | Pier | BDS | LeviLamina |
 |---|---|---|
+| 26.32.2 | 1.26.32 | 26.32.1 |
 | 26.32.1 | 1.26.32 | 26.32.1 |
 | 26.20.2 | 1.26.20 | 26.20.4 |
 | 26.20.1 | 1.26.20 | 26.20.4 |
@@ -18,17 +19,18 @@ have and the reverse. Match the row, do not interpolate between them.
 
 ## The ABI is separate from the release
 
-The ABI has its own version, currently **v1**, and it moves far more slowly than the
+The ABI has its own version, currently **v2**, and it moves far more slowly than the
 release number. Adding a capability appends a slot and does not move it.
 
 That is what makes a mod built against an older Pier keep working:
 
 - A **new capability** is a slot appended at the end of the table. Your mod does not
   reach it and does not care.
-- A **removed or reordered** slot would advance `PIER_ABI_VERSION`, and Pier has not done
-  that. If it ever does, both `PIER_ABI_VERSION` and `PIER_ABI_MIN_SUPPORTED` move to the
-  same number together, and every mod built before it is refused explicitly at load
-  rather than being allowed to crash later.
+- A **removed or reordered** slot advances `PIER_ABI_VERSION`, and 26.32.2 did that once:
+  the four slots retired in 26.20.3 were deleted, so `PIER_ABI_VERSION` and
+  `PIER_ABI_MIN_SUPPORTED` both moved to 2 together. A mod built against v1 is refused
+  explicitly at load rather than being allowed to crash later, and needs a rebuild
+  against the v2 SDK.
 
 Compatibility is a range, not an equality:
 `PIER_ABI_MIN_SUPPORTED <= your abi_version <= the host's PIER_ABI_VERSION`.

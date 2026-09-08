@@ -3,8 +3,8 @@
  *
  * What is read here is the payload already stored in dimension_config.json and not the
  * argument of the call, because generateNewData runs once when the dimension is first
- * created. A dimension built from a spec stays that spec across restarts; a template edit
- * on the mod side does not reach it, by design (the world manager records that too).
+ * created. A dimension built from a spec stays that spec across restarts; a pack edit on
+ * the mod side does not reach it, by design: the stored hash pins the binary.
  *
  * The three structure symbols in the native branch are resolved lazily and not at load:
  * resolving them eagerly pulls in the structure registry before the engine has built it.
@@ -15,7 +15,10 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "magic_enum.hpp"
 
@@ -47,8 +50,9 @@
 
 #include "pier/dimensions/base/utils.h"
 #include "pier/dimensions/dim/custom_dimension_manager.h"
-#include "pier/dimensions/gen/layers_generator.h"
-#include "pier/dimensions/gen/noise_generator.h"
+#include "pier/dimensions/gen/template_generator.h"
+#include "pier/dimensions/gen/volume_generator.h"
+#include "pier/dimensions/pack/pack_locate.h"
 #include "pier/support/log.h"
 
 namespace pier::dimensions
@@ -95,6 +99,17 @@ namespace pier::dimensions
             ll::memory::addressCall<EndCityFeature&, StructureFeatureRegistry*, Dimension&, uint&>(addr, self, dimension, seed);
         }
 
+        /** The engine's void generator with a fixed biome, plains when the named one is
+         *  missing so that a void never fails to build. */
+        std::unique_ptr<WorldGenerator> voidWith(Dimension& dim, std::string const& biome)
+        {
+            auto v = std::make_unique<VoidGenerator>(dim);
+            v->mBiome = dim.mLevel.getBiomeRegistry().lookupByName(biome);
+            if (!v->mBiome) v->mBiome = dim.mLevel.getBiomeRegistry().lookupByName("minecraft:plains");
+            if (v->mBiome) v->mBiomeSource = std::make_unique<FixedBiomeSource>(*v->mBiome);
+            return v;
+        }
+
         spec::DimensionSpec specOf(std::string const& name, CompoundTag const& stored)
         {
             auto [s, problems] = spec::DimensionSpec::fromNbt(stored);
@@ -105,7 +120,7 @@ namespace pier::dimensions
                 // registered by id; the least harmful shape is a void with the stored seed.
                 hostLogger().error("[dim] '{}': the stored spec could not be read, generating a void. The terrain differs from what was chosen at creation; fix dimension_config.json and restart", name);
                 spec::DimensionSpec v;
-                v.terrain = spec::Layers{};
+                v.terrain = spec::Native{GeneratorType::Void};
                 return v;
             }
             return *s;
@@ -128,7 +143,6 @@ namespace pier::dimensions
             mSeaLevel = 63;
             mDimensionBrightnessRamp = std::make_unique<OverworldBrightnessRamp>();
         }
-        if (auto const* n = std::get_if<spec::Noise>(&mSpec.terrain); n && n->fluid) mSeaLevel = static_cast<short>(n->fluid->second);
         mDimensionBrightnessRamp->buildBrightnessRamp();
     }
 
@@ -204,35 +218,56 @@ namespace pier::dimensions
                 gen = std::make_unique<FlatWorldGenerator>(*this, seed, levelData.mFlatWorldOptions);
                 gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
                 break;
+            case GeneratorType::Void:
             default:
-                hostLogger().error("[dim] '{}' has a native generator {} with no branch; this is a bug", mName.get(), magic_enum::enum_name(n->generator));
-                gen = std::make_unique<VoidGenerator>(*this);
+            {
+                if (n->generator != GeneratorType::Void)
+                    hostLogger().error("[dim] '{}' has a native generator {} with no branch; this is a bug", mName.get(), magic_enum::enum_name(n->generator));
+                gen = voidWith(*this, n->biome);
                 gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
             }
+            }
             return gen;
         }
 
-        if (auto const* l = std::get_if<spec::Layers>(&mSpec.terrain))
+        auto const& p = std::get<spec::Pack>(mSpec.terrain);
+        std::vector<std::string> problems;
+        pack::PackStatus status = pack::PackStatus::Ok;
+        if (p.isTemplate())
         {
-            if (l->isVoid())
+            auto tpl = pack::PackCache::instance().templateAt(p.path, p.sha256, "", status, problems);
+            std::optional<pack::MountedTemplate> mounted;
+            if (tpl) mounted = pack::mountTemplate(*tpl, p.params, p.roles, mSpec.minY, mSpec.maxY, problems);
+            if (tpl && mounted)
             {
-                auto v = std::make_unique<VoidGenerator>(*this);
-                v->mBiome = level.getBiomeRegistry().lookupByName(l->biome);
-                if (!v->mBiome) v->mBiome = level.getBiomeRegistry().lookupByName("minecraft:ocean");
-                v->mBiomeSource = std::make_unique<FixedBiomeSource>(*v->mBiome);
-                gen = std::move(v);
+                gen = std::make_unique<TemplateGenerator>(*this, seed, levelData.mFlatWorldOptions, tpl, std::move(*mounted));
+                gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+                return gen;
             }
-            else
-            {
-                gen = std::make_unique<LayersGenerator>(*this, seed, levelData.mFlatWorldOptions, *l, mSpec.minY, mSpec.maxY);
-            }
-            gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
-            return gen;
         }
-
-        auto const& n = std::get<spec::Noise>(mSpec.terrain);
-        gen = std::make_unique<NoiseGenerator>(*this, seed, levelData.mFlatWorldOptions, n, mSpec.minY, mSpec.maxY);
-        gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createNormal(seed, gen->getBiomeSource(), structureSetRegistry);
+        else
+        {
+            auto vol = pack::PackCache::instance().volumeAt(p.path, p.sha256, "", status, problems);
+            if (vol)
+            {
+                if (mSpec.minY != vol->minY() || mSpec.maxY != vol->maxY())
+                    problems.push_back("the stored height does not match the pack's fixed range");
+                else
+                {
+                    auto seeded = std::make_shared<pack::SeededVolume const>(vol, seed);
+                    gen = std::make_unique<VolumeGenerator>(*this, seed, levelData.mFlatWorldOptions, std::move(seeded));
+                    gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+                    return gen;
+                }
+            }
+        }
+        // Refusing here would fastfail on a chunk thread. The dimension is already
+        // registered by id; a void with an error line is the least harmful shape, and
+        // the stored spec stays so the terrain returns once the pack is back in place.
+        for (auto const& msg : problems) hostLogger().error("[dim] '{}': pack '{}': {}", mName.get(), p.path, msg);
+        hostLogger().error("[dim] '{}': the terrain pack cannot be mounted (status {}); generating a void for this session", mName.get(), static_cast<int>(status));
+        gen = voidWith(*this, "minecraft:plains");
+        gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
         return gen;
     }
 

@@ -29,7 +29,7 @@ pub use types::*;
 pub use vtable::{PierMainFn, PierModVTable};
 
 /// The ABI version this crate is compiled against. Goes into `PierModVTable::abi_version`.
-pub const PIER_ABI_VERSION: u32 = 1;
+pub const PIER_ABI_VERSION: u32 = 2;
 
 /// The oldest mod ABI the host accepts. Compatibility is a range and not an equality:
 /// `MIN_SUPPORTED <= mod_abi <= VERSION` (contract §2.2).
@@ -37,7 +37,7 @@ pub const PIER_ABI_VERSION: u32 = 1;
 /// A copy lives in the mirror so that a mod can state for itself, when loading fails,
 /// that it was built against one version while the host wants a given range, rather than
 /// reporting only that the version does not match.
-pub const PIER_ABI_MIN_SUPPORTED: u32 = 1;
+pub const PIER_ABI_MIN_SUPPORTED: u32 = 2;
 
 /// The entry symbol name a mod must export.
 pub const PIER_MAIN_SYMBOL: &str = "pier_main";

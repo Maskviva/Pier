@@ -104,7 +104,7 @@ impl TaskId {
 /// Both gates. Missing either returns an `Err` that says what is missing.
 ///
 /// Usage: at the top of a function body,
-/// `require_slot!(md_add_plot_dimension, "creating a plot dimension");`
+/// `require_slot!(md_add_dimension, "creating a dimension");`
 ///
 /// The message carries no historical product name (contract §7). An earlier one read
 /// "...Update levilamina-rust-loader" while no mod of that name exists any more, so anyone

@@ -1,5 +1,5 @@
 /**
- * Pier ABI — sdk/abi.h (ABI v1)
+ * Pier ABI — sdk/abi.h (ABI v2)
  *
  * This header is the product: the sole contract between the C++ host
  * (pier-host plus the capability packages) and an SDK written in any language.
@@ -61,12 +61,12 @@ extern "C" {
 
 /** See "Rules for changing this file" in the file header. Appending a slot does
  *  not touch this. */
-#define PIER_ABI_VERSION 1u
+#define PIER_ABI_VERSION 2u
 
 /** Oldest mod ABI the host accepts. Moves only on a non-append change, and then
  *  to the same number as PIER_ABI_VERSION. It is the switch for "a table older
  *  than this is no longer a prefix of mine". */
-#define PIER_ABI_MIN_SUPPORTED 1u
+#define PIER_ABI_MIN_SUPPORTED 2u
 
 /** The only entry symbol a mod must export. The host looks for this name alone
  *  and refuses to load with an explicit error if it is missing; there is no
@@ -949,8 +949,9 @@ enum PierDimRule
     PIER_DIMRULE_LIQUID_FLOW = 8, /* water/lava spreading */
     PIER_DIMRULE_FARMLAND_DECAY = 9, /* farmland trampled back to dirt */
     PIER_DIMRULE_RIDE = 10, /* mounting boats/minecarts/animals */
-    /*  Grid cell boundary confinement (needs md_set_plot_grid). A plot world is one
-     *  use of the cell grid, a showcase or city world another.  */
+    /*  Grid cell boundary confinement, registered by a template pack that carries a
+     *  CONF section (see md_add_dimension_pack). A plot world is one use of the cell
+     *  grid, a showcase or city world another.  */
     /* Pistons moving blocks ACROSS a plot boundary. Distinct from
      * PIER_DIMRULE_PISTON_PUSH, which disables pistons for the whole
      * dimension: this one leaves them working inside a plot and only refuses
@@ -964,6 +965,27 @@ enum PierDimRule
      * never confined — see CellConfine.cpp for why. */
     PIER_DIMRULE_ENTITY_CROSS_CELL = 12,
     PIER_DIMRULE_ENTITY_CROSS_PLOT = 12, /* RETIRED since 26.20.3, use PIER_DIMRULE_ENTITY_CROSS_CELL */
+};
+
+/** Return codes of md_add_dimension_pack and md_pack_inspect. A dimension id is
+ *  never negative, so a caller tells the two apart by sign. */
+enum PierPackStatus
+{
+    PIER_PACK_OK = 0,
+    PIER_PACK_BAD_PATH = -1,          /* absolute, contains "..", or leaves the server root */
+    PIER_PACK_CONFIG_UNREADABLE = -2, /* the config file cannot be opened */
+    PIER_PACK_CONFIG_INVALID = -3,    /* not JSON, or a required key missing or malformed */
+    PIER_PACK_BINARY_UNREADABLE = -4, /* the binary named by the config cannot be opened */
+    PIER_PACK_CORRUPT = -5,           /* a section fails its hash or an index is out of range */
+    PIER_PACK_KIND_MISMATCH = -6,     /* spec kind, config type and binary magic disagree */
+    PIER_PACK_HASH_MISMATCH = -7,     /* the binary does not hash to the config's sha256 */
+    PIER_PACK_UNSUPPORTED = -8,       /* a pack kind or format version this host does not serve */
+    PIER_PACK_PARAMS = -9,            /* a parameter or role outside what the pack allows */
+    PIER_PACK_CONSTRAINT = -10,       /* a constraint of the pack fails with these values */
+    PIER_PACK_HEIGHT = -11,           /* the dimension height does not fit the pack */
+    PIER_PACK_STORED_MISMATCH = -12,  /* the name exists with another binary or terrain kind */
+    PIER_PACK_SPEC = -13,             /* the spec could not be read or has no pack terrain */
+    PIER_PACK_HOST = -14,             /* another host refusal; the log has the reason */
 };
 
 enum PierSysInfoProp
@@ -1716,17 +1738,6 @@ typedef struct PierApi
     /** Check whether MoreDimensions is available in this loader build. */
     bool (*md_is_available)(void);
 
-    /** Add a custom dimension with a native generator.
-     *
-     *  generatorType is ::GeneratorType verbatim — 1=Overworld, 2=Flat,
-     *  3=Nether, 4=TheEnd, 5=Void. The numbering starts at 1 and not 0;
-     *  values outside 1..5 are rejected rather than silently building a void
-     *  world.
-     *
-     *  Returns dim id (>=3) or -1 on failure. */
-    /* RETIRED since 26.20.3, use md_add_dimension */
-    int32_t (*md_add_simple_dimension)(PierStr name, uint32_t seed, int32_t generatorType);
-
     /** Per-dimension rules, consulted by the loader's own hooks.
      *
      *  Why this exists instead of gamerules: Bedrock gamerules are
@@ -1757,33 +1768,11 @@ typedef struct PierApi
      *  names yield -1, never VanillaDimensions::Undefined() (whose numeric
      *  value is mutated at runtime and looks like a valid id).
      *
-     *  This is rarely the right call. `md_add_simple_dimension` and
-     *  `md_add_plot_dimension` are idempotent, so re-registering the same name
+     *  This is rarely the right call. `md_add_dimension` and
+     *  `md_add_dimension_pack` are idempotent, so re-registering the same name
      *  on a later boot returns the same persisted id, and a caller registers
      *  unconditionally at startup instead of probing first. */
     int32_t (*md_get_dimension_id)(PierStr name);
-
-    /** Add a plot-world dimension: a custom dimension whose chunk generator
-     *  produces a plot grid (plots / roads / borders) at generation time,
-     *  instead of the caller painting blocks afterwards.
-     *
-     *  `layout_snbt` is a CompoundTag SNBT string:
-     *    {plotSize:64, roadWidth:7, borderWidth:1, floorY:64,
-     *     floorBlock:"minecraft:grass_block", fillBlock:"minecraft:dirt",
-     *     roadBlock:"minecraft:birch_planks",
-     *     borderBlock:"minecraft:stone_block_slab", biome:"minecraft:plains"}
-     *  Missing keys fall back to those defaults; all values are clamped to a
-     *  safe range on the C++ side. The layout is persisted with the dimension,
-     *  so it stays fixed across restarts even if the caller's config changes.
-     *
-     *  Grid convention (the SDK MUST match): with cell = plotSize +
-     *  roadWidth, a column at world (x, z) is road when
-     *  mod(x,cell) >= plotSize || mod(z,cell) >= plotSize; otherwise it is
-     *  border when within borderWidth of the plot edge; otherwise plot.
-     *
-     *  Idempotent, like md_add_simple_dimension. Returns dim id (>=3) or -1. */
-    /* RETIRED since 26.20.3, use md_add_dimension */
-    int32_t (*md_add_plot_dimension)(PierStr name, uint32_t seed, PierStr layout_snbt);
 
     /*  Append tail, struct_size-gated.
      * The struct's only append point. SDK mirrors declare every field
@@ -1928,18 +1917,6 @@ typedef struct PierApi
      * an owner who can place a block by hand on their merged plot but whose
      * piston refuses to push there. Server thread only. */
 
-    /** Register (or update) the plot grid of a dimension. `plot_size <= 0`
-     *  clears it. Values are clamped loader-side — `cell = plot_size +
-     *  road_width` is a modulus, and a caller-supplied 0 would divide by zero
-     *  in a tick path. Clears the merge table when the geometry changes. */
-    /* RETIRED since 26.20.3, use terrain.grid.confine in the md_add_dimension spec */
-    void (*md_set_plot_grid)(int32_t dimension, int32_t plot_size, int32_t road_width);
-
-    /** Drop a dimension's grid and merge table (world deleted, or the world
-     *  stopped using the plot model). */
-    /* RETIRED since 26.20.3, nothing replaces it: the grid is withdrawn with the dimension */
-    void (*md_clear_plot_grid)(int32_t dimension);
-
     /** Replace a dimension's merge markers wholesale. `entries` is `count`
      *  triples `(x, z, mask)`, i.e. `count * 3` int32s; `mask` is a bitset of
      *  1=north, 2=east, 4=south, 8=west matching the plugin's `merged[]`
@@ -1949,8 +1926,11 @@ typedef struct PierApi
      *  forever on what is currently in the table, and `unlink` clears the
      *  neighbour before storing itself — a failure in between leaves the two
      *  views apart with no way back. Replacing pulls them into agreement on
-     *  every push. Call `md_set_plot_grid` first; a push for an unregistered
-     *  dimension is dropped with a warning. */
+     *  every push. The grid comes from the template pack's CONF section at
+     *  md_add_dimension_pack; a push for a dimension without one is dropped with
+     *  a warning. Cell geometry, which the mod side must match: with
+     *  period = cell + gap, a column at world (x, z) is inside a cell when
+     *  mod(x,period) < cell && mod(z,period) < cell. */
     void (*md_set_plot_merges)(int32_t dimension, int32_t const* entries, int32_t count);
 
     /*  Cross-mod service registry (query-style calls)
@@ -2361,9 +2341,7 @@ typedef struct PierApi
      */
     bool (*container_get_items)(PierContainerRef ref, void* ctx, PierSlotSink sink);
 
-    /** Add a custom dimension from one declarative spec. This is the one entry the
-     *  md_add_simple_dimension / md_add_plot_dimension pair are wrappers of: both
-     *  build a spec and call the same path, and their names stay (contract 2.2).
+    /** Add a custom dimension with a native terrain from one declarative spec.
      *
      *  `spec_snbt` is a CompoundTag SNBT string:
      *    {seed:123,
@@ -2373,32 +2351,85 @@ typedef struct PierApi
      *     sky.time holds this dimension at one tick of day and leaves every other
      *     dimension on the level clock. A nether or end client sky has no day cycle to
      *     begin with, so the field only changes what an overworld sky shows.
-     *     terrain:{kind:"native", generator:"overworld"|"nether"|"end"|"void"}
-     *   | terrain:{kind:"layers", base_y:63, biome:"minecraft:plains",
-     *              layers:[{block,thickness}...],
-     *              grid:{cell,gap,edge,gap_block,edge_block,confine:false}}
-     *     grid.confine:true registers the same grid with the cell-confinement hooks
-     *     (PIER_DIMRULE_PISTON_CROSS_CELL / ENTITY_CROSS_CELL), so the terrain and
-     *     the confinement can never disagree about where a cell ends.
-     *   | terrain:{kind:"noise", height:{min,max},
-     *              biomes:[{biome, temperature:[lo,hi], humidity:[lo,hi]}],
-     *              shape:{gradient:{from_y,to_y}, threshold,
-     *                     octaves:[{scale_xz,scale_y,amplitude,levels}],
-     *                     islands:{scale,floor}},
-     *              palette:[{block,depth:[lo,hi]}],
-     *              fluid:{block,level}, bedrock:{block,y}} }
+     *     terrain:{kind:"native",
+     *              generator:"overworld"|"nether"|"end"|"flat"|"void",
+     *              biome:"minecraft:plains"}       biome is read for void only
+     *
+     *  The three vanilla generators carry their structures (villages, fortresses, end
+     *  cities); what differs from the vanilla dimension is the seed, the height and
+     *  the sky.
      *
      *  `sky.client` is what the client is told in DimensionDefinition: nether and
      *  end skies have no day/night, which is how those dimensions lock time. It is
      *  independent of the server-side generator.
      *
-     *  A biome that is not in the registry, a height not on a subchunk boundary, or a
-     *  terrain kind the host does not know refuses with -1 and a log line; nothing
-     *  falls back to a "close enough" generator, because the spec is persisted with
-     *  the dimension and terrain generated from a wrong spec cannot be regenerated.
+     *  A terrain of kind template or volume is refused here with -1: those go through
+     *  md_add_dimension_pack, which verifies the pack before the spec is stored. A
+     *  height not on a subchunk boundary or a generator name the host does not know
+     *  refuses the same way; nothing falls back to a "close enough" generator, because
+     *  the spec is persisted with the dimension and terrain generated from a wrong
+     *  spec cannot be regenerated.
      *
-     *  Idempotent by name, like the two wrappers. Returns dim id (>=3) or -1. */
+     *  Idempotent by name. Returns dim id (>=3) or -1. */
     int32_t (*md_add_dimension)(PierStr name, PierStr spec_snbt);
+
+    /** Add a custom dimension whose terrain is a terrain pack: a directory with a
+     *  config file and a binary built by tools/pier-pack. `config_path` names the
+     *  config relative to the server root, forward slashes, no ".." and not
+     *  absolute; the binary is named inside the config relative to it.
+     *
+     *  The host reads four keys of the config and nothing else:
+     *    {"pier_terrain":1, "type":"template"|"volume",
+     *     "binary":"terrain.ptpl", "sha256":"<64 hex digits>"}
+     *  Anything else in the file belongs to the mod (a title, a description, a
+     *  preview) and the host never looks at it.
+     *
+     *  `spec_snbt` has the shape of md_add_dimension with a pack terrain:
+     *    terrain:{kind:"template"|"volume",
+     *             params:{plot_size:64, road_width:7},   template parameters, ints
+     *             roles:{floor:"minecraft:stone"}}        template role overrides
+     *  A parameter the pack marks fixed cannot be given another value; one it marks
+     *  derived cannot be given at all; a free one must lie in its range and on its
+     *  step; a choice one must be one of its choices. A role not in the pack, or a
+     *  block that is not registered, refuses. The pack's own constraints are checked
+     *  with the bound values and a failing one refuses with its message in the log.
+     *
+     *  Three sources are compared before anything is stored: spec terrain.kind, the
+     *  config's type, and the binary's magic, and the binary must hash to the config's
+     *  sha256. The stored spec then holds the path, that hash, every bound parameter
+     *  and the role overrides, so the terrain is regenerable from the save alone.
+     *
+     *  On a later boot the stored spec wins: the same name returns the same id, the
+     *  parameters given now are ignored with a warning if they differ, and a config
+     *  whose sha256 is no longer the stored one refuses with
+     *  PIER_PACK_STORED_MISMATCH, since terrain from a different binary cannot
+     *  continue a world. Editing a pack means a new world or a new name.
+     *
+     *  A template pack with a CONF section registers the cell grid for the
+     *  confinement rules from the same mount that produced the terrain, so the two
+     *  can never disagree; md_set_plot_merges then applies.
+     *
+     *  Returns dim id (>=3), or one of the PIER_PACK_* codes below, all negative. */
+    int32_t (*md_add_dimension_pack)(PierStr name, PierStr config_path, PierStr spec_snbt);
+
+    /** What a pack asks for, without registering anything: the sink receives one
+     *  JSON document, the same shape `pier-pack inspect` prints:
+     *    {"ok":true,"kind":"template","pack":"...","sha256":"...","name":"...",
+     *     "biome":"...","height":{"min":-512,"max":320,"fixed":false},
+     *     "params":[{"name":"plot_size","kind":"free","default":64,"min":4,
+     *                "max":512,"step":1},
+     *               {"name":"wall_style","kind":"choice","default":0,"choices":[0,1]},
+     *               {"name":"plot_depth","kind":"derived"},
+     *               {"name":"size","kind":"fixed","value":256}],
+     *     "roles":[{"name":"floor","default":"minecraft:grass_block"}],
+     *     "zones":["interior","border","road"],
+     *     "constraints":["..."], "shapes":23, "picks":1,
+     *     "voxels":[{"size":[5,4,3],"palette":5}], "confine":true}
+     *  A mod builds its form from "params": free is a slider, choice a list, fixed a
+     *  read-only value, derived is not shown. On a refusal the sink receives
+     *  {"ok":false,"status":<code>,"problems":["..."]} and the code is returned.
+     *  Returns 0 or a PIER_PACK_* code. Server thread only. */
+    int32_t (*md_pack_inspect)(PierStr config_path, void* ctx, PierStrSink sink);
 
     /** Retire a custom dimension: drop it from dimension_config.json, from the host's
      *  own tables and from the dimension factory, so nothing registers it on the next

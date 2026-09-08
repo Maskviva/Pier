@@ -336,14 +336,12 @@ pub struct PierApi {
 
     // Packet interception, appended and gated by struct_size.
     pub md_is_available: Option<unsafe extern "C" fn() -> bool>,
-    pub md_add_simple_dimension: Option<unsafe extern "C" fn(PierStr, u32, i32) -> i32>,
     pub md_set_dimension_rule: Option<unsafe extern "C" fn(i32, i32, bool)>,
     pub md_get_dimension_rule: Option<unsafe extern "C" fn(i32, i32, *mut bool) -> bool>,
     pub md_clear_dimension_rules: Option<unsafe extern "C" fn(i32)>,
 
     // Capability group: client (client_*). All NULL on a server host.
     pub md_get_dimension_id: Option<unsafe extern "C" fn(PierStr) -> i32>,
-    pub md_add_plot_dimension: Option<unsafe extern "C" fn(PierStr, u32, PierStr) -> i32>,
     pub schedule_for: Option<unsafe extern "C" fn(PierModHandle, PierTaskCb, *mut c_void) -> u64>,
     pub schedule_after_for:
         Option<unsafe extern "C" fn(PierModHandle, PierTaskCb, *mut c_void, u64) -> u64>,
@@ -361,8 +359,6 @@ pub struct PierApi {
     pub bus_publish_vetoable:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierStr, *mut u32) -> bool>,
     pub bus_subscriber_count: Option<unsafe extern "C" fn(PierStr) -> u32>,
-    pub md_set_plot_grid: Option<unsafe extern "C" fn(i32, i32, i32)>,
-    pub md_clear_plot_grid: Option<unsafe extern "C" fn(i32)>,
     pub md_set_plot_merges: Option<unsafe extern "C" fn(i32, *const i32, i32)>,
     pub service_register:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierServiceCb, *mut c_void) -> u64>,
@@ -450,6 +446,8 @@ pub struct PierApi {
     pub container_get_items:
         Option<unsafe extern "C" fn(PierContainerRef, *mut c_void, PierSlotSink) -> bool>,
     pub md_add_dimension: Option<unsafe extern "C" fn(PierStr, PierStr) -> i32>,
+    pub md_add_dimension_pack: Option<unsafe extern "C" fn(PierStr, PierStr, PierStr) -> i32>,
+    pub md_pack_inspect: Option<unsafe extern "C" fn(PierStr, *mut c_void, PierStrSink) -> i32>,
     pub md_retire_dimension: Option<unsafe extern "C" fn(PierStr) -> bool>,
 }
 

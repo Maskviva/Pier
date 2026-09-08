@@ -296,6 +296,40 @@ pub const PIER_DIMRULE_PISTON_CROSS_PLOT: i32 = 11;
 /// Retired since 26.20.3; see PIER_DIMRULE_PISTON_CROSS_PLOT.
 pub const PIER_DIMRULE_ENTITY_CROSS_PLOT: i32 = 12;
 
+// ── PierPackStatus ───────────────────────────────────────────
+// Return codes of md_add_dimension_pack and md_pack_inspect; a dimension id is
+// never negative, so the sign tells the two apart.
+
+pub const PIER_PACK_OK: i32 = 0;
+/// Absolute, contains "..", or leaves the server root.
+pub const PIER_PACK_BAD_PATH: i32 = -1;
+/// The config file cannot be opened.
+pub const PIER_PACK_CONFIG_UNREADABLE: i32 = -2;
+/// Not JSON, or a required key missing or malformed.
+pub const PIER_PACK_CONFIG_INVALID: i32 = -3;
+/// The binary named by the config cannot be opened.
+pub const PIER_PACK_BINARY_UNREADABLE: i32 = -4;
+/// A section fails its hash or an index is out of range.
+pub const PIER_PACK_CORRUPT: i32 = -5;
+/// Spec kind, config type and binary magic disagree.
+pub const PIER_PACK_KIND_MISMATCH: i32 = -6;
+/// The binary does not hash to the config's sha256.
+pub const PIER_PACK_HASH_MISMATCH: i32 = -7;
+/// A pack kind or format version this host does not serve.
+pub const PIER_PACK_UNSUPPORTED: i32 = -8;
+/// A parameter or role outside what the pack allows.
+pub const PIER_PACK_PARAMS: i32 = -9;
+/// A constraint of the pack fails with these values.
+pub const PIER_PACK_CONSTRAINT: i32 = -10;
+/// The dimension height does not fit the pack.
+pub const PIER_PACK_HEIGHT: i32 = -11;
+/// The name exists with another binary or terrain kind.
+pub const PIER_PACK_STORED_MISMATCH: i32 = -12;
+/// The spec could not be read or has no pack terrain.
+pub const PIER_PACK_SPEC: i32 = -13;
+/// Another host refusal; the log has the reason.
+pub const PIER_PACK_HOST: i32 = -14;
+
 // ── PierSysInfoProp ──────────────────────────────────────────
 
 /// sys_utils::getSystemName

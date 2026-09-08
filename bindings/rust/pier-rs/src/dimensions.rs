@@ -5,19 +5,23 @@
 //! does not provide it. That is rule 3 of contract §1 at runtime: the optional package is
 //! absent, the layout is unchanged, and the slots are empty.
 //!
-//! # Registration is idempotent, so register unconditionally at startup
-//!
-//! [`add_simple`] and [`add_plot`] return the same persisted id for the same name on the
-//! next startup, so the right usage is registering directly at startup rather than probing
-//! with [`dimension_id`] first, which necessarily misses on the first startup.
+//! Registration is idempotent: [`add_dimension`] and [`add_dimension_pack`] return the
+//! same persisted id for the same name on the next startup, so a mod registers at startup
+//! rather than probing with [`dimension_id`] first, which misses on the first startup.
+//! A pack terrain is a directory with a config and a binary built by `tools/pier-pack`;
+//! [`pack_inspect`] tells what it asks for and [`add_dimension_pack`] mounts it, and the
+//! host stores the file hash and every bound value with the dimension.
 
-use crate::nbt::NbtValue;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{collect_strs, s};
+use crate::sys;
 
-/// The terrain generator. The values are the engine's `GeneratorType`.
+/// The vanilla generator of a `terrain:{kind:"native"}` spec.
 ///
-/// Note it starts at 1 and not 0: numbering from 0 would make superflat generate a nether.
+/// The values are the engine's `GeneratorType`, which starts at 1 and not 0: numbering from
+/// 0 would make superflat generate a nether. The spec itself names the generator with the
+/// lower-case string of [`GeneratorType::spec_name`]; the numbers survive because
+/// `md_list_dimensions` and old saves both carry them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratorType {
     Overworld = 1,
@@ -43,11 +47,22 @@ impl GeneratorType {
         self as i32
     }
 
+    /// What `terrain.generator` and `sky.client` are spelled as in a spec.
+    pub fn spec_name(self) -> &'static str {
+        match self {
+            GeneratorType::Overworld => "overworld",
+            GeneratorType::Flat => "flat",
+            GeneratorType::Nether => "nether",
+            GeneratorType::TheEnd => "end",
+            GeneratorType::Void => "void",
+        }
+    }
+
     /// What the engine itself calls this generator.
     ///
-    /// Not the same thing as the enum name: the enum name belongs to this layer while this is
-    /// the string the engine recognizes, appearing in generation parameters and in the save.
-    /// Use it when assembling something for the engine, not `{:?}`.
+    /// Not the same string as [`GeneratorType::spec_name`]: this one appears in generation
+    /// parameters and in old saves. Use it when assembling something for the engine, not
+    /// `{:?}`.
     pub fn engine_name(self) -> &'static str {
         match self {
             GeneratorType::Overworld => "Overworld",
@@ -110,69 +125,6 @@ impl DimensionRule {
     }
 }
 
-/// The grid layout of a plot world.
-///
-/// The grid convention, which the SDK and the host must share. With
-/// `cell = plot_size + road_width`, a world coordinate `(x, z)` is road when
-/// `mod(x,cell) >= plot_size || mod(z,cell) >= plot_size`; otherwise it is border within
-/// `border_width` of the plot edge; otherwise it is plot.
-#[derive(Debug, Clone, PartialEq)]
-#[deprecated(
-    since = "26.20.3",
-    note = "the layout lives in the dimension spec; see add_dimension"
-)]
-pub struct PlotLayout {
-    pub plot_size: i32,
-    pub road_width: i32,
-    pub border_width: i32,
-    pub floor_y: i32,
-    pub floor_block: String,
-    pub fill_block: String,
-    pub road_block: String,
-    pub border_block: String,
-    pub biome: String,
-}
-
-#[allow(deprecated)]
-impl Default for PlotLayout {
-    fn default() -> PlotLayout {
-        PlotLayout {
-            plot_size: 64,
-            road_width: 7,
-            border_width: 1,
-            floor_y: 64,
-            floor_block: "minecraft:grass_block".to_owned(),
-            fill_block: "minecraft:dirt".to_owned(),
-            road_block: "minecraft:birch_planks".to_owned(),
-            border_block: "minecraft:stone_block_slab".to_owned(),
-            biome: "minecraft:plains".to_owned(),
-        }
-    }
-}
-
-#[allow(deprecated)]
-impl PlotLayout {
-    /// The width of one plot plus one road, which is the modulus of the grid.
-    pub fn cell_size(&self) -> i32 {
-        self.plot_size + self.road_width
-    }
-
-    pub fn to_snbt(&self) -> String {
-        NbtValue::obj([
-            ("plotSize", NbtValue::Int(self.plot_size)),
-            ("roadWidth", NbtValue::Int(self.road_width)),
-            ("borderWidth", NbtValue::Int(self.border_width)),
-            ("floorY", NbtValue::Int(self.floor_y)),
-            ("floorBlock", NbtValue::from(self.floor_block.as_str())),
-            ("fillBlock", NbtValue::from(self.fill_block.as_str())),
-            ("roadBlock", NbtValue::from(self.road_block.as_str())),
-            ("borderBlock", NbtValue::from(self.border_block.as_str())),
-            ("biome", NbtValue::from(self.biome.as_str())),
-        ])
-        .to_snbt()
-    }
-}
-
 /// One custom dimension that has been registered.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExistingDimension {
@@ -190,43 +142,6 @@ pub fn is_available() -> bool {
     match crate::__rt::api().md_is_available {
         Some(f) => unsafe { f() },
         None => false,
-    }
-}
-
-/// Registers a simple custom dimension. It returns the dimension id, 3 or above.
-#[deprecated(
-    since = "26.20.3",
-    note = "retired on the host; use add_dimension with terrain:{kind:\"native\"}"
-)]
-pub fn add_simple(name: &str, seed: u32, generator: GeneratorType) -> Result<i32> {
-    let f = crate::require_slot!(md_add_simple_dimension, "registering a custom dimension");
-    let id = unsafe { f(s(name), seed, generator.as_i32()) };
-    if id < 0 {
-        Err(Error(format!(
-            "the dimension {name} could not be registered: the name is invalid, or the dimension numbers are exhausted"
-        )))
-    } else {
-        Ok(id)
-    }
-}
-
-/// Registers a plot world. The generator lays the grid down during generation rather than
-/// blocks being placed afterwards.
-#[allow(deprecated)]
-#[deprecated(
-    since = "26.20.3",
-    note = "retired on the host; use add_dimension with terrain:{kind:\"layers\", grid:{...}}"
-)]
-pub fn add_plot(name: &str, seed: u32, layout: &PlotLayout) -> Result<i32> {
-    let f = crate::require_slot!(md_add_plot_dimension, "registering a plot dimension");
-    let spec = layout.to_snbt();
-    let id = unsafe { f(s(name), seed, s(&spec)) };
-    if id < 0 {
-        Err(Error(format!(
-            "the plot dimension {name} could not be registered: the name is invalid, or a layout parameter is out of range"
-        )))
-    } else {
-        Ok(id)
     }
 }
 
@@ -358,30 +273,6 @@ impl PlotMerge {
     }
 }
 
-/// Registers or updates the plot grid of a dimension. A `plot_size <= 0` clears it.
-///
-/// Changed geometry clears the merge table, since an old merge mark points at a different
-/// plot under the new grid.
-#[deprecated(
-    since = "26.20.3",
-    note = "retired on the host; put grid.confine:true in the dimension spec"
-)]
-pub fn set_plot_grid(dimension: i32, plot_size: i32, road_width: i32) -> Result<()> {
-    let f = crate::require_slot!(md_set_plot_grid, "registering a plot grid");
-    unsafe { f(dimension, plot_size, road_width) };
-    Ok(())
-}
-
-#[deprecated(
-    since = "26.20.3",
-    note = "retired on the host; the grid is withdrawn with the dimension"
-)]
-pub fn clear_plot_grid(dimension: i32) -> Result<()> {
-    let f = crate::require_slot!(md_clear_plot_grid, "clearing a plot grid");
-    unsafe { f(dimension) };
-    Ok(())
-}
-
 /// Replaces the merge marks of a dimension as a whole.
 ///
 /// As a whole and not incrementally: an increment requires both sides to agree at all
@@ -389,8 +280,10 @@ pub fn clear_plot_grid(dimension: i32) -> Result<()> {
 /// itself, and a failure in between makes the two views diverge with no way back. A whole
 /// push pulls both sides back into agreement every time.
 ///
-/// Call [`set_plot_grid`] first: a push to a dimension with no registered grid is dropped
-/// with a warning.
+/// The grid comes from the template pack's CONF section at [`add_dimension_pack`]: a push
+/// to a dimension without one is dropped with a warning. The geometry the mod side must
+/// match: with `period = cell + gap`, a column `(x, z)` is inside a cell when
+/// `mod(x, period) < cell && mod(z, period) < cell`.
 pub fn set_plot_merges(dimension: i32, merges: &[PlotMerge]) -> Result<()> {
     let f = crate::require_slot!(md_set_plot_merges, "pushing the plot merge table");
     // The ABI takes count triples of (x, z, mask), meaning count*3 i32 values.
@@ -404,13 +297,11 @@ pub fn set_plot_merges(dimension: i32, merges: &[PlotMerge]) -> Result<()> {
     Ok(())
 }
 
-/// Adds a custom dimension from one declarative spec; see `md_add_dimension` in `abi.h`.
+/// Adds a custom dimension with a native terrain; see `md_add_dimension` in `abi.h`.
 ///
 /// The spec is opaque to this SDK: the shape is owned by the host and the RSW world
 /// manager (`rsw_world_spec::Generator::to_spec_snbt`) writes it. This function only
-/// carries the string across.
-/// The one entry for creating a dimension since 26.20.3. The four retired wrappers above
-/// still compile, warn at the call site, and fail at runtime with a host log line.
+/// carries the string across. A pack terrain is refused here; see [`add_dimension_pack`].
 pub fn add_dimension(name: &str, spec_snbt: &str) -> Result<i32> {
     let f = crate::require_slot!(md_add_dimension, "registering a dimension from a spec");
     let r = unsafe { f(s(name), s(spec_snbt)) };
@@ -420,6 +311,130 @@ pub fn add_dimension(name: &str, spec_snbt: &str) -> Result<i32> {
         )));
     }
     Ok(r)
+}
+
+/// Why the host refused a pack; the values are `PIER_PACK_*`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackStatus {
+    BadPath,
+    ConfigUnreadable,
+    ConfigInvalid,
+    BinaryUnreadable,
+    Corrupt,
+    KindMismatch,
+    HashMismatch,
+    Unsupported,
+    Params,
+    Constraint,
+    Height,
+    StoredMismatch,
+    Spec,
+    Host,
+    /// A code this SDK does not know; the host is newer than the mirror.
+    Other(i32),
+}
+
+impl PackStatus {
+    pub fn from_code(code: i32) -> PackStatus {
+        match code {
+            sys::PIER_PACK_BAD_PATH => PackStatus::BadPath,
+            sys::PIER_PACK_CONFIG_UNREADABLE => PackStatus::ConfigUnreadable,
+            sys::PIER_PACK_CONFIG_INVALID => PackStatus::ConfigInvalid,
+            sys::PIER_PACK_BINARY_UNREADABLE => PackStatus::BinaryUnreadable,
+            sys::PIER_PACK_CORRUPT => PackStatus::Corrupt,
+            sys::PIER_PACK_KIND_MISMATCH => PackStatus::KindMismatch,
+            sys::PIER_PACK_HASH_MISMATCH => PackStatus::HashMismatch,
+            sys::PIER_PACK_UNSUPPORTED => PackStatus::Unsupported,
+            sys::PIER_PACK_PARAMS => PackStatus::Params,
+            sys::PIER_PACK_CONSTRAINT => PackStatus::Constraint,
+            sys::PIER_PACK_HEIGHT => PackStatus::Height,
+            sys::PIER_PACK_STORED_MISMATCH => PackStatus::StoredMismatch,
+            sys::PIER_PACK_SPEC => PackStatus::Spec,
+            sys::PIER_PACK_HOST => PackStatus::Host,
+            other => PackStatus::Other(other),
+        }
+    }
+}
+
+/// A refusal of [`add_dimension_pack`] or [`pack_inspect`], with the host's reasons when
+/// the call produced any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackError {
+    pub status: PackStatus,
+    pub problems: Vec<String>,
+}
+
+impl std::fmt::Display for PackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.status)?;
+        for p in &self.problems {
+            write!(f, ": {p}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Adds a custom dimension whose terrain is a pack; see `md_add_dimension_pack` in
+/// `abi.h`.
+///
+/// `config_path` names the pack config relative to the server root with forward slashes;
+/// `spec_snbt` is a spec whose terrain has `kind:"template"` or `"volume"` plus `params`
+/// and `roles`. The host verifies the pack, binds the values and stores everything with
+/// the dimension. A negative return is a `PIER_PACK_*` code and becomes a [`PackError`]
+/// with no problem lines; the reasons are in the host log, and [`pack_inspect`] on the
+/// same path returns them as JSON.
+pub fn add_dimension_pack(
+    name: &str,
+    config_path: &str,
+    spec_snbt: &str,
+) -> std::result::Result<i32, PackError> {
+    let f = match crate::rt::runtime::api().md_add_dimension_pack {
+        Some(f) => f,
+        None => {
+            return Err(PackError {
+                status: PackStatus::Host,
+                problems: vec!["this host does not provide md_add_dimension_pack".to_owned()],
+            })
+        }
+    };
+    let r = unsafe { f(s(name), s(config_path), s(spec_snbt)) };
+    if r < 0 {
+        return Err(PackError {
+            status: PackStatus::from_code(r),
+            problems: Vec::new(),
+        });
+    }
+    Ok(r)
+}
+
+/// What a pack asks for, as the JSON document `md_pack_inspect` describes, without
+/// registering anything. A refusal carries the host's problem lines.
+pub fn pack_inspect(config_path: &str) -> std::result::Result<String, PackError> {
+    let f = match crate::rt::runtime::api().md_pack_inspect {
+        Some(f) => f,
+        None => {
+            return Err(PackError {
+                status: PackStatus::Host,
+                problems: vec!["this host does not provide md_pack_inspect".to_owned()],
+            })
+        }
+    };
+    let mut r = 0i32;
+    let out = collect_strs(|ctx, sink| r = unsafe { f(s(config_path), ctx, sink) });
+    let json = out.into_iter().next().unwrap_or_default();
+    if r == 0 {
+        return Ok(json);
+    }
+    // The refusal document carries the same reasons the host logged; they are handed
+    // back rather than parsed, since the SDK carries no JSON reader.
+    Err(PackError {
+        status: PackStatus::from_code(r),
+        problems: if json.is_empty() {
+            Vec::new()
+        } else {
+            vec![json]
+        },
+    })
 }
 
 /// Retires a custom dimension; see `md_retire_dimension` in `abi.h`.

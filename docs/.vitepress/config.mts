@@ -44,6 +44,12 @@ const enSidebar = {
         { text: 'Compatibility', link: '/guide/compatibility' },
       ],
     },
+    {
+      text: 'Custom dimensions',
+      items: [
+        { text: 'Terrain packs', link: '/guide/terrain-packs' },
+      ],
+    },
   ],
   '/cpp/': [
     {
@@ -111,6 +117,12 @@ const zhSidebar = {
         { text: 'ABI', link: '/zh/guide/abi' },
         { text: 'manifest', link: '/zh/guide/manifest' },
         { text: '兼容性', link: '/zh/guide/compatibility' },
+      ],
+    },
+    {
+      text: '自定义维度',
+      items: [
+        { text: '地形包', link: '/zh/guide/terrain-packs' },
       ],
     },
   ],

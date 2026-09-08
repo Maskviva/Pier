@@ -1,9 +1,9 @@
 [package]
 name = "pier-sys-rs"
-version = "26.32.1"
+version = "26.32.2"
 edition = "2021"
 license = "Apache-2.0"
-description = "Raw FFI declarations for Pier, cell for cell against packages/pier-abi/include/sdk/abi.h (ABI v1)."
+description = "Raw FFI declarations for Pier, cell for cell against packages/pier-abi/include/sdk/abi.h (ABI v2)."
 readme = "../../../README.md"
 repository = "https://github.com/Maskviva/Pier"
 keywords = ["levilamina", "minecraft", "bedrock", "ffi"]
@@ -26,7 +26,7 @@ path = "src/lib.rs"
 # misalignment: the macro was defined by nobody on the host side while the cfg was always
 # true in the mirror, the two tables had different lengths, and the tail shifted whole.
 #
-# The layout of ABI v1 is identical on every target (contract §2.1) and an absent
+# The layout of ABI v2 is identical on every target (contract §2.1) and an absent
 # capability is a NULL slot. Therefore:
 #
 #   * no feature selects a dimension capability. It is decided at runtime through

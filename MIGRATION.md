@@ -857,3 +857,79 @@ version, which rejects every mod already compiled.
 | `packages/pier-dimensions/src/gen/CellConfine.cpp` | the grid table, the merge graph and the actor interception behind the two `*_CROSS_CELL` rules |
 | `packages/pier-hooks/src/world/PortalEvents.cpp` | the synthetic `PortalCreateEvent`, hooked at `PortalBlock::trySpawnPortal`, after the engine measured the frame and confirmed the fire, so not one line of geometry is reimplemented |
 | `tools/migrate_dimension_config.py` | a one-time migration of `dimension_config.json` from the two pre-26.20.3 payload shapes to the spec shape; the mapping is the one the old readers used, written into the file once instead of kept in code |
+
+## Terrain packs: the three terrain kinds and ABI v2
+
+The declarative `layers` and `noise` terrains were removed before any release carried them,
+and the four retired `md_*` slots with them, which advances `PIER_ABI_VERSION` and
+`PIER_ABI_MIN_SUPPORTED` to 2 together and rewrites `tools/abi-v1.slots` with `--bless`.
+Three terrain kinds remain: `native`, the vanilla generators with their structures, and
+two terrain packs, `template` (PIERTPL, a fixed range with parameters and cells that are
+the same in data) and `volume` (PIERVOL, a density function graph). A pack is a config file
+and a binary built by `tools/pier-pack`; the host reads four keys of the config, compares
+the spec's kind with the config's type and the binary's magic, hashes the binary against
+the config, and stores the hash and every bound parameter with the dimension. The byte
+layout lives once in `pack_format.h` and its Python mirror, checked against each other by
+`tools/pier-pack/tests/test_layout.py`; the pack layer under `src/pack/` has no engine
+dependency, so `tests/test_cpp_equivalence.py` compiles it under a plain compiler and
+compares its chunks cell by cell with the Python reference generator, and the plot
+fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotGenerator`.
+
+| File | Contents |
+|---|---|
+| `packages/pier-dimensions/include/pier/dimensions/gen/layers_generator.h` | ✂ cut, superseded by a template pack; `tools/pier-pack from-layers` converts an old layers spec |
+| `packages/pier-dimensions/src/gen/LayersGenerator.cpp` | ✂ cut, superseded by `src/gen/TemplateGenerator.cpp`, which keeps the per-thread buffer and the owner check |
+| `packages/pier-dimensions/include/pier/dimensions/gen/noise_generator.h` | ✂ cut, superseded by the volume pack |
+| `packages/pier-dimensions/src/gen/NoiseGenerator.cpp` | ✂ cut, superseded by the volume pack |
+| `packages/pier-dimensions/include/pier/dimensions/pack/pack_format.h` | the byte layout of PIERTPL and PIERVOL: header, section table, every section struct and opcode table; the only description of the format on the C++ side |
+| `packages/pier-dimensions/include/pier/dimensions/pack/sha256.h` | SHA-256 over a byte range, for section and file hashes |
+| `packages/pier-dimensions/src/pack/Sha256.cpp` | FIPS 180-4, verified against the standard vectors |
+| `packages/pier-dimensions/include/pier/dimensions/pack/pack_reader.h` | the container of a pack validated and held in memory: magic, version, table bounds, every section hash, the string table |
+| `packages/pier-dimensions/src/pack/PackReader.cpp` | reading a file and validating the container before any section is handed out |
+| `packages/pier-dimensions/include/pier/dimensions/pack/expr.h` | validation and evaluation of the EXPR table against bound parameters |
+| `packages/pier-dimensions/src/pack/Expr.cpp` | one forward pass with floor division, matching `pierpack/expr.py` |
+| `packages/pier-dimensions/include/pier/dimensions/pack/template_pack.h` | a PIERTPL pack decoded into owned tables, and the mounted form with zone tables, materials, columns, static layers, shape boxes and picks |
+| `packages/pier-dimensions/src/pack/TemplatePack.cpp` | decoding every section with the same checks as `pierpack/tpl_read.py` |
+| `packages/pier-dimensions/src/pack/TemplateMount.cpp` | binding parameters by kind, constraints, height, span expansion, materials, columns, static layers, shape parameters and boxes |
+| `packages/pier-dimensions/src/pack/TemplateGen.cpp` | the shape DAG evaluation and the chunk fill, the twin of `refgen_tpl.py` |
+| `packages/pier-dimensions/include/pier/dimensions/pack/pack_locate.h` | from a config path to a verified binary: the path policy, the four keys, the hash and kind checks, and the cache of decoded packs |
+| `packages/pier-dimensions/src/pack/PackLocate.cpp` | the path policy, a small strict JSON scanner for the config, binary verification, the cache |
+| `packages/pier-dimensions/include/pier/dimensions/pack/pack_inspect.h` | the JSON `md_pack_inspect` returns, and the JSON of a refusal |
+| `packages/pier-dimensions/src/pack/PackInspect.cpp` | hand-written JSON with a fixed field order, the same shape `pier-pack inspect` prints |
+| `packages/pier-dimensions/include/pier/dimensions/gen/template_generator.h` | the chunk generator of a template-pack dimension, derived from `FlatWorldGenerator` like the layers generator was |
+| `packages/pier-dimensions/src/gen/TemplateGenerator.cpp` | materials to blocks once, static rows once per thread, changing rows per chunk from the pack layer's materials |
+| `tools/pier-pack/pierpack/__init__.py` | the pack tool package |
+| `tools/pier-pack/pierpack/format.py` | the Python mirror of `pack_format.h`, struct by struct |
+| `tools/pier-pack/pierpack/expr.py` | the expression compiler: infix text to shared, folded, topologically sorted nodes, and the reference evaluator |
+| `tools/pier-pack/pierpack/container.py` | the outer file: aligned sections with hashes, and the string table |
+| `tools/pier-pack/pierpack/tpl_build.py` | the template pack builder from a JSON source; emits the constraints that follow from the data |
+| `tools/pier-pack/pierpack/tpl_read.py` | decoding a PIERTPL file with every invariant the C++ reader also checks |
+| `tools/pier-pack/pierpack/refgen_tpl.py` | the reference generator: mount and chunk semantics the C++ side must match |
+| `tools/pier-pack/pierpack/from_layers.py` | an old `{kind:"layers"}` spec as a template source |
+| `tools/pier-pack/pierpack/cli.py` | `pier-pack build`, `inspect`, `hash`, `from-layers` |
+| `tools/pier-pack/fixtures/plot.json` | the plot world as a template source, the acceptance fixture |
+| `tools/pier-pack/fixtures/town.json` | a town with shapes, voxels, choose and picks, the 3D fixture |
+| `tools/pier-pack/fixtures/hut.pvx.json` | a 5 by 4 by 3 voxel blob with keep, air, walls, a door and a window |
+| `tools/pier-pack/tests/test_layout.py` | the Python layouts and the header agree on every struct size and opcode count |
+| `tools/pier-pack/tests/test_plot_equivalence.py` | the plot fixture against a line-for-line port of the 26.20.2 `PlotGenerator`, cell by cell |
+| `tools/pier-pack/tests/test_town.py` | the 3D path: materials, choose by parameter, the four turns, a fixed parameter refused |
+| `tools/pier-pack/tests/test_cpp_equivalence.py` | the C++ pack layer compiled under g++ against the Python reference, cell by cell, refusals included |
+| `tools/pier-pack/cpp_check/main.cpp` | the driver the equivalence test compiles: load, decode, mount, generate one chunk, print |
+| `packages/pier-dimensions/include/pier/dimensions/pack/java_random.h` | Java's Xoroshiro128++ and legacy LCG, positional factories, and the noise samplers a volume pack needs, engine-free |
+| `packages/pier-dimensions/src/pack/JavaRandom.cpp` | MD5, both random sources, noise table construction and sampling; compared value by value with `pierpack/java_noise.py` |
+| `packages/pier-dimensions/include/pier/dimensions/pack/volume_pack.h` | a PIERVOL pack decoded into owned tables and seeded for one world, with the chunk generation entry point |
+| `packages/pier-dimensions/src/pack/VolumePack.cpp` | decoding every PIERVOL section with the checks of `pierpack/vol_read.py` |
+| `packages/pier-dimensions/src/pack/VolumeGen.cpp` | seeding, density evaluation with Java's cache semantics, biome choice and the surface rule walk, the twin of `refgen_vol.py` |
+| `packages/pier-dimensions/include/pier/dimensions/gen/volume_generator.h` | the chunk generator of a volume-pack dimension |
+| `packages/pier-dimensions/src/gen/VolumeGenerator.cpp` | materials to blocks, BIOM entries to biomes, one column at a time through `LevelChunk::_setBiome` |
+| `tools/pier-pack/pierpack/java_noise.py` | the reference random sources and noise samplers of Java worldgen |
+| `tools/pier-pack/pierpack/vol_build.py` | the volume pack builder from a Java-shaped noise_settings source |
+| `tools/pier-pack/pierpack/vol_read.py` | decoding a PIERVOL file with every invariant the C++ decoder also checks |
+| `tools/pier-pack/pierpack/refgen_vol.py` | the reference generator of a volume pack: seeding, density, biomes, surface rules |
+| `tools/pier-pack/fixtures/islands.json` | a small island world exercising splines, shifted noise, caches, interpolation and the surface rule subset |
+| `tools/pier-pack/tests/test_vol_equivalence.py` | the C++ volume layer against the Python reference, blocks and biomes, on two fixtures and two seeds |
+| `tools/pier-pack/cpp_check/vol_main.cpp` | the driver the volume equivalence test compiles |
+| `tools/pier-pack/pierpack/from_datapack.py` | assembles a volume source from a Java datapack directory: dimension, noise settings, density functions, noises, biome temperatures |
+| `docs/guide/terrain-packs.md` | the guide to the three terrain kinds, the pack layout, the config keys, parameter kinds and the mod-side calls |
+| `tools/pier-pack/README.md` | how to build, inspect and convert packs, and how to run the tests |
+| `docs/zh/guide/terrain-packs.md` | the Chinese mirror of the terrain packs guide |

@@ -1,19 +1,23 @@
 /**
  * pier-dimensions/rt/Slots.cpp: fills this package's capability into the ABI table.
  *
- * ABI adaptation only. One live entry for creating dimensions, md_add_dimension. The four
- * retired slots keep their place in the table (contract 2.2) and are filled with stubs that
- * log once and return the failure value, so a mod built against the old surface fails
- * visibly instead of silently doing something else. Every function runs on the server
- * thread.
+ * ABI adaptation only. Two entries create dimensions: md_add_dimension for a native
+ * terrain and md_add_dimension_pack for a terrain pack, which checks three sources
+ * against each other, the spec's terrain kind, the config's type and the binary's
+ * magic, before anything is stored. md_pack_inspect answers what a pack asks for
+ * without registering anything. Every function runs on the server thread.
  */
-#include <optional>
 #include <atomic>
 #include <cstdint>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "mc/deps/nbt/CompoundTag.h"
+#include "mc/deps/nbt/CompoundTagVariant.h"
+#include "mc/deps/nbt/Tag.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/biome/registry/BiomeRegistry.h"
 
@@ -26,6 +30,9 @@
 #include "pier/dimensions/dim/custom_dimension_manager.h"
 #include "pier/dimensions/dim/dimension_rules.h"
 #include "pier/dimensions/gen/cell_confine.h"
+#include "pier/dimensions/pack/pack_inspect.h"
+#include "pier/dimensions/pack/pack_locate.h"
+#include "pier/dimensions/pack/template_pack.h"
 #include "pier/dimensions/spec/dimension_spec.h"
 #include "pier/dimensions/spec/spec_dimension.h"
 
@@ -45,27 +52,15 @@ namespace pier::dimensions::rt
         using pier::ps;
         using pier::toString;
         using spec::DimensionSpec;
+        namespace pk = pier::dimensions::pack;
 
-        /** Every biome named by the spec has to exist now. Refusing at registration is the
-         *  only moment it costs nothing: afterwards the spec is persisted with the dimension. */
-        bool biomesExist(std::string const& dimName, DimensionSpec const& s)
+        bool biomeExists(std::string const& dimName, std::string const& biome)
         {
             auto level = ll::service::getLevel();
             if (!level) return true;
-            auto& reg = level->getBiomeRegistry();
-            auto check = [&](std::string const& b)
-            {
-                if (reg.lookupByName(b)) return true;
-                hostLogger().error("[dim] add_dimension('{}') refused: biome '{}' is not in the registry. Custom biomes come from a behavior pack loaded before mods; check the pack and the spelling", dimName, b);
-                return false;
-            };
-            if (auto const* l = std::get_if<spec::Layers>(&s.terrain)) return check(l->biome);
-            if (auto const* n = std::get_if<spec::Noise>(&s.terrain))
-            {
-                for (auto const& b : n->biomes)
-                    if (!check(b.biome)) return false;
-            }
-            return true;
+            if (level->getBiomeRegistry().lookupByName(biome)) return true;
+            hostLogger().error("[dim] '{}' refused: biome '{}' is not in the registry. Custom biomes come from a behavior pack loaded before mods; check the pack and the spelling", dimName, biome);
+            return false;
         }
 
         int32_t api_md_add_dimension(PierStr name, PierStr specSnbt)
@@ -80,14 +75,208 @@ namespace pier::dimensions::rt
                     hostLogger().error("[dim] add_dimension('{}') refused: the spec could not be read (see the lines above). The dimension was not created; a wrong spec persists with the dimension and terrain generated from it cannot be regenerated", dimName);
                     return -1;
                 }
-                if (!biomesExist(dimName, *s)) return -1;
+                if (s->isPack())
+                {
+                    hostLogger().error("[dim] add_dimension('{}') refused: a {} terrain is registered through md_add_dimension_pack, which verifies the pack before the spec is stored", dimName, std::get<spec::Pack>(s->terrain).kind);
+                    return -1;
+                }
+                auto const& n = std::get<spec::Native>(s->terrain);
+                if (n.generator == GeneratorType::Void && !biomeExists(dimName, n.biome)) return -1;
                 auto id = CustomDimensionManager::getInstance().addDimension<SpecDimension>(dimName, raw);
-                // The grid is one definition for terrain and confinement. Registering it
-                // here, from the spec, is what keeps the two from ever disagreeing.
-                if (auto const* l = std::get_if<spec::Layers>(&s->terrain); l && l->grid && l->grid->confine)
-                    setCellGrid(id.mValue, l->grid->cell, l->grid->gap);
                 return id.mValue;
             PIER_API_GUARD_END_VAL(-1)
+        }
+
+        int32_t code(pk::PackStatus s) { return static_cast<int32_t>(s); }
+
+        int32_t code(pk::MountFailure f)
+        {
+            switch (f)
+            {
+            case pk::MountFailure::Params: return code(pk::PackStatus::Params);
+            case pk::MountFailure::Constraint: return code(pk::PackStatus::Constraint);
+            case pk::MountFailure::Height: return code(pk::PackStatus::Height);
+            default: return code(pk::PackStatus::Host);
+            }
+        }
+
+        std::string normalizedPath(std::string p)
+        {
+            for (auto& c : p)
+                if (c == '\\') c = '/';
+            return p;
+        }
+
+        /** The stored spec of a name, when the host already knows it. */
+        std::optional<DimensionSpec> storedSpecOf(std::string const& dimName, std::vector<std::string>& problems)
+        {
+            auto const& list = CustomDimensionConfig::getConfig().dimensionList;
+            auto it = list.find(dimName);
+            if (it == list.end()) return std::nullopt;
+            auto [s, p] = DimensionSpec::fromSnbt(it->second.sNbt);
+            for (auto& line : p) problems.push_back("stored spec: " + line);
+            return s;
+        }
+
+        int32_t api_md_add_dimension_pack(PierStr name, PierStr configPath, PierStr specSnbt)
+        {
+            PIER_API_GUARD_BEGIN
+                std::string const dimName = toString(name);
+                std::string const configRel = normalizedPath(toString(configPath));
+                std::vector<std::string> problems;
+                auto fail = [&](int32_t rc)
+                {
+                    for (auto const& p : problems) hostLogger().error("[dim] add_dimension_pack('{}', '{}'): {}", dimName, configRel, p);
+                    hostLogger().error("[dim] add_dimension_pack('{}') refused with {}; nothing was stored", dimName, rc);
+                    return rc;
+                };
+                auto [s, specProblems] = DimensionSpec::fromSnbt(toString(specSnbt));
+                for (auto const& p : specProblems) hostLogger().warn("[dim] add_dimension_pack('{}'): {}", dimName, p);
+                if (!s)
+                {
+                    problems.push_back("the spec could not be read");
+                    return fail(code(pk::PackStatus::Spec));
+                }
+                if (!s->isPack())
+                {
+                    problems.push_back("the spec's terrain is native; md_add_dimension serves that");
+                    return fail(code(pk::PackStatus::Spec));
+                }
+                auto given = std::get<spec::Pack>(s->terrain);
+                if (given.path != configRel && !given.path.empty())
+                    hostLogger().warn("[dim] add_dimension_pack('{}'): the spec names pack '{}' and the call names '{}'; the call wins", dimName, given.path, configRel);
+
+                pk::PackStatus status = pk::PackStatus::Ok;
+                auto loc = pk::locatePack(configRel, "", status, problems);
+                if (!loc) return fail(code(status));
+                if (loc->kind != given.kind)
+                {
+                    problems.push_back("the spec says " + given.kind + " but the pack config says " + loc->kind);
+                    return fail(code(pk::PackStatus::KindMismatch));
+                }
+                // A name the host already knows is served from its stored spec; the pack
+                // on disk has to be the one it was created with, and the caller's
+                // parameters are the stored ones or they are ignored with a line.
+                auto stored = storedSpecOf(dimName, problems);
+                spec::Pack effective = given;
+                if (stored)
+                {
+                    if (!stored->isPack())
+                    {
+                        problems.push_back("the name already exists with a native terrain; retire it first");
+                        return fail(code(pk::PackStatus::StoredMismatch));
+                    }
+                    effective = std::get<spec::Pack>(stored->terrain);
+                    if (effective.sha256 != loc->sha256)
+                    {
+                        problems.push_back("this world was created from a binary with hash " + effective.sha256 + " and the pack config now names " + loc->sha256 + "; terrain from a different binary cannot continue this world");
+                        return fail(code(pk::PackStatus::StoredMismatch));
+                    }
+                    if (given.params != effective.params || given.roles != effective.roles)
+                        hostLogger().warn("[dim] add_dimension_pack('{}'): parameters or roles differ from the stored ones; the stored ones apply", dimName);
+                    s->minY = stored->minY;
+                    s->maxY = stored->maxY;
+                }
+                effective.kind = loc->kind;
+                effective.path = configRel;
+                effective.sha256 = loc->sha256;
+
+                std::optional<pk::MountedTemplate> mounted;
+                if (loc->kind == "template")
+                {
+                    auto tpl = pk::PackCache::instance().templateAt(configRel, loc->sha256, "", status, problems);
+                    if (!tpl) return fail(code(status));
+                    if (!biomeExists(dimName, tpl->biome)) return fail(code(pk::PackStatus::Host));
+                    pk::MountFailure why = pk::MountFailure::None;
+                    mounted = pk::mountTemplate(*tpl, effective.params, effective.roles, s->minY, s->maxY, problems, &why);
+                    if (!mounted) return fail(code(why));
+                    // Every bound value is stored, derived ones excluded, so the persisted
+                    // spec does not depend on the pack's defaults staying what they are.
+                    effective.params.clear();
+                    for (std::size_t i = 0; i < tpl->params.size(); ++i)
+                        if (tpl->params[i].kind != pk::ParamKind::Derived) effective.params[tpl->params[i].name] = mounted->values[i];
+                }
+                else
+                {
+                    auto vol = pk::PackCache::instance().volumeAt(configRel, loc->sha256, "", status, problems);
+                    if (!vol) return fail(code(status));
+                    for (auto const& b : vol->biomeNames)
+                        if (!biomeExists(dimName, b)) return fail(code(pk::PackStatus::Host));
+                    if (!effective.params.empty() || !effective.roles.empty())
+                        hostLogger().warn("[dim] add_dimension_pack('{}'): a volume pack takes no parameters or roles; the given ones are dropped", dimName);
+                    effective.params.clear();
+                    effective.roles.clear();
+                    // A volume pack fixes its height; the spec's is replaced, not clamped
+                    // against, since the pack was built for exactly this range.
+                    if (!stored && (s->minY != vol->minY() || s->maxY != vol->maxY()))
+                        hostLogger().warn("[dim] add_dimension_pack('{}'): the height is taken from the pack, [{}, {})", dimName, vol->minY(), vol->maxY());
+                    s->minY = vol->minY();
+                    s->maxY = vol->maxY();
+                }
+
+                auto tag = CompoundTag::fromSnbt(toString(specSnbt));
+                if (!tag)
+                {
+                    problems.push_back("the spec that parsed a moment ago does not parse now");
+                    return fail(code(pk::PackStatus::Spec));
+                }
+                tag->remove("terrain");
+                tag->putCompound("terrain", spec::packTerrainTag(effective));
+                CompoundTag height;
+                height.putInt("min", s->minY);
+                height.putInt("max", s->maxY);
+                tag->remove("height");
+                tag->putCompound("height", std::move(height));
+                auto id = CustomDimensionManager::getInstance().addDimension<SpecDimension>(dimName, tag->toSnbt(SnbtFormat::Minimize));
+                if (id.mValue < 0)
+                {
+                    problems.push_back("the dimension manager refused the registration (see the lines above)");
+                    return fail(code(pk::PackStatus::Host));
+                }
+                // The confinement grid is the pack's own geometry, registered from the
+                // same mount that produced the terrain, which is what keeps the two from
+                // ever disagreeing about where a cell ends.
+                if (mounted && mounted->confine) setCellGrid(id.mValue, mounted->confine->first, mounted->confine->second);
+                return id.mValue;
+            PIER_API_GUARD_END_VAL(PIER_PACK_HOST)
+        }
+
+        int32_t api_md_pack_inspect(PierStr configPath, void* ctx, PierStrSink sink)
+        {
+            PIER_API_GUARD_BEGIN
+                std::string const configRel = normalizedPath(toString(configPath));
+                std::vector<std::string> problems;
+                pk::PackStatus status = pk::PackStatus::Ok;
+                auto emit = [&](std::string const& json)
+                {
+                    if (sink) sink(ctx, ps(json));
+                };
+                auto loc = pk::locatePack(configRel, "", status, problems);
+                if (!loc)
+                {
+                    emit(pk::refusalJson(status, problems));
+                    return code(status);
+                }
+                if (loc->kind == "template")
+                {
+                    auto tpl = pk::PackCache::instance().templateAt(configRel, loc->sha256, "", status, problems);
+                    if (!tpl)
+                    {
+                        emit(pk::refusalJson(status, problems));
+                        return code(status);
+                    }
+                    emit(pk::templateJson(*tpl, configRel));
+                    return 0;
+                }
+                auto vol = pk::PackCache::instance().volumeAt(configRel, loc->sha256, "", status, problems);
+                if (!vol)
+                {
+                    emit(pk::refusalJson(status, problems));
+                    return code(status);
+                }
+                emit(pk::volumeJson(*vol, configRel));
+                return 0;
+            PIER_API_GUARD_END_VAL(PIER_PACK_HOST)
         }
 
         bool api_md_retire_dimension(PierStr name)
@@ -103,34 +292,6 @@ namespace pier::dimensions::rt
             PIER_API_GUARD_END_VAL(false)
         }
 
-        /** One line per retired slot per process: enough to find the caller, not enough to
-         *  flood a log when a loop keeps calling it. */
-        void retired(std::atomic<bool>& said, char const* slot, char const* use)
-        {
-            if (said.exchange(true)) return;
-            hostLogger().error("[dim] {} is retired since 26.20.3 and no longer served; use {}", slot, use);
-        }
-        std::atomic<bool> gSaidSimple{false}, gSaidPlot{false}, gSaidGrid{false}, gSaidClearGrid{false};
-
-        int32_t api_md_add_simple_dimension(PierStr, uint32_t, int32_t)
-        {
-            retired(gSaidSimple, "md_add_simple_dimension", "md_add_dimension with terrain:{kind:\"native\"}");
-            return -1;
-        }
-        int32_t api_md_add_plot_dimension(PierStr, uint32_t, PierStr)
-        {
-            retired(gSaidPlot, "md_add_plot_dimension", "md_add_dimension with terrain:{kind:\"layers\", grid:{...}}");
-            return -1;
-        }
-        void api_md_set_plot_grid(int32_t, int32_t, int32_t)
-        {
-            retired(gSaidGrid, "md_set_plot_grid", "terrain.grid.confine:true in the dimension spec");
-        }
-        void api_md_clear_plot_grid(int32_t)
-        {
-            retired(gSaidClearGrid, "md_clear_plot_grid", "nothing: the grid is withdrawn with the dimension");
-        }
-
         int32_t api_md_get_dimension_id(PierStr name)
         {
             PIER_API_GUARD_BEGIN
@@ -141,17 +302,11 @@ namespace pier::dimensions::rt
         bool api_md_is_available()
         {
             PIER_API_GUARD_BEGIN
-                // Not `true`, and not `Level is open` either.
-                //
-                // Returning true while every registration failed is what sent callers off
-                // to doubt their own recipe: what they got was "the host refused this
-                // dimension", when the truth was "this engine cannot create any". The
-                // question that decides it is whether the definition group can be read,
-                // because that is where the id comes from.
-                //
-                // Cached after the first answer that Level was open for: the probe walks
-                // the definition group, and this slot is on the path of every dimension
-                // call. Before Level opens the answer is not knowable, so it is not kept.
+                // Not `true`, and not `Level is open` either: the question that decides
+                // whether any dimension can be created is whether the definition group
+                // can be read, because that is where the id comes from. Cached after the
+                // first answer that Level was open for, since the probe walks the group
+                // and this slot is on the path of every dimension call.
                 static std::optional<bool> cached;
                 if (cached) return *cached;
                 if (!native::available()) return false;
@@ -209,16 +364,14 @@ namespace pier::dimensions::rt
         void fill(PierApi& api)
         {
             api.md_add_dimension = &api_md_add_dimension;
+            api.md_add_dimension_pack = &api_md_add_dimension_pack;
+            api.md_pack_inspect = &api_md_pack_inspect;
             api.md_retire_dimension = &api_md_retire_dimension;
-            api.md_add_simple_dimension = &api_md_add_simple_dimension;
-            api.md_add_plot_dimension = &api_md_add_plot_dimension;
             api.md_get_dimension_id = &api_md_get_dimension_id;
             api.md_set_dimension_rule = &api_md_set_dimension_rule;
             api.md_get_dimension_rule = &api_md_get_dimension_rule;
             api.md_clear_dimension_rules = &api_md_clear_dimension_rules;
             api.md_list_dimensions = &api_md_list_dimensions;
-            api.md_set_plot_grid = &api_md_set_plot_grid;
-            api.md_clear_plot_grid = &api_md_clear_plot_grid;
             api.md_set_plot_merges = &api_md_set_plot_merges;
             api.md_is_available = &api_md_is_available;
         }

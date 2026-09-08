@@ -138,7 +138,9 @@ check.
 the end of the table with the version unchanged, and the SDK compares `struct_size` per slot
 through `require_slot!`. Changing a signature, deleting or reordering means `PIER_ABI_VERSION`
 and `PIER_ABI_MIN_SUPPORTED` both advancing to the same number. Compatibility is a range and
-not an equality: `MIN_SUPPORTED <= mod_abi <= VERSION`.
+not an equality: `MIN_SUPPORTED <= mod_abi <= VERSION`. That has happened once: 26.32.2
+deleted the four dimension slots retired in 26.20.3, which moved both numbers to 2 and
+refuses every mod built against v1 at load.
 
 **2.3 Both sides of the handshake carry `struct_size`.** From v1 `PierModVTable` carries its
 own `struct_size`, `abi_version` and `mod_flags`, and the host reads only the fields within

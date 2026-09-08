@@ -4,7 +4,86 @@ All notable changes to this project are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pier is
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
-BDS 1.26.20. The ABI carries its own version, currently v1, which moves far more slowly.
+BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more slowly.
+
+## [26.32.2] - 2026-09-08
+
+Terrain packs replace the declarative `layers` and `noise` terrains, and the ABI moves
+to v2. Nothing in this section had shipped in a tagged release, which is why the
+removals below are removals and not deprecations.
+
+### Changed
+
+- **ABI v2.** `PIER_ABI_VERSION` and `PIER_ABI_MIN_SUPPORTED` are both 2. The four slots
+  retired in 26.20.3, `md_add_simple_dimension`, `md_add_plot_dimension`,
+  `md_set_plot_grid` and `md_clear_plot_grid`, are deleted from `PierApi`; every slot
+  after them moves, so a mod built against v1 is refused at load with the version range
+  in the message. `tools/abi-v1.slots` was re-blessed for v2.
+- **Three terrain kinds.** `md_add_dimension` serves `terrain:{kind:"native"}` only, now
+  with `generator:"flat"` and `"void"` beside the three vanilla worlds and a `biome` for
+  the void. A `layers` or `noise` terrain is refused with a pointer to the pack tool;
+  `pier-pack from-layers` converts an old layers spec into a template source.
+- **Dimension spec.** The stored form of a pack terrain is
+  `terrain:{kind, pack, sha256, params, roles}`: the config path, the binary's hash at
+  registration, every bound parameter and the role overrides, so the terrain is
+  regenerable from the save alone and a changed binary is refused rather than mixed in.
+
+### Added
+
+- **`md_add_dimension_pack(name, config_path, spec_snbt)`.** Registers a dimension from a
+  terrain pack: a directory with a config file and a binary. The host reads four keys of
+  the config (`pier_terrain`, `type`, `binary`, `sha256`), compares the spec's terrain
+  kind with the config's type and the binary's magic, hashes the binary against the
+  config, binds the parameters by kind (free, fixed, choice, derived), checks the pack's
+  constraints, and only then stores the spec. Refusals return one of the `PIER_PACK_*`
+  codes, all negative; a dimension id is never negative.
+- **`md_pack_inspect(config_path, ctx, sink)`.** What a pack asks for as one JSON
+  document, the same shape `pier-pack inspect` prints, so a mod builds its form from the
+  pack's own parameter list without a parser of the binary.
+- **Template packs (PIERTPL).** A fixed range with parameters and cells whose data is
+  the same: zones along each axis with expression lengths, a block stack per combined
+  zone, constraints, and 3D structures as a CSG graph (box, cylinder, wedge, translate,
+  rotate, mirror, repeat, union, difference, intersect, shell, paint, choose by parameter
+  or cell hash, voxel blobs with keep and air cells) picked per cell with weights and
+  turns. A CONF section registers the cell grid for the confinement rules from the same
+  mount that produced the terrain. The plot world is the acceptance fixture and is
+  compared cell by cell with a line-for-line port of the 26.20.2 `PlotGenerator`.
+- **Volume packs (PIERVOL).** Java's density function graph: 31 operators including
+  splines, shifted noise, the caches, interpolation, end islands, the 1.18 blended
+  noise and the weird scaled sampler; the multi-noise biome parameter list; and the
+  surface rule subset (block, sequence, condition, biome, noise_threshold,
+  vertical_gradient, y_above, water, temperature, steep, not, hole,
+  above_preliminary_surface, stone_depth). A pack stores noise parameters, never tables:
+  the host builds the tables from the world seed with Java's Xoroshiro128++ or legacy
+  random source, so one pack serves any seed. `pier-pack from-datapack` assembles a
+  source from a Java datapack directory.
+- **`tools/pier-pack`.** `build`, `inspect`, `hash`, `from-layers`, `from-datapack`, a
+  Python reference generator for each pack kind, and tests that compile the engine-free
+  pack layer under g++ and compare it with the reference cell by cell.
+- **Rust SDK.** `dimensions::add_dimension_pack`, `dimensions::pack_inspect`, `PackStatus`
+  and `PackError`; `GeneratorType::spec_name` for the spelling a spec uses. The crate is
+  `2.0.0`, since the four removed functions are a breaking change.
+
+- **`tools/migrate_dimension_config.py` no longer writes a `layers` terrain.** A void or a
+  vanilla generator migrates in place as before; a pre-26.20.3 plot entry is left alone and
+  the three steps to rebuild it as a template pack are printed, since the terrain of a plot
+  world is a binary the host verifies by hash and cannot be written into the config file.
+
+### Removed
+
+- `spec::Layers`, `spec::Noise`, `LayersGenerator` and `NoiseGenerator`, superseded by
+  the two pack kinds; the Rust SDK's `add_simple`, `add_plot`, `set_plot_grid`,
+  `clear_plot_grid` and `PlotLayout`, superseded by `add_dimension_pack` and
+  `pack_inspect`.
+
+### Known limits
+
+- The liquid layer of a voxel blob is decoded but not yet written into the chunk's
+  second block layer, so waterlogged blocks in a blob come out dry.
+- A volume pack has no aquifers, ore veins or bandlands, and the biome of a column is the
+  one at its surface rather than a 3D field; `temperature` uses the biome's base
+  temperature without the vanilla noise term; `sea_level` of the pack is used for the
+  fluid fill but the dimension's own sea level stays at the sky's default.
 
 ## [26.32.1] - 2026-09-07
 

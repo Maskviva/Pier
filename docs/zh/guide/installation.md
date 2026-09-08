@@ -29,7 +29,7 @@ lip install github.com/Maskviva/pier
 启动服务器。宿主就绪后日志里有一行：
 
 ```
-[host] ready, ABI v1, api table 1608 bytes
+[host] ready, ABI v2, api table 1592 bytes
 ```
 
 字节数是宿主编出来多少就是多少，每追加一个能力就会变大，所以看这行是为了确认 ABI 版本，

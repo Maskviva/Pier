@@ -1,15 +1,15 @@
-/** pier/dimensions/spec/dimension_spec.h: one declarative description of a custom dimension.
- * Seed, height range, sky, and a terrain recipe of one of three kinds: native (an engine
- * generator), layers (a stack with an optional grid) or noise (density terrain with
- * multi-biome placement). The SNBT shape is documented at md_add_dimension in abi.h and is
- * written by the RSW world manager; this file is the only reader.
- * The payload of an existing dimension is never rewritten: it persists beside chunks generated
- * from it, and a changed reading puts new chunks at odds with them along a seam nothing can
- * move. Payloads in the pre-26.20.3 shape are migrated once by tools/migrate_dimension_config.py
- * and refused here. Values crossing the ABI are clamped, never trusted: a height out of range
- * indexes a fixed chunk buffer out of bounds. */
+/** pier/dimensions/spec/dimension_spec.h: one declarative description of a dimension.
+ * A spec is seed, height range, sky, and a terrain of one of two kinds: native, a vanilla
+ * generator by name, or pack, a terrain pack file with the parameters and roles it was
+ * mounted with. The SNBT shape is what md_add_dimension and md_add_dimension_pack
+ * document, and DimensionSpec.cpp is the one place that reads it. A pack spec always
+ * holds the file's sha256 and the bound parameter values, because the spec is persisted
+ * with the dimension and terrain generated from it has to be regenerable from the spec
+ * alone. */
 #pragma once
 
+#include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <variant>
@@ -23,94 +23,36 @@
 
 namespace pier::dimensions::spec
 {
-    struct Layer
-    {
-        std::string block;
-        int thickness = 1;
-    };
-
-    /** period = cell + gap; mod(coord, period) >= cell is gap, within edge of the cell
-     *  boundary is edge, otherwise interior. The mod side shares this convention. */
-    struct Grid
-    {
-        int cell = 64;
-        int gap = 7;
-        int edge = 1;
-        std::string gapBlock = "minecraft:birch_planks";
-        std::string edgeBlock = "minecraft:stone_block_slab";
-        /** Register this grid with the cell-confinement hooks too. One definition of the
-         *  grid for terrain and confinement; the two can never disagree. */
-        bool confine = false;
-        [[nodiscard]] int period() const { return cell + gap; }
-    };
-
+    /** A vanilla generator. biome is read for Void only, where the engine's void
+     *  generator needs a fixed biome source. */
     struct Native
     {
         GeneratorType generator = GeneratorType::Overworld;
-    };
-
-    struct Layers
-    {
-        int baseY = 63;
         std::string biome = "minecraft:plains";
-        std::vector<Layer> layers;
-        std::optional<Grid> grid;
-        [[nodiscard]] bool isVoid() const { return layers.empty() && !grid; }
-        [[nodiscard]] int surfaceY() const;
     };
 
-    struct Range
+    /** A terrain pack as mounted. path is the pack config as given to the slot, relative
+     *  to the server root, and may be empty in a caller's spec since the slot names it;
+     *  sha256 is the hex hash of the binary at first registration, empty in a caller's spec;
+     *  params holds every non-derived parameter with its bound value; roles holds only
+     *  the overrides. kind is template or volume and must equal the binary's magic. */
+    struct Pack
     {
-        float lo = -1.f;
-        float hi = 1.f;
-    };
+        std::string kind;
+        std::string path;
+        std::string sha256;
+        std::map<std::string, std::int64_t> params;
+        std::map<std::string, std::string> roles;
 
-    struct BiomeTarget
-    {
-        std::string biome;
-        Range temperature, humidity, continentalness, erosion, depth, weirdness;
-        float offset = 0.f;
-    };
-
-    struct Octave
-    {
-        float scaleXZ = 0.01f;
-        float scaleY = 0.02f;
-        float amplitude = 1.f;
-        int levels = 4;
-    };
-
-    struct PaletteEntry
-    {
-        std::string block;
-        int depthLo = 0;
-        int depthHi = 0;
-    };
-
-    struct Noise
-    {
-        std::vector<BiomeTarget> biomes;
-        int gradientFromY = 0;
-        int gradientToY = 128;
-        float threshold = 0.f;
-        std::vector<Octave> octaves;
-        std::optional<std::pair<float, float>> islands; // scale, floor
-        std::vector<PaletteEntry> palette;
-        std::optional<std::pair<std::string, int>> fluid;   // block, level
-        std::optional<std::pair<std::string, int>> bedrock; // block, y
+        [[nodiscard]] bool isTemplate() const { return kind == "template"; }
+        [[nodiscard]] bool isVolume() const { return kind == "volume"; }
     };
 
     struct Sky
     {
-        /** What the client is told in DimensionDefinition. Nether and End skies have no
-         *  day/night; this is how those dimensions lock time, and it is independent of the
-         *  server-side generator. */
         GeneratorType client = GeneratorType::Overworld;
         bool skylight = true;
         bool weather = true;
-        /** The tick of day this dimension is held at, 0..23999, or empty to follow the
-         *  level clock. A nether or end client sky has no day cycle to begin with, so
-         *  this only changes what an overworld sky shows. */
         std::optional<int> time;
         [[nodiscard]] bool timeless() const { return client == GeneratorType::Nether || client == GeneratorType::TheEnd; }
     };
@@ -121,58 +63,27 @@ namespace pier::dimensions::spec
         int minY = kWorldMinY;
         int maxY = kWorldMaxY;
         Sky sky;
-        std::variant<Native, Layers, Noise> terrain;
+        std::variant<Native, Pack> terrain;
 
         [[nodiscard]] bool isNative() const { return std::holds_alternative<Native>(terrain); }
-        [[nodiscard]] bool isLayers() const { return std::holds_alternative<Layers>(terrain); }
-        [[nodiscard]] bool isNoise() const { return std::holds_alternative<Noise>(terrain); }
+        [[nodiscard]] bool isPack() const { return std::holds_alternative<Pack>(terrain); }
 
-        /** Clamps into the safe range and reports what it changed. Height stays on
-         *  subchunk boundaries; a stack that does not fit is cut, never silently grown. */
+        /** Rounds the height onto subchunk boundaries and into the world range; returns
+         *  one line per change so the caller can log them. */
         std::vector<std::string> clamp();
 
-
-        /** Reads the spec shape. Returns the problems found; `nullopt` means refused.
-         *  A payload in the pre-26.20.3 shape ({seed,generatorType} or {seed,layout}) is
-         *  refused with a line naming tools/migrate_dimension_config.py: that shape is
-         *  migrated once in the file, not read forever in code. */
+        /** Reads the stored payload or a caller's SNBT. The first of the pair is empty
+         *  on refusal, and the second holds every problem found, refusals and warnings
+         *  alike. A refusal never yields a default spec. */
         static std::pair<std::optional<DimensionSpec>, std::vector<std::string>> fromNbt(CompoundTag const& t);
         static std::pair<std::optional<DimensionSpec>, std::vector<std::string>> fromSnbt(std::string const& snbt);
-
     };
 
-    /** Height range read from a stored payload, for the Dimension base constructor, which
-     *  runs before the spec member is built. The same two numbers go to the client through
-     *  CustomDimensionManager; both must come from here. */
+    /** The terrain compound a Pack serializes to; Slots.cpp replaces the caller's
+     *  terrain with it before the spec is stored, so the persisted form is complete. */
+    [[nodiscard]] CompoundTag packTerrainTag(Pack const& p);
+
     [[nodiscard]] DimensionHeightRange dimensionHeightOf(CompoundTag const& stored);
 
-    /** What the client is told in DimensionDefinition; see spec::Sky. */
     [[nodiscard]] GeneratorType clientGeneratorOf(CompoundTag const& stored);
-
-    [[nodiscard]] inline int positiveMod(int value, int modulus)
-    {
-        int r = value % modulus;
-        return r < 0 ? r + modulus : r;
-    }
-
-    enum class CellArea
-    {
-        Interior,
-        Edge,
-        Gap
-    };
-
-    [[nodiscard]] inline CellArea classify1D(int offset, Grid const& g)
-    {
-        if (offset >= g.cell) return CellArea::Gap;
-        if (g.edge > 0 && (offset < g.edge || offset >= g.cell - g.edge)) return CellArea::Edge;
-        return CellArea::Interior;
-    }
-
-    [[nodiscard]] inline CellArea combine2D(CellArea x, CellArea z)
-    {
-        if (x == CellArea::Gap || z == CellArea::Gap) return CellArea::Gap;
-        if (x == CellArea::Interior && z == CellArea::Interior) return CellArea::Interior;
-        return CellArea::Edge;
-    }
 } // namespace pier::dimensions::spec

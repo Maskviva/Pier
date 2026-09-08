@@ -1,0 +1,181 @@
+{
+ "pier_pack": 1,
+ "type": "template",
+ "name": "plot",
+ "height": {
+  "min": -512,
+  "max": 320,
+  "fixed": false
+ },
+ "params": {
+  "plot_size": {
+   "kind": "free",
+   "default": 64,
+   "min": 4,
+   "max": 512,
+   "step": 1
+  },
+  "plot_depth": {
+   "kind": "derived",
+   "expr": "plot_size"
+  },
+  "road_width": {
+   "kind": "free",
+   "default": 7,
+   "min": 0,
+   "max": 64
+  },
+  "border_width": {
+   "kind": "free",
+   "default": 1,
+   "min": 0,
+   "max": 256
+  },
+  "floor_y": {
+   "kind": "free",
+   "default": 64,
+   "min": -63,
+   "max": 318
+  }
+ },
+ "roles": {
+  "bedrock": "minecraft:bedrock",
+  "fill": "minecraft:dirt",
+  "floor": "minecraft:grass_block",
+  "road": "minecraft:birch_planks",
+  "border": "minecraft:stone_block_slab"
+ },
+ "zones": [
+  "interior",
+  "border",
+  "road"
+ ],
+ "period": {
+  "x": "plot_size + road_width",
+  "z": "plot_depth + road_width"
+ },
+ "spans": {
+  "x": [
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "interior",
+    "plot_size - 2*border_width"
+   ],
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "road",
+    "road_width"
+   ]
+  ],
+  "z": [
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "interior",
+    "plot_depth - 2*border_width"
+   ],
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "road",
+    "road_width"
+   ]
+  ]
+ },
+ "combine": {
+  "interior": {
+   "interior": "interior",
+   "border": "border",
+   "road": "road"
+  },
+  "border": {
+   "interior": "border",
+   "border": "border",
+   "road": "road"
+  },
+  "road": {
+   "interior": "road",
+   "border": "road",
+   "road": "road"
+  }
+ },
+ "stacks": [
+  {
+   "zone": "*",
+   "from": -512,
+   "to": -64,
+   "role": "air"
+  },
+  {
+   "zone": "*",
+   "from": -64,
+   "to": -63,
+   "role": "bedrock"
+  },
+  {
+   "zone": "*",
+   "from": -63,
+   "to": "floor_y",
+   "role": "fill"
+  },
+  {
+   "zone": "*",
+   "from": "floor_y",
+   "to": 320,
+   "role": "air"
+  },
+  {
+   "zone": "interior",
+   "from": "floor_y",
+   "to": "floor_y+1",
+   "role": "floor"
+  },
+  {
+   "zone": "border",
+   "from": "floor_y",
+   "to": "floor_y+1",
+   "role": "floor"
+  },
+  {
+   "zone": "border",
+   "from": "floor_y+1",
+   "to": "floor_y+2",
+   "role": "border"
+  },
+  {
+   "zone": "road",
+   "from": "floor_y",
+   "to": "floor_y+1",
+   "role": "road"
+  }
+ ],
+ "constraints": [
+  {
+   "expr": "border_width*2 < plot_size",
+   "message": "border_width must be less than half of plot_size"
+  },
+  {
+   "expr": "floor_y > -64",
+   "message": "floor_y must lie above the bedrock layer"
+  },
+  {
+   "expr": "floor_y + 2 <= 320",
+   "message": "floor_y leaves no room for the border course under the ceiling"
+  }
+ ],
+ "confine": {
+  "enabled": true,
+  "cell": "plot_size",
+  "gap": "road_width"
+ }
+}

@@ -69,7 +69,7 @@ ALLOWED = {
     "lane": {"rt"},
     "bus": {"rt"},
     "scoreboard": {"rt", "nbt"},
-    "dimensions": {"rt", "nbt"},
+    "dimensions": {"rt"},
     "command": {"rt", "nbt"},
     "server": {"rt", "nbt"},
     "item": {"rt", "nbt"},

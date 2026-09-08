@@ -1,0 +1,353 @@
+{
+ "pier_pack": 1,
+ "type": "template",
+ "name": "town",
+ "height": {
+  "min": -512,
+  "max": 320
+ },
+ "params": {
+  "plot_size": {
+   "kind": "fixed",
+   "default": 24
+  },
+  "plot_depth": {
+   "kind": "derived",
+   "expr": "plot_size"
+  },
+  "road_width": {
+   "kind": "free",
+   "default": 5,
+   "min": 3,
+   "max": 16
+  },
+  "border_width": {
+   "kind": "free",
+   "default": 1,
+   "min": 0,
+   "max": 4
+  },
+  "floor_y": {
+   "kind": "free",
+   "default": 64,
+   "min": -63,
+   "max": 300
+  },
+  "wall_style": {
+   "kind": "choice",
+   "default": 0,
+   "choices": [
+    0,
+    1
+   ]
+  }
+ },
+ "roles": {
+  "bedrock": "minecraft:bedrock",
+  "fill": "minecraft:dirt",
+  "floor": "minecraft:grass_block",
+  "road": "minecraft:birch_planks",
+  "border": "minecraft:stone_block_slab",
+  "wall": "minecraft:cobblestone",
+  "fence": "minecraft:oak_fence",
+  "well": "minecraft:stone_bricks",
+  "water": "minecraft:water"
+ },
+ "zones": [
+  "interior",
+  "border",
+  "road"
+ ],
+ "period": {
+  "x": "plot_size + road_width",
+  "z": "plot_depth + road_width"
+ },
+ "spans": {
+  "x": [
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "interior",
+    "plot_size - 2*border_width"
+   ],
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "road",
+    "road_width"
+   ]
+  ],
+  "z": [
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "interior",
+    "plot_depth - 2*border_width"
+   ],
+   [
+    "border",
+    "border_width"
+   ],
+   [
+    "road",
+    "road_width"
+   ]
+  ]
+ },
+ "combine": {
+  "interior": {
+   "interior": "interior",
+   "border": "border",
+   "road": "road"
+  },
+  "border": {
+   "interior": "border",
+   "border": "border",
+   "road": "road"
+  },
+  "road": {
+   "interior": "road",
+   "border": "road",
+   "road": "road"
+  }
+ },
+ "stacks": [
+  {
+   "zone": "*",
+   "from": -512,
+   "to": -64,
+   "role": "air"
+  },
+  {
+   "zone": "*",
+   "from": -64,
+   "to": -63,
+   "role": "bedrock"
+  },
+  {
+   "zone": "*",
+   "from": -63,
+   "to": "floor_y",
+   "role": "fill"
+  },
+  {
+   "zone": "*",
+   "from": "floor_y",
+   "to": 320,
+   "role": "air"
+  },
+  {
+   "zone": "interior",
+   "from": "floor_y",
+   "to": "floor_y+1",
+   "role": "floor"
+  },
+  {
+   "zone": "border",
+   "from": "floor_y",
+   "to": "floor_y+1",
+   "role": "floor"
+  },
+  {
+   "zone": "border",
+   "from": "floor_y+1",
+   "to": "floor_y+2",
+   "role": "border"
+  },
+  {
+   "zone": "road",
+   "from": "floor_y",
+   "to": "floor_y+1",
+   "role": "road"
+  }
+ ],
+ "constraints": [
+  {
+   "expr": "border_width*2 < plot_size",
+   "message": "border too wide"
+  }
+ ],
+ "voxels": {
+  "hut": {
+   "file": "hut.pvx.json"
+  }
+ },
+ "shapes": {
+  "hut_centered": {
+   "op": "translate",
+   "a": {
+    "op": "voxels",
+    "voxels": "hut"
+   },
+   "p": [
+    "(plot_size-2*border_width-5)/2",
+    0,
+    "(plot_depth-2*border_width-3)/2"
+   ]
+  },
+  "stone_wall": {
+   "op": "paint",
+   "role": "wall",
+   "a": {
+    "op": "shell",
+    "p": [
+     1
+    ],
+    "a": {
+     "op": "box",
+     "p": [
+      "plot_size-2*border_width",
+      2,
+      "plot_depth-2*border_width"
+     ]
+    }
+   }
+  },
+  "fence_wall": {
+   "op": "paint",
+   "role": "fence",
+   "a": {
+    "op": "difference",
+    "a": {
+     "op": "shell",
+     "p": [
+      1
+     ],
+     "a": {
+      "op": "box",
+      "p": [
+       "plot_size-2*border_width",
+       1,
+       "plot_depth-2*border_width"
+      ]
+     }
+    },
+    "b": {
+     "op": "translate",
+     "p": [
+      "(plot_size-2*border_width)/2 - 1",
+      0,
+      0
+     ],
+     "a": {
+      "op": "box",
+      "p": [
+       2,
+       1,
+       1
+      ]
+     }
+    }
+   }
+  },
+  "wall": {
+   "op": "choose",
+   "choose": {
+    "by": "param",
+    "param": "wall_style",
+    "entries": [
+     {
+      "shape": "stone_wall"
+     },
+     {
+      "shape": "fence_wall"
+     }
+    ]
+   }
+  },
+  "well": {
+   "op": "translate",
+   "p": [
+    "(plot_size-2*border_width)/2 - 2",
+    0,
+    "(plot_depth-2*border_width)/2 - 2"
+   ],
+   "a": {
+    "op": "union",
+    "a": {
+     "op": "paint",
+     "role": "well",
+     "a": {
+      "op": "shell",
+      "p": [
+       1
+      ],
+      "a": {
+       "op": "cylinder",
+       "p": [
+        2,
+        3
+       ]
+      }
+     }
+    },
+    "b": {
+     "op": "paint",
+     "role": "water",
+     "a": {
+      "op": "translate",
+      "p": [
+       1,
+       1,
+       1
+      ],
+      "a": {
+       "op": "cylinder",
+       "p": [
+        1,
+        1
+       ]
+      }
+     }
+    }
+   }
+  },
+  "lot_house": {
+   "op": "union",
+   "a": "hut_centered",
+   "b": "wall"
+  },
+  "lot_well": {
+   "op": "union",
+   "a": "well",
+   "b": "wall"
+  }
+ },
+ "pick": [
+  {
+   "salt": 24301,
+   "x0": "border_width",
+   "z0": "border_width",
+   "w": "plot_size-2*border_width",
+   "d": "plot_depth-2*border_width",
+   "anchor_y": "floor_y+1",
+   "roots": [
+    {
+     "shape": "lot_house",
+     "weight": 5,
+     "rot": "any"
+    },
+    {
+     "shape": "lot_well",
+     "weight": 2,
+     "rot": 0
+    },
+    {
+     "shape": "nothing",
+     "weight": 2
+    }
+   ]
+  }
+ ],
+ "confine": {
+  "enabled": true,
+  "cell": "plot_size",
+  "gap": "road_width"
+ }
+}

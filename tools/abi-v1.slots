@@ -1,7 +1,7 @@
 # The PierApi slot order baseline, what the abi-additive check compares against.
 # Rewriting it with --bless is allowed only when PIER_ABI_VERSION advances.
-!version 1
-!min 1
+!version 2
+!min 2
 struct_size
 abi_version
 host_flags
@@ -153,12 +153,10 @@ client_register_key
 client_unregister_key
 client_get_key_codes
 md_is_available
-md_add_simple_dimension
 md_set_dimension_rule
 md_get_dimension_rule
 md_clear_dimension_rules
 md_get_dimension_id
-md_add_plot_dimension
 schedule_for
 schedule_after_for
 schedule_cancel
@@ -170,8 +168,6 @@ bus_unsubscribe
 bus_publish
 bus_publish_vetoable
 bus_subscriber_count
-md_set_plot_grid
-md_clear_plot_grid
 md_set_plot_merges
 service_register
 service_unregister
@@ -196,3 +192,14 @@ level_delete_key
 level_set_biome
 get_extra_block
 set_extra_block
+get_tps
+get_mspt
+packet_hook_register_ids
+scan_region_indexed
+edit_fill_region
+edit_set_blocks
+container_get_items
+md_add_dimension
+md_add_dimension_pack
+md_pack_inspect
+md_retire_dimension

@@ -159,26 +159,19 @@ namespace pier::dimensions
     {
         bool available() { return managerOrNull() != nullptr; }
 
-        /*
-         * The engine's own answer, read out of DimensionDefinitionGroup.
-         *
-         * NameIdStore is still unreachable: Util::NameIdStore is an empty class in the
-         * generated headers of both 26.20 and 26.32, and DimensionManager::getDimensionId
-         * is inlined away. But the table is not the only place the number lives.
-         * DimensionDefinitionGroup::forEachDimensionDefinition is MCAPI, every
-         * DimensionDefinition carries mDimensionType, and mDimensionDefinitionGroup is a
-         * direct member of DimensionManager whose offset the generated header gives us.
-         * So the definition group is a readable projection of the same mapping.
-         *
-         * This is still the engine's number and not one of ours, which is what the note
-         * above registerCustomDimension insisted on. Answering out of the host ledger was
-         * rejected because it would make the drift check in CustomDimensionManager compare
-         * the ledger against itself; this source is independent of the ledger, so that
-         * check means something again.
-         *
-         * nullopt now means "the engine does not know this name", not "the question cannot
-         * be asked".
-         */
+        /** The engine's own answer, read out of DimensionDefinitionGroup.
+         *  Util::NameIdStore is an empty class in the generated headers of both 26.20
+         *  and 26.32 and DimensionManager::getDimensionId is inlined away. The number
+         *  also lives in the definition group: forEachDimensionDefinition is MCAPI,
+         *  every DimensionDefinition carries mDimensionType, and
+         *  mDimensionDefinitionGroup is a direct member of DimensionManager at an
+         *  offset the generated header states.
+         *  The number is the engine's and not the host's, which is what the note above
+         *  registerCustomDimension requires. Reading it out of the host ledger would
+         *  make the drift check in CustomDimensionManager compare the ledger against
+         *  itself; this source is independent of the ledger, so that check still means
+         *  something. nullopt means the engine does not know this name, not that the
+         *  question cannot be asked. */
         std::optional<int> engineDimensionId(std::string const& name)
         {
             auto* mgr = managerOrNull();
@@ -260,6 +253,9 @@ namespace pier::dimensions
             }
             catch (...)
             {
+                // A throw leaves highest at whatever the walk reached, at worst the
+                // vanilla 2. The value is a starting suggestion and the registration
+                // reads the id the engine settled on back off the Dimension.
             }
             return highest;
         }
@@ -282,31 +278,19 @@ namespace pier::dimensions
             }
         }
 
-        /*
-         * Registration, in three moves: put the definition in, build the instance, then
-         * ask the instance what its id is.
-         *
-         * The entry point that used to do all of this at once (serverRegisterCustomDimension)
-         * is inlined away with no symbol left, and so is DimensionManager::getDimensionId.
-         * What survives is enough:
-         *
-         *   _registerCustomDimensionWithDimensionDefinitionGroup   MCAPI
-         *   _registerCustomDimensionWithFactory                    MCAPI
-         *   DimensionManager::getOrCreateDimension(string_view)    MCAPI, by name
-         *   Dimension::getDimensionId()                            virtual, so reachable
-         *                                                          through the vtable no
-         *                                                          matter what is inlined
-         *
-         * The earlier refusal here rested on one true objection: the number has to agree
-         * with what the engine persists, and a disagreement renames a dimension a player
-         * has already built in. The suggestion below does not settle the number — the
-         * engine does, and the last step reads it back off the Dimension and logs loudly
-         * when the two differ. A disagreement is now a visible event instead of a silent
-         * mismatch, which is the thing that had to be avoided.
-         *
-         * An id is never invented for a name the engine already knows: that case returns
-         * early, before any registration happens.
-         */
+        /** Registration in three moves: put the definition in, build the instance, then
+         *  ask the instance what its id is.
+         *  serverRegisterCustomDimension, which did all three at once, is inlined away
+         *  with no symbol left, and so is DimensionManager::getDimensionId. What
+         *  survives is enough: _registerCustomDimensionWithDimensionDefinitionGroup and
+         *  _registerCustomDimensionWithFactory are MCAPI, getOrCreateDimension takes a
+         *  string_view and is MCAPI, and Dimension::getDimensionId is virtual, so it is
+         *  reachable through the vtable whatever else is inlined.
+         *  The id has to agree with the one the engine persists, since a disagreement
+         *  renames a dimension a player has already built in. The suggestion below does
+         *  not settle it. The engine does, and the last step reads it back off the
+         *  Dimension and logs loudly when the two differ. An id is never invented for a
+         *  name the engine already knows: that case returns before registering. */
         std::optional<int>
         registerCustomDimension(std::string const& name, int minY, int maxY, GeneratorType gen)
         {
@@ -419,13 +403,10 @@ namespace pier::dimensions
             return actual;
         }
 
-        /*
-         * Build the dimension through the factory and put it in the registry under an id
-         * we already know, without asking the engine to resolve the name.
-         *
-         * Returns nullptr and says which step failed. The three steps fail for different
-         * reasons and only the first one involves Pier's own closure.
-         */
+        /** Build the dimension through the factory and put it in the registry under an
+         *  id already in hand, without asking the engine to resolve the name.
+         *  Returns nullptr and says which step failed. The three steps fail for
+         *  different reasons and only the first one involves Pier's own closure. */
         Dimension* buildAndRegister(std::string const& name, int id)
         {
             auto* mgr = managerOrNull();
@@ -434,21 +415,14 @@ namespace pier::dimensions
 
             try
             {
-                // **`ILevel::getDimensionFactory()` is not the factory.** It returns the
-                // `OwnerPtrFactory`, which is just the name-to-closure map
-                // (`mFactoryMap`) that CustomDimensionManager writes into. The object
-                // with `create` / `initializeDimension` on it is `IDimensionFactory`, and
-                // the manager holds it: `mDimensionFactory` is a
-                // `Bedrock::NotNullNonOwnerPtr<IDimensionFactory> const`.
-                //
-                // Both are pure virtuals on `IDimensionFactory`, so they go through the
-                // vtable and no symbol has to resolve.
-                // Three unwraps, and each one is a different wrapper:
-                //   TypedStorage           .get() -> Bedrock::NotNullNonOwnerPtr<...>&
-                //   gsl::not_null          .get() -> NonOwnerPointer<IDimensionFactory>&
-                //   NonOwnerPointer        .get() -> IDimensionFactory*
-                // (`NotNullNonOwnerPtr` is `gsl::not_null<NonOwnerPointer<T>>`, see
-                // _HeaderOutputPredefine.h.)
+                // ILevel::getDimensionFactory returns the OwnerPtrFactory, the
+                // name-to-closure map CustomDimensionManager writes into. The object
+                // carrying create and initializeDimension is IDimensionFactory, held by
+                // the manager in mDimensionFactory; both are pure virtuals, so they go
+                // through the vtable and no symbol has to resolve. Three unwraps, each a
+                // different wrapper: TypedStorage::get to Bedrock::NotNullNonOwnerPtr,
+                // gsl::not_null::get to NonOwnerPointer, NonOwnerPointer::get to
+                // IDimensionFactory*.
                 auto* facPtr = mgr->mDimensionFactory.get().get().get();
                 if (!facPtr)
                 {
@@ -519,7 +493,7 @@ namespace pier::dimensions
                 return nullptr;
             }
 
-            // The definition group is the only table we can read, so it is also the only
+            // The definition group is the only readable table, so it is also the only
             // place an id can come from before the dimension exists. Missing is not fatal
             // here: on the first half of a fresh registration the definition is going in
             // and building the instance is exactly what this call is for.
@@ -535,18 +509,13 @@ namespace pier::dimensions
                     "[dim] getOrCreateByName('{}'): id {} is currently active=false, creating anyway", name, *id);
             }
 
-            // Two overloads, and they fail for different reasons.
-            //
-            //   by name -> the engine resolves name to id through NameIdStore first.
-            //              That table is the one thing nothing here can write, and
-            //              serverRegisterCustomDimension, which used to populate it, is
-            //              gone. So this overload can come back empty even when the
-            //              definition and the factory are both in place.
-            //   by id   -> skips the resolution entirely and goes to the factory.
-            //
-            // Trying the id first when we have one is not a fallback, it is the shorter
-            // path: Pier keeps its own name-to-id ledger, so the engine's name table is
-            // needed for nothing else here.
+            // Two overloads that fail for different reasons. By name, the engine resolves
+            // the name through NameIdStore first, the one table nothing here can write
+            // now that serverRegisterCustomDimension is gone, so it can come back empty
+            // with the definition and the factory both in place. By id, the resolution is
+            // skipped and the call goes straight to the factory. The id is tried first as
+            // the shorter path: Pier keeps its own name-to-id ledger, so the engine's
+            // name table is needed for nothing else here.
             auto attempt = [&](char const* how, auto&& key) -> Dimension*
             {
                 try
@@ -579,26 +548,14 @@ namespace pier::dimensions
             }
             if (auto* d = attempt("getOrCreateDimension(name)", std::string_view{name})) return d;
 
-            // Both overloads of getOrCreateDimension go through NameIdStore before they
-            // reach anything else, and that table is the one thing nothing here can write.
-            // So build it the way the engine itself would and put it in the registry
-            // directly, skipping the resolution entirely:
-            //
-            //   DimensionFactory::create(name)         virtual, MCAPI thunk. Assembles
-            //                                          DerivedDimensionArguments out of
-            //                                          its own mArgs and calls the closure
-            //                                          in mFactoryMap, by name. No id
-            //                                          lookup anywhere in it.
-            //   DimensionFactory::initializeDimension  virtual, MCAPI thunk. The step the
-            //                                          engine does between create and
-            //                                          registration.
-            //   DimensionRegistry::registerDimension   MCAPI. Takes the id explicitly,
-            //                                          which is exactly what we have and
-            //                                          the engine does not.
-            //
-            // This is the path that makes NameIdStore unnecessary rather than working
-            // around it: Pier already keeps its own name-to-id ledger, and the engine's
-            // table was only ever needed to answer a question we can answer ourselves.
+            // Both overloads reach NameIdStore before anything else, so the last path
+            // builds the dimension the way the engine would and registers it directly.
+            // DimensionFactory::create assembles DerivedDimensionArguments and calls the
+            // closure in mFactoryMap by name, with no id lookup; initializeDimension is
+            // the step the engine takes between create and registration; and
+            // DimensionRegistry::registerDimension takes the id explicitly. Pier's own
+            // name-to-id ledger is what makes that id available, which is what makes
+            // NameIdStore unnecessary here rather than worked around.
             if (!id) return nullptr;
             if (auto* d = buildAndRegister(name, *id)) return d;
 
