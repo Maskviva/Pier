@@ -7,6 +7,7 @@
  * visibly instead of silently doing something else. Every function runs on the server
  * thread.
  */
+#include <optional>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -20,6 +21,7 @@
 
 #include "sdk/abi.h"
 
+#include "pier/dimensions/base/native_dimensions.h"
 #include "pier/dimensions/dim/custom_dimension_config.h"
 #include "pier/dimensions/dim/custom_dimension_manager.h"
 #include "pier/dimensions/dim/dimension_rules.h"
@@ -139,7 +141,22 @@ namespace pier::dimensions::rt
         bool api_md_is_available()
         {
             PIER_API_GUARD_BEGIN
-                return true;
+                // Not `true`, and not `Level is open` either.
+                //
+                // Returning true while every registration failed is what sent callers off
+                // to doubt their own recipe: what they got was "the host refused this
+                // dimension", when the truth was "this engine cannot create any". The
+                // question that decides it is whether the definition group can be read,
+                // because that is where the id comes from.
+                //
+                // Cached after the first answer that Level was open for: the probe walks
+                // the definition group, and this slot is on the path of every dimension
+                // call. Before Level opens the answer is not knowable, so it is not kept.
+                static std::optional<bool> cached;
+                if (cached) return *cached;
+                if (!native::available()) return false;
+                cached = native::definitionGroupReadable();
+                return *cached;
             PIER_API_GUARD_END
         }
 

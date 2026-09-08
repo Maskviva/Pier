@@ -36,6 +36,22 @@ A correctness release for BDS 1.26.32. Everything here was found and fixed after
 
 ### Fixed
 
+- **Every command a player typed took the server down.** The `verb` field added to the
+  ExecutingCommandEvent payload in 26.32.0 was read through
+  `CommandRegistry::getCommandName`, which is MCAPI: LeviLamina resolves its address out
+  of the BDS binary at the call, and on 1.26.32 that address is not there. The raise goes
+  through `ll::memory::throwMemoryException` and ends in a CRT fastfail (0xC0000409,
+  INVALID_ARG) rather than a C++ exception, so the `catch (...)` written around the call
+  caught nothing and BDS left with no log from either side. The verb is now resolved by
+  reading `mAliases` and `mSignatures`, which are plain public members and need no symbol.
+
+  Two things about the shape of this. The failure needed a real player to type a real
+  command, so nothing in the build, the checks or `tools/pier-probe` could reach it — the
+  probe walks the table at enable time and this path only runs on a live command. And a
+  `catch (...)` is not a guard against a missing symbol; that is the second time in this
+  release cycle that an uncatchable failure hid behind one, after the command-registry
+  guard below.
+
 - **Registering a command, an enum or a soft enum before the engine had a command
   registry took the whole server down with no log line.** All five entry points reach
   `CommandRegistrar::getServerInstance()`, which resolves the registry without checking
@@ -122,6 +138,9 @@ unchanged. One slot reports a narrower number, described below.
   gate keyed on the first word refuses one spelling while the other two pass. The alias
   table is not visible outside the registry. `/execute ... run <command>` still reports
   `execute`, because the inner command is parsed after this event has been decided.
+
+  *As shipped in 26.32.0 this crashed the server on every command typed by a player; see
+  26.32.1.*
 
 ### Verified on a real server
 

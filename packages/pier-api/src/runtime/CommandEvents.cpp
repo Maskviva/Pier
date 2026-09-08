@@ -87,30 +87,38 @@ namespace pier::api_impl
         }
 
         /** The canonical name of the command a line invokes, or empty when the registry
-         *  does not know it.
+         *  does not know it. `/w`, `/tell` and `/msg` are one command behind three names,
+         *  so a gate keyed on the raw first word refuses one spelling and passes two.
          *
-         *  Splitting the line on whitespace is not the same answer. `/w`, `/tell` and
-         *  `/msg` are one command behind three names, and a gate keyed on the first word
-         *  refuses one spelling while the other two go through. The alias table lives in
-         *  CommandRegistry and nothing outside it can see the mapping.
+         *  Read off mAliases and mSignatures rather than through
+         *  CommandRegistry::getCommandName. That one is MCAPI, so its address is resolved
+         *  out of the BDS binary at the call; when the address is absent LeviLamina
+         *  raises, and that lands in a CRT fastfail (0xC0000409) rather than a C++
+         *  exception. A fastfail is not catchable, so `catch (...)` around it does
+         *  nothing and the server leaves with no log. The two maps are plain public
+         *  members: reading them needs no symbol.
          *
-         *  `/execute ... run <command>` still reports `execute`: the inner command is
-         *  parsed by execute itself, after this event has already been decided. A gate
-         *  that has to cover the inner one has to refuse execute as a whole. */
+         *  `/execute ... run <command>` still reports `execute`, since the inner command
+         *  is parsed after this event is decided. */
         std::string commandVerb(std::string const& line)
         {
             auto reg = ll::service::getCommandRegistry();
             if (!reg) return {};
-            try
-            {
-                return reg->getCommandName(line);
-            }
-            catch (...)
-            {
-                // A line the registry cannot parse at all. Reporting no verb is the
-                // honest answer and lets the subscriber fall back to the raw command.
-                return {};
-            }
+
+            // The verb is the first word, minus a leading slash the origin may or may
+            // not have kept.
+            std::string_view rest{line};
+            while (!rest.empty() && (rest.front() == ' ' || rest.front() == '/')) rest.remove_prefix(1);
+            auto const end = rest.find_first_of(" \t");
+            std::string word{end == std::string_view::npos ? rest : rest.substr(0, end)};
+            if (word.empty()) return {};
+
+            // An alias resolves to the command it stands for; a name already in
+            // mSignatures is its own canonical form. Anything else is not a command this
+            // registry knows, and saying so is better than echoing the word back.
+            auto const& aliases = reg->mAliases;
+            if (auto it = aliases.find(word); it != aliases.end()) return it->second;
+            return reg->mSignatures.contains(word) ? word : std::string{};
         }
 
         /** True when a subscriber asked for this command to be refused.

@@ -33,20 +33,28 @@ namespace pier::dimensions
         bool available();
 
         /**
-         * Refuses, and logs why once per process. The engine entry point that allocated
-         * the id is not reachable on this version, so a dimension cannot be created and
-         * one a save already holds cannot be found again. The parameters are kept so the
-         * signature survives the day the entry point comes back.
+         * Registers a dimension and returns the id the engine gave it.
          *
-         * @return        always nullopt
+         * A name the engine already knows is returned as it stands and nothing is
+         * registered a second time. For a new name the definition and the factory go in
+         * with a suggested id, the instance is built, and the id is read back off the
+         * Dimension; a disagreement is logged and the engine's number wins.
+         *
+         * @return        the engine's id, or nullopt when the definition group cannot be
+         *                read, the definition is refused, or the instance cannot be built
          */
         std::optional<int>
         registerCustomDimension(std::string const& name, int minY, int maxY, GeneratorType gen);
 
-        /** Always nullopt on this engine version. The table it read is not reachable, so
-         *  the id a save already holds cannot be reported; NativeDimensions.cpp states
-         *  why answering out of the host's own ledger was rejected instead. */
+        /** The id the engine currently has for this name, read out of
+         *  DimensionDefinitionGroup. nullopt means the engine does not know the name —
+         *  it no longer means the question cannot be asked. */
         std::optional<int> engineDimensionId(std::string const& name);
+
+        /** Whether the dimension definition group can be read, which is what deciding an
+         *  id depends on. Level being open is not the same question, and md_is_available
+         *  answers with this one. */
+        bool definitionGroupReadable();
 
         /** Whether the engine considers this id currently valid. */
         bool isActive(int dimId);
