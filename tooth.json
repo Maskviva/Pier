@@ -4,7 +4,7 @@
   "tooth": "github.com/Maskviva/Pier",
   "version": "26.40.0",
   "info": {
-    "name": "pier",
+    "name": "Pier",
     "description": "Loads LeviLamina mods written in other languages through one C ABI (manifest type: pier).",
     "author": "Maskviva",
     "license": "Apache-2.0",
