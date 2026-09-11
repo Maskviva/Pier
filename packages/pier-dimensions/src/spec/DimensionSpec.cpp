@@ -8,29 +8,77 @@
 #include "pier/dimensions/spec/dimension_spec.h"
 
 #include <algorithm>
+#include <optional>
 #include <string_view>
+#include <utility>
+
+#include "magic_enum.hpp"
 
 #include "mc/deps/nbt/CompoundTagVariant.h"
 
+#include "pier/support/i18n.h"
+#include "pier/support/log.h"
+
 namespace pier::dimensions::spec
 {
+    using ::pier::hostLogger;
+
     namespace
     {
-        int num(CompoundTag const& c, char const* key, int fallback)
-        {
-            return c.contains(key) ? static_cast<int>(c.at(key)) : fallback;
-        }
-
-        std::string str(CompoundTag const& c, char const* key, std::string const& fallback)
+        /* A field of the wrong type reads as absent, and the caller is told which one.
+         *
+         * The conversions on CompoundTagVariant are not uniform: a number reached through
+         * the wrong type throws std::runtime_error, while a string does it through
+         * std::get and throws std::bad_variant_access. Either one leaves the registration
+         * as a refusal naming neither the field nor the spec, because the exception
+         * escapes the reader and the API guard catches it far from here. One mistyped
+         * field in a recipe is a thing to report, not a thing to fail on. */
+        int num(CompoundTag const& c, char const* key, int fallback, std::vector<std::string>* problems = nullptr)
         {
             if (!c.contains(key)) return fallback;
+            if (!c.at(key).is_number())
+            {
+                if (problems) problems->push_back(std::string{key} + " is not a number; using " + std::to_string(fallback));
+                return fallback;
+            }
+            return static_cast<int>(c.at(key));
+        }
+
+        std::string str(CompoundTag const& c, char const* key, std::string const& fallback,
+                        std::vector<std::string>* problems = nullptr)
+        {
+            if (!c.contains(key)) return fallback;
+            if (!c.at(key).is_string())
+            {
+                if (problems) problems->push_back(std::string{key} + " is not a string; using '" + fallback + "'");
+                return fallback;
+            }
             auto sv = static_cast<std::string_view>(c.at(key));
             return sv.empty() ? fallback : std::string{sv};
         }
 
-        bool boolean(CompoundTag const& c, char const* key, bool fallback)
+        bool boolean(CompoundTag const& c, char const* key, bool fallback, std::vector<std::string>* problems = nullptr)
         {
-            return c.contains(key) ? static_cast<bool>(c.at(key)) : fallback;
+            if (!c.contains(key)) return fallback;
+            if (!c.at(key).is_number())
+            {
+                if (problems) problems->push_back(std::string{key} + " is not a true/false value; using " + (fallback ? "true" : "false"));
+                return fallback;
+            }
+            return static_cast<bool>(c.at(key));
+        }
+
+        /** A compound field, or null with a line. `.get<CompoundTag>()` is a std::get and
+         *  throws for anything else, which is the same unattributable refusal. */
+        CompoundTag const* compound(CompoundTag const& c, char const* key, std::vector<std::string>* problems)
+        {
+            if (!c.contains(key)) return nullptr;
+            if (!c.at(key).is_object())
+            {
+                if (problems) problems->push_back(std::string{key} + " is not a section; ignored");
+                return nullptr;
+            }
+            return &c.at(key).get<CompoundTag>();
         }
 
         std::optional<GeneratorType> generatorNamed(std::string_view name)
@@ -52,11 +100,68 @@ namespace pier::dimensions::spec
         }
     } // namespace
 
-    DimensionHeightRange dimensionHeightOf(CompoundTag const& stored)
+    namespace
+    {
+    /**
+     * The height an engine generator is written against, when the terrain is one of them.
+     *
+     * These generators are not parameterised by the dimension's height: TheEndGenerator
+     * carries a fixed 16x16x128 block buffer and each of them indexes columns from the
+     * bottom of the dimension it was written for. Handing one a taller or lower dimension
+     * has it write past what it allocated, and a server whose end dimension ran from -64
+     * died on the tick after a player entered, with the sky already drawn and no blocks.
+     *
+     * nullopt for Void, which generates nothing and so fits any height.
+     */
+    std::optional<std::pair<int, int>> nativeHeightOf(GeneratorType gen)
+    {
+        switch (gen)
+        {
+        case GeneratorType::Overworld:
+        case GeneratorType::Flat:
+            return std::pair<int, int>{-64, 320};
+        case GeneratorType::Nether:
+            return std::pair<int, int>{0, 128};
+        case GeneratorType::TheEnd:
+            return std::pair<int, int>{0, 256};
+        default:
+            return std::nullopt;
+        }
+    }
+
+    } // namespace
+
+    DimensionHeightRange dimensionHeightOf(CompoundTag const& stored, char const* nameForLog)
     {
         auto [s, problems] = DimensionSpec::fromNbt(stored);
         int minY = s ? s->minY : kWorldMinY;
         int maxY = s ? s->maxY : kWorldMaxY;
+
+        // An engine generator decides the height; the spec's own is used only where the
+        // terrain comes from this host. Both readers of this function get the same answer,
+        // which is what keeps the Dimension and the definition one shape.
+        if (s)
+        {
+            if (auto const* n = std::get_if<Native>(&s->terrain))
+            {
+                if (auto const fixed = nativeHeightOf(n->generator))
+                {
+                    // Only where the caller named the dimension: this function answers the
+                    // constructor and the registration both, and the same line four times
+                    // says nothing the first one did not.
+                    if (nameForLog && (fixed->first != minY || fixed->second != maxY))
+                    {
+                        hostLogger().warn(
+                            "[dim] {}",
+                            pier::trf("dim.height.generator_mismatch", nameForLog, minY, maxY,
+                                      magic_enum::enum_name(n->generator), fixed->first, fixed->second)
+                        );
+                    }
+                    minY = fixed->first;
+                    maxY = fixed->second;
+                }
+            }
+        }
         return DimensionHeightRange{static_cast<short>(minY), static_cast<short>(maxY)};
     }
 
@@ -108,24 +213,30 @@ namespace pier::dimensions::spec
         DimensionSpec s;
         s.seed = static_cast<uint>(num(t, "seed", 0));
 
-        if (!t.contains("terrain"))
+        // No terrain section is not an incomplete payload any more: it is how a mod
+        // that supplies its own terrain describes a dimension. The pre-26.20.3 shapes
+        // still have to be told apart, since they carry their terrain under other keys
+        // and reading them as supplied would silently produce an empty world.
+        bool const supplied = !t.contains("terrain");
+        if (supplied && (t.contains("layout") || t.contains("generatorType")))
         {
-            if (t.contains("layout") || t.contains("generatorType"))
-                problems.push_back("the payload is in the pre-26.20.3 shape; run tools/migrate_dimension_config.py once on worlds/<level>/dimension_config.json, then restart. A plot entry is not migrated in place: the tool prints the steps for building its terrain as a template pack");
-            else
-                problems.push_back("the payload has no terrain section");
+            problems.push_back("the payload is in the pre-26.20.3 shape; run tools/migrate_dimension_config.py once on worlds/<level>/dimension_config.json, then restart. A plot entry is not migrated in place: the tool prints the steps for building its terrain as a template pack");
             return {std::nullopt, problems};
         }
 
         if (t.contains("height"))
         {
-            auto const& h = t.at("height").get<CompoundTag>();
+            auto const* hp = compound(t, "height", &problems);
+            if (!hp) return {std::nullopt, problems};
+            auto const& h = *hp;
             s.minY = num(h, "min", s.minY);
             s.maxY = num(h, "max", s.maxY);
         }
         if (t.contains("sky"))
         {
-            auto const& sky = t.at("sky").get<CompoundTag>();
+            auto const* skyp = compound(t, "sky", &problems);
+            if (!skyp) return {std::nullopt, problems};
+            auto const& sky = *skyp;
             if (auto g = generatorNamed(str(sky, "client", "overworld"))) s.sky.client = *g;
             else problems.push_back("sky.client must be overworld, nether or end");
             s.sky.skylight = boolean(sky, "skylight", !s.sky.timeless());
@@ -138,13 +249,24 @@ namespace pier::dimensions::spec
             }
         }
 
-        auto const& terrain = t.at("terrain").get<CompoundTag>();
+        if (supplied)
+        {
+            s.terrain = Supplied{};
+            return {s, problems};
+        }
+        auto const* terrainp = compound(t, "terrain", &problems);
+        if (!terrainp)
+        {
+            problems.push_back("the payload's terrain is not a section");
+            return {std::nullopt, problems};
+        }
+        auto const& terrain = *terrainp;
         auto const kind = str(terrain, "kind", "");
         if (kind == "native")
         {
             auto g = generatorNamed(str(terrain, "generator", ""));
             if (!g) { problems.push_back("terrain.generator must be overworld, nether, end, flat or void"); return {std::nullopt, problems}; }
-            s.terrain = Native{*g, str(terrain, "biome", "minecraft:plains")};
+            s.terrain = Native{*g, str(terrain, "biome", "minecraft:plains"), num(terrain, "engine_terrain", 1) != 0};
         }
         else if (kind == "template" || kind == "volume")
         {
@@ -157,7 +279,8 @@ namespace pier::dimensions::spec
             if (!p.sha256.empty() && !hexDigits(p.sha256)) problems.push_back("terrain.sha256 is not 64 hex digits");
             if (terrain.contains("params"))
             {
-                for (auto const& [k, v] : terrain.at("params").get<CompoundTag>())
+                auto const* paramsp = compound(terrain, "params", &problems);
+                for (auto const& [k, v] : paramsp ? *paramsp : CompoundTag{})
                 {
                     auto id = v.getId();
                     if (id != Tag::Type::Int64 && id != Tag::Type::Int && id != Tag::Type::Short && id != Tag::Type::Byte)
@@ -170,7 +293,8 @@ namespace pier::dimensions::spec
             }
             if (terrain.contains("roles"))
             {
-                for (auto const& [k, v] : terrain.at("roles").get<CompoundTag>())
+                auto const* rolesp = compound(terrain, "roles", &problems);
+                for (auto const& [k, v] : rolesp ? *rolesp : CompoundTag{})
                 {
                     if (v.getId() != Tag::Type::String)
                     {
@@ -182,14 +306,50 @@ namespace pier::dimensions::spec
             }
             s.terrain = std::move(p);
         }
-        else if (kind == "layers" || kind == "noise")
+        else if (kind == "layers")
         {
-            problems.push_back("terrain.kind " + kind + " is no longer served; build a terrain pack with tools/pier-pack (from-layers converts an old layers spec) and register it with md_add_dimension_pack");
+            Layers l;
+            l.baseY = static_cast<int>(num(terrain, "base_y", 63));
+            l.biome = str(terrain, "biome", "minecraft:plains");
+            if (terrain.contains("layers") && terrain.at("layers").is_array())
+            {
+                for (auto const& ePtr : terrain.at("layers").get<ListTag>())
+                {
+                    if (!ePtr || ePtr->getId() != Tag::Type::Compound) continue;
+                    auto const& c = static_cast<CompoundTag const&>(*ePtr);
+                    l.layers.push_back(Layers::Layer{str(c, "block", ""), static_cast<int>(num(c, "thickness", 1))});
+                }
+            }
+            if (l.layers.empty() && !terrain.contains("grid"))
+            {
+                // A stack of nothing with no grid is a void, and native/void is the one
+                // that says so. Reading it as terrain would give a dimension whose only
+                // block is the bedrock floor, which nobody writes down on purpose.
+                problems.push_back("terrain.layers is empty and there is no grid; use terrain.kind native with generator void for an empty world");
+                return {std::nullopt, problems};
+            }
+            if (auto const* gp = compound(terrain, "grid", &problems))
+            {
+                auto const& g = *gp;
+                Layers::Grid grid;
+                grid.cell = static_cast<int>(num(g, "cell", 64));
+                grid.gap = static_cast<int>(num(g, "gap", 7));
+                grid.edge = static_cast<int>(num(g, "edge", 1));
+                grid.gapBlock = str(g, "gap_block", "minecraft:birch_planks");
+                grid.edgeBlock = str(g, "edge_block", "minecraft:stone_block_slab");
+                grid.confine = num(g, "confine", 0) != 0;
+                l.grid = grid;
+            }
+            s.terrain = l;
+        }
+        else if (kind == "noise")
+        {
+            problems.push_back("terrain.kind noise is not served inline; build a terrain pack with tools/pier-pack and register it with md_add_dimension_pack. The layers kind is served again and needs no tool");
             return {std::nullopt, problems};
         }
         else
         {
-            problems.push_back("terrain.kind must be native, template or volume");
+            problems.push_back("terrain.kind must be native, layers, template or volume");
             return {std::nullopt, problems};
         }
 

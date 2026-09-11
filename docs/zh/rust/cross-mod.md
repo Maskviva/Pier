@@ -46,6 +46,26 @@ let owner: Owner = service::call_with("plot:owner", &query)?;
 在那个窗口里不可达，会让每一个在自己 `on_load` 里解析依赖的消费方全部失败。
 :::
 
+### 是谁在问
+
+请求里想写谁就写谁。提供方要是按请求里的某个字段认 owner、认账号、认权限，
+它信的只是发送方的一面之词。`service::caller()` 改为去问宿主：在服务回调里它返回
+此刻 `service::call` 在栈上的那个模组的 manifest 名；回调之外、或者宿主没有这个槽时
+返回 `None`。
+
+```rust
+service::register("perms:mount", |_name, req| {
+    let Some(mod_name) = service::caller() else {
+        return Err("这个宿主说不出是谁在调，拒绝归属".into());
+    };
+    // 第一次把 req.owner 绑到 mod_name，之后别的模组报同一个 owner 就拒绝
+    Ok("{}".into())
+})?;
+```
+
+`None` 要单独做决定：归到「没有人」和直接拒绝都说得通，归到一个空名字不行——
+所以这个函数永远不会返回 `Some("")`。
+
 ## 总线：告诉所有人
 
 ```rust

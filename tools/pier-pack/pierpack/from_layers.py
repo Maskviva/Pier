@@ -11,7 +11,10 @@ from __future__ import annotations
 import json
 import re
 
-WORLD_MIN_Y, WORLD_MAX_Y, BEDROCK_Y = -512, 320, -64
+# 和 Pier 的 dimension_height.h 同源。底原本是 -512，2026-09-10 收回原版的 -64：
+# 一个 52 子区块高的维度超出引擎发布过的任何形状。这里跟着改，否则转出来的包
+# 声明的范围装不进任何维度，宿主以 Height 拒绝。
+WORLD_MIN_Y, WORLD_MAX_Y, BEDROCK_Y = -64, 320, -64
 
 
 def _snbt_to_json(text: str) -> dict:
@@ -46,7 +49,6 @@ def convert(text: str, name: str = "layers") -> dict:
         stack_names.append(rn)
     params = {"base_y": {"kind": "free", "default": base_y, "min": BEDROCK_Y + 1, "max": WORLD_MAX_Y - 2}}
     stacks = [
-        {"zone": "*", "from": WORLD_MIN_Y, "to": BEDROCK_Y, "role": "air"},
         {"zone": "*", "from": BEDROCK_Y, "to": BEDROCK_Y + 1, "role": "bedrock"},
         {"zone": "*", "from": BEDROCK_Y + 1, "to": "base_y", "role": "air"},
     ]

@@ -30,6 +30,7 @@
 #include "pier/dimensions/dim/custom_dimension_manager.h"
 #include "pier/dimensions/dim/dimension_rules.h"
 #include "pier/dimensions/gen/cell_confine.h"
+#include "pier/dimensions/gen/supplied_generator.h"
 #include "pier/dimensions/pack/pack_inspect.h"
 #include "pier/dimensions/pack/pack_locate.h"
 #include "pier/dimensions/pack/template_pack.h"
@@ -80,10 +81,44 @@ namespace pier::dimensions::rt
                     hostLogger().error("[dim] add_dimension('{}') refused: a {} terrain is registered through md_add_dimension_pack, which verifies the pack before the spec is stored", dimName, std::get<spec::Pack>(s->terrain).kind);
                     return -1;
                 }
-                auto const& n = std::get<spec::Native>(s->terrain);
-                if (n.generator == GeneratorType::Void && !biomeExists(dimName, n.biome)) return -1;
-                auto id = CustomDimensionManager::getInstance().addDimension<SpecDimension>(dimName, raw);
-                return id.mValue;
+                if (s->isSupplied())
+                {
+                    // A payload with no terrain section belongs to the other slot. Taking
+                    // it here would register a dimension nothing fills, and the world
+                    // would come up void with the registration having reported success.
+                    hostLogger().error("[dim] add_dimension('{}') refused: the payload has no terrain section, which means the terrain comes from the calling mod; use md_add_dimension_generated", dimName);
+                    return -1;
+                }
+                // get_if and not get: the terrain has three alternatives and this slot
+                // serves two of them, so a get here throws for the third rather than
+                // falling through. A layers terrain reached this line and the throw came
+                // out of the registration as a refusal with no reason attached.
+                if (auto const* n = std::get_if<spec::Native>(&s->terrain))
+                {
+                    if (n->generator == GeneratorType::Void && !biomeExists(dimName, n->biome)) return -1;
+                }
+                else if (auto const* l = std::get_if<spec::Layers>(&s->terrain))
+                {
+                    // Checked here for the same reason the pack path checks it before
+                    // storing: TemplateGenerator treats a biome it cannot find as the
+                    // registry having changed under it, and says so, which is the wrong
+                    // thing to tell someone who simply mistyped it in a recipe.
+                    if (!biomeExists(dimName, l->biome)) return -1;
+                }
+                // Named here rather than left to the outer guard. That one catches every
+                // slot, so all it can say is the exception type, and a registration that
+                // fails with `bad variant access` and nothing else names neither the
+                // dimension nor the recipe that produced it.
+                try
+                {
+                    auto id = CustomDimensionManager::getInstance().addDimension<SpecDimension>(dimName, raw);
+                    return id.mValue;
+                }
+                catch (std::exception const& e)
+                {
+                    hostLogger().error("[dim] add_dimension('{}') threw: {}. The spec was: {}", dimName, e.what(), raw);
+                    return -1;
+                }
             PIER_API_GUARD_END_VAL(-1)
         }
 
@@ -200,8 +235,12 @@ namespace pier::dimensions::rt
                 {
                     auto vol = pk::PackCache::instance().volumeAt(configRel, loc->sha256, "", status, problems);
                     if (!vol) return fail(code(status));
-                    for (auto const& b : vol->biomeNames)
-                        if (!biomeExists(dimName, b)) return fail(code(pk::PackStatus::Host));
+                    // Every missing name in one pass, not the first. A pack carries a
+                    // handful, and refusing on the first turns fixing them into one
+                    // rebuild and one restart each.
+                    bool allPresent = true;
+                    for (auto const& b : vol->biomeNames) allPresent &= biomeExists(dimName, b);
+                    if (!allPresent) return fail(code(pk::PackStatus::Host));
                     if (!effective.params.empty() || !effective.roles.empty())
                         hostLogger().warn("[dim] add_dimension_pack('{}'): a volume pack takes no parameters or roles; the given ones are dropped", dimName);
                     effective.params.clear();
@@ -361,8 +400,71 @@ namespace pier::dimensions::rt
             PIER_API_GUARD_END_VOID
         }
 
+        std::int32_t api_md_add_dimension_generated(PierStr name, PierStr specSnbt, PierStr materialPalette,
+                                                    PierStr biomePalette, PierGenerateChunkFn fn, void* user)
+        {
+            PIER_API_GUARD_BEGIN
+                auto const dimName = toString(name);
+                std::string const raw = toString(specSnbt);
+                auto [s, problems] = DimensionSpec::fromSnbt(raw);
+                for (auto const& p : problems) hostLogger().warn("[dim] add_dimension_generated('{}'): {}", dimName, p);
+                if (!s) return -1;
+                if (!s->isSupplied())
+                {
+                    hostLogger().error(
+                        "[dim] add_dimension_generated('{}') refused: the spec carries a terrain section, and this "
+                        "slot does not read one. Accepting a field that is ignored is how a spec comes to describe "
+                        "a world nobody generates",
+                        dimName
+                    );
+                    return -1;
+                }
+                std::vector<std::string> palette;
+                auto terrain = resolveSuppliedTerrain(dimName, toString(materialPalette), toString(biomePalette),
+                                                      fn, user, dimName, palette);
+                for (auto const& p : palette) hostLogger().error("[dim] add_dimension_generated('{}'): {}", dimName, p);
+                if (!terrain) return -1;
+
+                // Remembered before the registration and dropped if it fails: a
+                // generator built between the two would find nothing and the world
+                // would come up void with no line saying why.
+                rememberSuppliedTerrain(dimName, terrain);
+                try
+                {
+                    auto id = CustomDimensionManager::getInstance().addDimension<SpecDimension>(dimName, raw);
+                    return id.mValue;
+                }
+                catch (std::exception const& e)
+                {
+                    forgetSuppliedTerrain(dimName);
+                    hostLogger().error("[dim] add_dimension_generated('{}') threw: {}. The spec was: {}", dimName, e.what(), raw);
+                    return -1;
+                }
+            PIER_API_GUARD_END_VAL(-1)
+        }
+
+        bool api_md_set_dimension_cells(std::int32_t dimId, std::int32_t cell, std::int32_t gap)
+        {
+            PIER_API_GUARD_BEGIN
+                // Checked first: setCellGrid takes any number, so an id this host never
+                // registered would install geometry that nothing ever asks about, and
+                // the caller would be told it worked.
+                bool known = false;
+                for (auto const& [name, info] : CustomDimensionConfig::getConfig().dimensionList)
+                {
+                    (void)name;
+                    if (info.dimId == dimId) { known = true; break; }
+                }
+                if (!known) return false;
+                setCellGrid(dimId, cell, gap);
+                return true;
+            PIER_API_GUARD_END_VAL(false)
+        }
+
         void fill(PierApi& api)
         {
+            api.md_add_dimension_generated = &api_md_add_dimension_generated;
+            api.md_set_dimension_cells = &api_md_set_dimension_cells;
             api.md_add_dimension = &api_md_add_dimension;
             api.md_add_dimension_pack = &api_md_add_dimension_pack;
             api.md_pack_inspect = &api_md_pack_inspect;

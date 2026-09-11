@@ -128,6 +128,50 @@ typedef void (*PierTaskCb)(void* user);
 typedef void (*PierStrSink)(void* ctx, PierStr s);
 
 /**
+ * One chunk asked of a mod that supplies its own terrain.
+ *
+ * `out_materials` is 256 * height entries, indexed (x * 16 + z) * height + y, y counted
+ * up from `min_y`. `out_biomes` is 256 entries, one per column. Both hold indices into
+ * the palettes given at registration; index 0 of the material palette is air. The host
+ * owns both buffers and reuses them, so a callback writes and keeps nothing.
+ *
+ * The host resolves the indices to blocks and biomes once, at registration. That is why
+ * the terrain never crosses this boundary as block names: a chunk is 98k lookups, and
+ * doing them per chunk is the difference between a generator and a stall.
+ */
+typedef struct PierChunkRequest
+{
+    int32_t dim_id;
+    int32_t chunk_x;
+    int32_t chunk_z;
+    int32_t min_y;
+    int32_t height;
+    uint16_t* out_materials;
+    uint16_t* out_biomes;
+} PierChunkRequest;
+
+/**
+ * Fills one chunk. Non-zero means filled; zero means the mod could not, and the host
+ * writes air and says so once per dimension.
+ *
+ * THREADING, and this one is the opposite of the rest of this file: the host calls this
+ * on its CHUNK WORKER THREADS, several at once, for different chunks of the same
+ * dimension. The host serializes nothing.
+ *
+ *   - It must be safe to run concurrently with itself.
+ *   - It must give the same answer for the same (dim_id, chunk_x, chunk_z) forever:
+ *     chunks are generated once and saved, and a neighbour generated later from a
+ *     different answer leaves a seam that no later edit can remove.
+ *   - It must not call any other slot on this API. Every one of them is written for the
+ *     server thread, and a call from here reaches a state nothing is holding a lock on.
+ *   - It must not throw across the boundary.
+ *
+ * A generator that reads only what registration handed it satisfies all four. One that
+ * consults live world state satisfies none of them.
+ */
+typedef int32_t (*PierGenerateChunkFn)(void* user, const PierChunkRequest* request);
+
+/**
  * Event callback.
  *   event_id : the full event id this listener fired for.
  *   snbt     : event data serialized as SNBT (CompoundTag). For cancellable
@@ -1000,7 +1044,19 @@ enum PierSysInfoProp
 enum PierServerInfoProp
 {
     PIER_SRV_BDS_VERSION = 0, /* Common::getGameVersionString */
-    PIER_SRV_PROTOCOL_VERSION = 1, /* SharedConstants::NetworkProtocolVersion → string */
+    /* Protocol the running server speaks, derived from CurrentGameSemVersion.
+     * FAILS (returns false) on a version Pier does not know, and on any pre-release
+     * build. It used to return LevelData::mNetworkVersion, which is the save file's
+     * tag, not the server's protocol — a 1.21.93 world on a 1.26.40 server reported
+     * 819. Treat a false return as "cannot be determined" and fall back to
+     * PIER_SRV_GAME_SEM_VERSION; do not treat it as 0. */
+    PIER_SRV_PROTOCOL_VERSION = 1,
+    /* LevelData::mNetworkVersion: the protocol the level was last written by. Says how
+     * old the save is, not what the server speaks. */
+    PIER_SRV_LEVEL_PROTOCOL_VERSION = 2,
+    /* "major.minor.patch" of the running build, from CurrentGameSemVersion. Lets a mod
+     * carry its own version→protocol table instead of waiting for a Pier release. */
+    PIER_SRV_GAME_SEM_VERSION = 3,
 };
 
 /**
@@ -2449,6 +2505,71 @@ typedef struct PierApi
      *  True while the name was known and has been retired, false when the host had no
      *  such dimension, which is also what a second call reports. */
     bool (*md_retire_dimension)(PierStr name);
+
+    /** Who is calling the service callback that is running right now.
+     *
+     *  A service callback receives a request and nothing about its sender, so a provider
+     *  that keys anything on a name inside the request (an owner, an acting player) is
+     *  trusting the request to tell the truth. This slot lets the provider ask the host
+     *  instead: inside a PierServiceCb, the sink receives the manifest name of the mod
+     *  whose service_call is on the stack. Calls nest, and the innermost one is reported.
+     *
+     *  Outside a callback, or when the call came without a mod handle, the sink is not
+     *  called at all; a provider then knows it cannot attribute the request rather than
+     *  attributing it to an empty name. Reads a thread-local, so any thread; a callback
+     *  that hops threads loses the attribution, which is the correct answer there. */
+    void (*service_caller)(void* ctx, PierStrSink sink);
+
+    /*  Dimensions whose terrain belongs to the mod
+     *
+     * The three vanilla generators and the void are the engine's own, and this host
+     * serves them because they cost it nothing to serve. Everything past that -- a
+     * layer stack, a grid of plots, a noise field, a binary terrain format and the
+     * code that reads it -- is a mod's, and this host does not want to know its shape.
+     * These two slots are the whole of what it needs to know.
+     */
+
+    /** Register a dimension the calling mod fills itself.
+     *
+     *  `spec_snbt` is the shape of md_add_dimension without its terrain section:
+     *
+     *      {seed:<u32>,
+     *       height:{min:<int>,max:<int>},        multiples of 16, inside the world range
+     *       sky:{client:"overworld"|"nether"|"end", skylight:<bool>, weather:<bool>,
+     *            time:<0..23999, optional>}}
+     *
+     *  A terrain section here is refused: this host does not read one, and accepting a
+     *  field it ignores is how a spec comes to describe a world nobody generates.
+     *
+     *  `material_palette` and `biome_palette` are newline-separated names. Material
+     *  index 0 must be air and is what an untouched column holds. Every name is resolved
+     *  once, here: a name outside the block or biome registry refuses the registration
+     *  rather than becoming a hole in the terrain later.
+     *
+     *  `fn` is called on chunk worker threads; the contract is on PierGenerateChunkFn
+     *  and is not the usual one. `user` is passed back untouched and is never read.
+     *
+     *  The dimension, its id and its spec are persisted exactly as md_add_dimension
+     *  persists them, so it comes back on the next boot -- but the terrain does not
+     *  until the same mod registers it again. A dimension whose mod is gone loads as a
+     *  void, keeps its chunks and says so once.
+     *
+     *  Idempotent by name. Returns dim id (>=3) or -1. */
+    int32_t (*md_add_dimension_generated)(PierStr name, PierStr spec_snbt,
+                                          PierStr material_palette, PierStr biome_palette,
+                                          PierGenerateChunkFn fn, void* user);
+
+    /** Give a generated dimension the cell geometry its confinement rules use.
+     *
+     *  PIER_DIMRULE_PISTON_CROSS_CELL and PIER_DIMRULE_ENTITY_CROSS_CELL ask whether two
+     *  positions are in the same cell, and that needs the grid. The geometry belongs to
+     *  whatever the mod generated, so the mod states it; the hooks stay here because
+     *  they are engine hooks. `cell` and `gap` are in blocks, `cell` positive; a gap of
+     *  zero means the cells touch. Passing cell 0 removes the geometry and with it any
+     *  answer the two rules could give.
+     *
+     *  Returns false when the id is not a dimension this host registered. */
+    bool (*md_set_dimension_cells)(int32_t dim_id, int32_t cell, int32_t gap);
 } PierApi;
 
 /**

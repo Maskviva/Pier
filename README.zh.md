@@ -8,7 +8,7 @@
   <a href="../../actions/workflows/build.yml"><img src="../../actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <a href="https://github.com/Maskviva/pier/releases"><img src="https://img.shields.io/github/v/release/Maskviva/pier?color=334155" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/BDS-1.26.32-62B47A" alt="BDS 1.26.32">
+  <img src="https://img.shields.io/badge/BDS-1.26.40-62B47A" alt="BDS 1.26.40">
   <img src="https://img.shields.io/badge/LeviLamina-26.40.0-8B5CF6" alt="LeviLamina 26.40.0">
 </p>
 

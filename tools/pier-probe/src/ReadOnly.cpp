@@ -144,13 +144,21 @@ void probeReadOnly()
             probe::record(kGroup, "md_list_dimensions", probe::Verdict::Ok, probe::describe(c));
         });
 
-    // server_info_str: 0 is the BDS version string, 1 the network protocol. Item 1 is
-    // the one that changed on 26.32, so both are probed by index rather than only the
-    // first.
-    for (int32_t prop = 0; prop <= 1; ++prop)
+    // server_info_str: 0 BDS version string, 1 server protocol, 2 the level's protocol
+    // tag, 3 the game sem version. Item 1 is allowed to be Refused — it fails on a
+    // version Pier's table does not list and on pre-release builds, and that refusal is
+    // the correct answer rather than a fault. Compare it against 2: when they differ,
+    // the save is older than the server, which is exactly the case that used to be
+    // reported as the server's protocol.
+    static char const* const kServerInfoLabels[] = {
+        "server_info_str[0 bds]",
+        "server_info_str[1 protocol]",
+        "server_info_str[2 level protocol]",
+        "server_info_str[3 sem version]",
+    };
+    for (int32_t prop = 0; prop <= 3; ++prop)
     {
-        std::string const label = prop == 0 ? "server_info_str[0 bds]"
-                                            : "server_info_str[1 protocol]";
+        std::string const label = kServerInfoLabels[prop];
         PIER_PROBE_AS(kGroup, server_info_str, label,
             {
                 std::string out;

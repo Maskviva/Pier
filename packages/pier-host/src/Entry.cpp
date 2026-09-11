@@ -6,6 +6,8 @@
 
 #include "sdk/abi.h"
 
+#include "pier/support/i18n.h"
+
 #include "pier/host/api_table.h"
 #include "pier/host/hosted_mod.h"
 #include "pier/host/mod_host.h"
@@ -48,7 +50,19 @@ namespace pier
                 logger.error("[host] mod manager '{}' registration failed", ModHostName);
                 return false;
             }
-            logger.info("[host] ready, ABI v{}, api table {} bytes", PIER_ABI_VERSION, sizeof(PierApi));
+            // Languages before the ready line, so that line can already be translated
+            // and so a broken lang directory is reported by a host that is otherwise up.
+            auto langDir = (getSelf().getModDir() / "lang").string();
+            auto keys = pier::loadLanguages(langDir);
+            if (keys > 0)
+            {
+                logger.info("[host] {}", pier::trf("lang.loaded", pier::localeCode(), keys, langDir));
+            }
+            // The build stamp is on this line because the question it answers comes up
+            // on every report: whether the binary running is the one that was just
+            // changed. A log that cannot answer it costs a round trip each time.
+            logger.info("[host] ready, ABI v{}, api table {} bytes, built {} {}", PIER_ABI_VERSION,
+                        sizeof(PierApi), __DATE__, __TIME__);
             return true;
         }
 

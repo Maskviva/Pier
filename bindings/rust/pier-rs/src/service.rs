@@ -216,6 +216,33 @@ pub fn list() -> Vec<ServiceInfo> {
     })
 }
 
+/// Who is calling the service callback that is running right now; see `service_caller`
+/// in `abi.h`.
+///
+/// This is the one thing a provider can trust about a request. The request body names
+/// whoever it likes, and a provider keying an owner or an acting player on it has only
+/// the sender's word; this asks the host, which knows whose `service::call` is on the
+/// stack. Nested calls report the innermost one.
+///
+/// `None` outside a callback, when the call came without a mod handle, or on a host too
+/// old to have the slot. The last case matters: a provider that wants attribution must
+/// decide what to do when there is none, and "attribute to nobody" and "refuse" are both
+/// defensible while "attribute to the empty name" is not.
+pub fn caller() -> Option<String> {
+    if !crate::has_slot!(service_caller) {
+        return None;
+    }
+    let f = rt().api.service_caller?;
+    let mut out: Option<String> = None;
+    unsafe {
+        f(
+            (&mut out as *mut Option<String>).cast(),
+            crate::rt::ffi::set_string,
+        )
+    };
+    out.filter(|c| !c.is_empty())
+}
+
 fn truncate(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         return s.to_owned();

@@ -44,6 +44,7 @@ SCRIPTS = [
     ("abi_c_parse.py", ["abi-c-parse"]),
     ("abi_additive.py", ["abi-additive"]),
     ("abi_no_lang.py", ["abi-no-lang"]),
+    ("i18n_keys.py", ["i18n-keys"]),
     ("abi_fixed_width.py", ["abi-fixed-width"]),
     ("pkg_layering.py", ["pkg-layering", "object-kind", "optional-drops"]),
     ("build_config.py", ["build-config"]),

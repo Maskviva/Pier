@@ -892,6 +892,14 @@ fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotG
 | `packages/pier-dimensions/src/pack/TemplatePack.cpp` | decoding every section with the same checks as `pierpack/tpl_read.py` |
 | `packages/pier-dimensions/src/pack/TemplateMount.cpp` | binding parameters by kind, constraints, height, span expansion, materials, columns, static layers, shape parameters and boxes |
 | `packages/pier-dimensions/src/pack/TemplateGen.cpp` | the shape DAG evaluation and the chunk fill, the twin of `refgen_tpl.py` |
+| `packages/pier-dimensions/include/pier/dimensions/pack/layers_pack.h` | a layers spec assembled into a template pack in memory, so the inline terrain kind needs no tool and no file |
+| `packages/pier-dimensions/src/pack/LayersPack.cpp` | the mapping `pierpack/from_layers.py` performs offline, with every expression a constant because the inline spec names concrete numbers |
+| `tools/checks/i18n_keys.py` | that a `.lang` file names only keys the code has, with matching placeholder counts |
+| `lang/zh_CN.lang` | the Chinese lines for the keys an operator sees on a normal boot |
+| `packages/pier-support/include/pier/support/i18n.h` | the key lookup and the fallback chain for the host's own log lines |
+| `packages/pier-support/src/I18n.cpp` | the built-in English table, the `.lang` reader, and the locale the engine reports |
+| `packages/pier-dimensions/include/pier/dimensions/gen/supplied_generator.h` | the palettes and callback of a dimension a mod fills, and the generator that asks it per chunk |
+| `packages/pier-dimensions/src/gen/SuppliedGenerator.cpp` | resolving both palettes once against the live registries, the per-chunk call with its bounds checks and its refusal to let a throw cross back, and the name-to-terrain table a supplied dimension is built from |
 | `packages/pier-dimensions/include/pier/dimensions/pack/pack_locate.h` | from a config path to a verified binary: the path policy, the four keys, the hash and kind checks, and the cache of decoded packs |
 | `packages/pier-dimensions/src/pack/PackLocate.cpp` | the path policy, a small strict JSON scanner for the config, binary verification, the cache |
 | `packages/pier-dimensions/include/pier/dimensions/pack/pack_inspect.h` | the JSON `md_pack_inspect` returns, and the JSON of a refusal |

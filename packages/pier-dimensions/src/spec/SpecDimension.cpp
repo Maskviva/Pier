@@ -35,7 +35,6 @@
 #include "mc/world/level/dimension/DimensionArguments.h"
 #include "mc/world/level/dimension/NetherBrightnessRamp.h"
 #include "mc/world/level/dimension/OverworldBrightnessRamp.h"
-#include "mc/world/level/dimension/OverworldDimension.h"
 #include "mc/world/level/dimension/VanillaDimensions.h"
 #include "mc/world/level/levelgen/VoidGenerator.h"
 #include "mc/world/level/levelgen/flat/FlatWorldGenerator.h"
@@ -50,9 +49,12 @@
 
 #include "pier/dimensions/base/utils.h"
 #include "pier/dimensions/dim/custom_dimension_manager.h"
+#include "pier/dimensions/gen/supplied_generator.h"
 #include "pier/dimensions/gen/template_generator.h"
 #include "pier/dimensions/gen/volume_generator.h"
+#include "pier/dimensions/pack/layers_pack.h"
 #include "pier/dimensions/pack/pack_locate.h"
+#include "pier/support/i18n.h"
 #include "pier/support/log.h"
 
 namespace pier::dimensions
@@ -80,23 +82,53 @@ namespace pier::dimensions
             return p;
         }
 
-        void overworldAddStructureFeatures(StructureFeatureRegistry& registry, uint seed, bool isLegacy, BaseGameVersion const& v)
+        bool overworldAddStructureFeatures(StructureFeatureRegistry& registry, uint seed, bool isLegacy, BaseGameVersion const& v)
         {
             auto* addr = overworldAddress();
-            if (!addr) { hostLogger().warn("[dim] OverworldDimensionAnon::addStructureFeatures not found; custom overworld dimensions generate no structures"); return; }
+            if (!addr) { hostLogger().warn("[dim] {}", pier::trf("dim.structures.symbol_missing", "OverworldDimensionAnon::addStructureFeatures", "overworld")); return false; }
             ll::memory::addressCall<void*, StructureFeatureRegistry&, uint, bool, BaseGameVersion const&>(addr, registry, seed, isLegacy, v);
+            return true;
         }
-        void netherAddStructureFeatures(StructureFeatureRegistry& registry, uint seed, BaseGameVersion const& v, Experiments const& e)
+        bool netherAddStructureFeatures(StructureFeatureRegistry& registry, uint seed, BaseGameVersion const& v, Experiments const& e)
         {
             auto* addr = netherAddress();
-            if (!addr) { hostLogger().warn("[dim] NetherDimensionAnon::addStructureFeatures not found; custom nether dimensions generate no structures"); return; }
+            if (!addr) { hostLogger().warn("[dim] {}", pier::trf("dim.structures.symbol_missing", "NetherDimensionAnon::addStructureFeatures", "nether")); return false; }
             ll::memory::addressCall<void*, StructureFeatureRegistry&, uint, BaseGameVersion const&, Experiments const&>(addr, registry, seed, v, e);
+            return true;
         }
-        void createEndCityFeature(StructureFeatureRegistry* self, Dimension& dimension, uint& seed)
+        bool createEndCityFeature(StructureFeatureRegistry* self, Dimension& dimension, uint& seed)
         {
             auto* addr = endcityAddress();
-            if (!addr) { hostLogger().warn("[dim] StructureFeatureRegistry::addStructureFeature<EndCityFeature> not found; custom end dimensions generate no end cities"); return; }
+            if (!addr) { hostLogger().warn("[dim] StructureFeatureRegistry::addStructureFeature<EndCityFeature> not found; custom end dimensions generate no end cities"); return false; }
             ll::memory::addressCall<EndCityFeature&, StructureFeatureRegistry*, Dimension&, uint&>(addr, self, dimension, seed);
+            return true;
+        }
+
+        /** The structure state a generator is given, and why it depends on whether the
+         *  features went in.
+         *
+         *  createNormal fills mPossibleStructures from the level's structure sets, and
+         *  placing one of them means looking the matching feature up in the generator's
+         *  own StructureFeatureRegistry. That registry is filled by three engine
+         *  functions this host reaches by symbol, and on 26.40 none of the three is in
+         *  the binary, so createNormal would leave the generator holding every structure
+         *  set in the game with an empty registry behind them. With no features, the
+         *  honest state is no possible structures, which is what createFlat with an empty
+         *  list says. Terrain is unaffected; what is missing is villages and the rest. */
+        void setStructureState(
+            Dimension& dim, WorldGenerator& gen, uint seed,
+            br::worldgen::StructureSetRegistry const& sets, bool featuresAdded
+        )
+        {
+            if (featuresAdded)
+            {
+                gen.mStructureFeatureRegistry->mGeneratorState =
+                    br::worldgen::ChunkGeneratorStructureState::createNormal(seed, gen.getBiomeSource(), sets);
+                return;
+            }
+            hostLogger().warn("[dim] {}", pier::trf("dim.structures.none", dim.mName.get()));
+            gen.mStructureFeatureRegistry->mGeneratorState =
+                br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen.getBiomeSource(), {});
         }
 
         /** The engine's void generator with a fixed biome, plains when the named one is
@@ -108,6 +140,44 @@ namespace pier::dimensions
             if (!v->mBiome) v->mBiome = dim.mLevel.getBiomeRegistry().lookupByName("minecraft:plains");
             if (v->mBiome) v->mBiomeSource = std::make_unique<FixedBiomeSource>(*v->mBiome);
             return v;
+        }
+
+        /** The biome an engine generator is handed.
+         *
+         *  The level's biome override is what vanilla passes, and on a normal level it is
+         *  empty, so the lookup answers with nothing. OverworldGeneratorMultinoise builds
+         *  its own biome source and does not care; TheEndGenerator and NetherGenerator are
+         *  each written for one biome and keep what they are given. A live server generating
+         *  end terrain read a pointer of all ones inside the column loop, which is what a
+         *  biome that was never there looks like once something walks it, so the generator's
+         *  own biome is named here when the level does not name one.
+         *
+         *  Empty when neither is in the registry, which the caller must treat as a refusal:
+         *  building the generator anyway is the crash this avoids. */
+        Biome* generatorBiome(Dimension& dim, GeneratorType gen, std::string const& overrideName)
+        {
+            auto& registry = dim.mLevel.getBiomeRegistry();
+            if (!overrideName.empty())
+            {
+                if (auto* b = registry.lookupByName(overrideName)) return b;
+            }
+            char const* fallback = nullptr;
+            switch (gen)
+            {
+            case GeneratorType::TheEnd:
+                fallback = "minecraft:the_end";
+                break;
+            case GeneratorType::Nether:
+                fallback = "minecraft:hell";
+                break;
+            default:
+                return nullptr; // the overworld generators bring their own biome source
+            }
+            if (auto* b = registry.lookupByName(fallback)) return b;
+            // Named without a namespace on some builds.
+            std::string const qualified{fallback};
+            std::string const bare = qualified.substr(qualified.find(':') + 1);
+            return registry.lookupByName(bare);
         }
 
         spec::DimensionSpec specOf(std::string const& name, CompoundTag const& stored)
@@ -130,6 +200,7 @@ namespace pier::dimensions
     SpecDimension::SpecDimension(std::string const& name, DimensionFactoryInfo const& info)
         : Dimension(DimensionArguments(std::move(info.arguments), info.dimId, spec::dimensionHeightOf(info.data), name, name))
         , mSpec(specOf(name, info.data))
+        , mHeight(spec::dimensionHeightOf(info.data))
     {
         mDefaultBrightness->sky = Brightness::MAX();
         mHasWeather = mSpec.sky.weather;
@@ -181,7 +252,9 @@ namespace pier::dimensions
         // legitimate combination and it must be dark the way the end is.
         mHasSkylight = mSpec.sky.skylight;
         Dimension::init(structureSetRegistry);
-        verifyHeightRange(*this, mSpec.minY, mSpec.maxY, "SpecDimension");
+        // Against the range the Dimension was constructed with, which for an engine
+        // generator is the generator's own and not the spec's.
+        verifyHeightRange(*this, mHeight.mMin, mHeight.mMax, "SpecDimension");
     }
 
     std::unique_ptr<WorldGenerator> SpecDimension::createGenerator(br::worldgen::StructureSetRegistry const& structureSetRegistry)
@@ -193,25 +266,68 @@ namespace pier::dimensions
 
         if (auto const* n = std::get_if<spec::Native>(&mSpec.terrain))
         {
-            auto biome = level.getBiomeRegistry().lookupByName(levelData.mBiomeOverride);
+            auto biome = generatorBiome(*this, n->generator, levelData.mBiomeOverride);
+            if (!biome && (n->generator == GeneratorType::TheEnd || n->generator == GeneratorType::Nether))
+            {
+                hostLogger().error(
+                    "[dim] '{}': the {} generator needs its own biome and neither the level's "
+                    "override nor the vanilla name is in the biome registry; generating a void "
+                    "instead, because that generator keeps the biome it is handed and has no "
+                    "other source for one",
+                    mName.get(), magic_enum::enum_name(n->generator)
+                );
+                gen = voidWith(*this, n->biome);
+                setStructureState(*this, *gen, seed, structureSetRegistry, false);
+                return gen;
+            }
+            bool const engineTerrain = n->generator == GeneratorType::TheEnd
+                                    || n->generator == GeneratorType::Nether
+                                    || n->generator == GeneratorType::Overworld;
+            if (engineTerrain && !n->engineTerrain)
+            {
+                // The sky is a separate setting and is already applied, so what this costs
+                // is the blocks and nothing else. See Native::engineTerrain.
+                hostLogger().warn(
+                    "[dim] '{}': engine_terrain is 0b in its terrain, so the engine's {} "
+                    "generator is not used and this dimension is a void under the sky it asked "
+                    "for. Set that field to 1b in dimension_config.json, or drop it, for the "
+                    "terrain the template chose",
+                    mName.get(), magic_enum::enum_name(n->generator)
+                );
+                gen = voidWith(*this, n->biome);
+                setStructureState(*this, *gen, seed, structureSetRegistry, false);
+                return gen;
+            }
             switch (n->generator)
             {
             case GeneratorType::Overworld:
                 gen = std::make_unique<OverworldGeneratorMultinoise>(*this, LevelSeed64{seed}, biome);
-                gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createNormal(seed, gen->getBiomeSource(), structureSetRegistry);
-                overworldAddStructureFeatures(*gen->mStructureFeatureRegistry, seed, false, levelData.getBaseGameVersion());
+                hostLogger().info("[dim] '{}': overworld generator", mName.get());
+                setStructureState(
+                    *this, *gen, seed, structureSetRegistry,
+                    overworldAddStructureFeatures(*gen->mStructureFeatureRegistry, seed, false, levelData.getBaseGameVersion())
+                );
                 break;
             case GeneratorType::Nether:
                 gen = std::make_unique<NetherGenerator>(*this, seed, biome);
-                gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createNormal(seed, gen->getBiomeSource(), structureSetRegistry);
-                netherAddStructureFeatures(*gen->mStructureFeatureRegistry, seed, levelData.getBaseGameVersion(), static_cast<Experiments&>(levelData.mExperiments.get()));
+                hostLogger().info("[dim] '{}': nether generator", mName.get());
+                setStructureState(
+                    *this, *gen, seed, structureSetRegistry,
+                    netherAddStructureFeatures(
+                        *gen->mStructureFeatureRegistry, seed, levelData.getBaseGameVersion(),
+                        static_cast<Experiments&>(levelData.mExperiments.get())
+                    )
+                );
                 break;
             case GeneratorType::TheEnd:
             {
                 uint s = seed;
                 gen = std::make_unique<TheEndGenerator>(*this, seed, biome);
-                gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createNormal(seed, gen->getBiomeSource(), structureSetRegistry);
-                createEndCityFeature(gen->mStructureFeatureRegistry.get(), *this, s);
+                hostLogger().info("[dim] '{}': end generator", mName.get());
+                setStructureState(
+                    *this, *gen, seed, structureSetRegistry,
+                    createEndCityFeature(gen->mStructureFeatureRegistry.get(), *this, s)
+                );
                 break;
             }
             case GeneratorType::Flat:
@@ -230,7 +346,80 @@ namespace pier::dimensions
             return gen;
         }
 
-        auto const& p = std::get<spec::Pack>(mSpec.terrain);
+        if (mSpec.isSupplied())
+        {
+            // The terrain belongs to a mod. It is there when that mod registered this
+            // dimension this session, and absent when the save has a dimension whose
+            // mod is gone -- the chunks stay, and the spec is what the mod will
+            // register against next time, so a void here loses nothing.
+            if (auto terrain = suppliedTerrainOf(mName.get()))
+            {
+                hostLogger().info("[dim] {}", pier::trf("dim.supplied.by", mName.get(), terrain->owner));
+                gen = std::make_unique<SuppliedGenerator>(*this, seed, levelData.mFlatWorldOptions,
+                                                          std::move(terrain), mHeight.mMin,
+                                                          mHeight.mMax - mHeight.mMin);
+                gen->mStructureFeatureRegistry->mGeneratorState =
+                    br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+                return gen;
+            }
+            hostLogger().error(
+                "[dim] '{}' has no terrain this session: its spec says the terrain comes from a mod and no mod "
+                "registered it. The chunks already generated stay where they are; the world is void until that "
+                "mod is loaded again",
+                mName.get()
+            );
+            // Returned here and not left to fall through. Below this point the terrain
+            // is read as a Pack, and a supplied spec reaching that line throws
+            // bad_variant_access on a chunk thread -- the shape of failure this file
+            // has already been fixed for once.
+            gen = voidWith(*this, "minecraft:plains");
+            gen->mStructureFeatureRegistry->mGeneratorState =
+                br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+            return gen;
+        }
+
+        if (auto const* l = std::get_if<spec::Layers>(&mSpec.terrain))
+        {
+            std::vector<std::string> problems;
+            // Held for as long as the generator: MountedTemplate points into the pack.
+            mLayersPack = pack::buildFromLayers(*l, mHeight.mMin, mHeight.mMax, problems);
+            std::optional<pack::MountedTemplate> mounted;
+            if (mLayersPack) mounted = pack::mountTemplate(*mLayersPack, {}, {}, mHeight.mMin, mHeight.mMax, problems);
+            if (mLayersPack && mounted)
+            {
+                hostLogger().info(
+                    "[dim] '{}': layered terrain, {} layer(s){}", mName.get(), l->layers.size(),
+                    l->grid ? ", on a grid" : ""
+                );
+                gen = std::make_unique<TemplateGenerator>(*this, seed, levelData.mFlatWorldOptions, mLayersPack,
+                                                          std::move(*mounted));
+                gen->mStructureFeatureRegistry->mGeneratorState =
+                    br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+                return gen;
+            }
+            // Refusing here would fastfail on a chunk thread; the dimension is already
+            // registered by id. A void with the reasons is the least harmful shape, and
+            // the stored spec stays, so the terrain returns once the recipe is fixed.
+            for (auto const& msg : problems) hostLogger().error("[dim] '{}': {}", mName.get(), msg);
+            hostLogger().error("[dim] '{}': the layered terrain could not be built; generating a void for this session", mName.get());
+            gen = voidWith(*this, l->biome);
+            gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+            return gen;
+        }
+
+        auto const* pp = std::get_if<spec::Pack>(&mSpec.terrain);
+        if (!pp)
+        {
+            // Every alternative above returns, so this is unreachable today. It is a
+            // get_if and not a get because the next alternative added to the variant
+            // would otherwise land here as an exception thrown on a chunk thread.
+            hostLogger().error("[dim] '{}': the stored terrain is of a kind this generator does not build; generating a void", mName.get());
+            gen = voidWith(*this, "minecraft:plains");
+            gen->mStructureFeatureRegistry->mGeneratorState =
+                br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
+            return gen;
+        }
+        auto const& p = *pp;
         std::vector<std::string> problems;
         pack::PackStatus status = pack::PackStatus::Ok;
         if (p.isTemplate())
@@ -272,42 +461,26 @@ namespace pier::dimensions
     }
 
     /*
-     * The four chunk-upgrade overrides route to the overworld's own bodies. The
-     * VanillaLevelChunkUpgrade functions they called are inlined away and have no symbol
-     * left, while the overworld overrides calling the same code are still exported as
-     * thunks. OverworldDimension declares no data member of its own, so its layout is the
-     * Dimension layout this class also begins with and the cast reaches only fields both
-     * share. That is the whole of what makes this sound: the moment OverworldDimension
-     * gains a member, the cast reads this object's own fields as that member.
+     * The four chunk-upgrade overrides do nothing, and that is the whole of them.
      *
-     * Doing nothing instead is not an option. A world carried over from an older BDS
-     * holds chunks at an older storage version, and skipping the upgrade hands the
-     * client chunks it cannot parse.
+     * They exist to bring a chunk written by an older BDS up to the current storage
+     * version, and a dimension of this kind has no such chunk: it is created by this host
+     * on the version that is running, so everything in it was written by that version.
+     *
+     * They used to reinterpret_cast this object to OverworldDimension and call the
+     * overworld's exported thunks. A live server fastfailed on a chunk worker inside those
+     * bodies a third of a second after a player entered the dimension, on a control-flow
+     * guard failure: an indirect call through a value that is not a function. Whatever
+     * those bodies read, it was not what this object holds there. Doing nothing is not a
+     * workaround for that; it is what the correct answer was all along here.
      */
-    OverworldDimension& SpecDimension::asOverworldForUpgrade()
-    {
-        return *reinterpret_cast<OverworldDimension*>(static_cast<Dimension*>(this));
-    }
+    void SpecDimension::upgradeLevelChunk(ChunkSource&, LevelChunk&, LevelChunk&) {}
 
-    void SpecDimension::upgradeLevelChunk(ChunkSource& cs, LevelChunk& lc, LevelChunk& generatedChunk)
-    {
-        asOverworldForUpgrade().$upgradeLevelChunk(cs, lc, generatedChunk);
-    }
+    void SpecDimension::fixWallChunk(ChunkSource&, LevelChunk&) {}
 
-    void SpecDimension::fixWallChunk(ChunkSource& cs, LevelChunk& lc)
-    {
-        asOverworldForUpgrade().$fixWallChunk(cs, lc);
-    }
+    bool SpecDimension::levelChunkNeedsUpgrade(LevelChunk const&) const { return false; }
 
-    bool SpecDimension::levelChunkNeedsUpgrade(LevelChunk const& lc) const
-    {
-        return const_cast<SpecDimension*>(this)->asOverworldForUpgrade().$levelChunkNeedsUpgrade(lc);
-    }
-
-    void SpecDimension::_upgradeOldLimboEntity(CompoundTag& tag, ::LimboEntitiesVersion vers)
-    {
-        asOverworldForUpgrade().$_upgradeOldLimboEntity(tag, vers);
-    }
+    void SpecDimension::_upgradeOldLimboEntity(CompoundTag&, ::LimboEntitiesVersion) {}
 
     Vec3 SpecDimension::translatePosAcrossDimension(Vec3 const& fromPos, DimensionType fromId) const
     {

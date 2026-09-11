@@ -449,6 +449,18 @@ pub struct PierApi {
     pub md_add_dimension_pack: Option<unsafe extern "C" fn(PierStr, PierStr, PierStr) -> i32>,
     pub md_pack_inspect: Option<unsafe extern "C" fn(PierStr, *mut c_void, PierStrSink) -> i32>,
     pub md_retire_dimension: Option<unsafe extern "C" fn(PierStr) -> bool>,
+    pub service_caller: Option<unsafe extern "C" fn(*mut c_void, PierStrSink)>,
+    pub md_add_dimension_generated: Option<
+        unsafe extern "C" fn(
+            PierStr,
+            PierStr,
+            PierStr,
+            PierStr,
+            PierGenerateChunkFn,
+            *mut c_void,
+        ) -> i32,
+    >,
+    pub md_set_dimension_cells: Option<unsafe extern "C" fn(i32, i32, i32) -> bool>,
 }
 
 impl PierApi {

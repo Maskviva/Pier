@@ -57,6 +57,28 @@ namespace pier::dimensions::pack
             problems.push_back("SETT: size_horizontal and size_vertical must be 1, 2 or 4");
             return std::nullopt;
         }
+        // A flag this generator does not act on is refused rather than ignored. The two
+        // below have bits in the format and no implementation behind them, so a pack
+        // built with them on would generate terrain without the aquifers or the ore veins
+        // its author asked for, and nothing would say so.
+        if ((s.flags & kSettingsAquifers) != 0)
+        {
+            problems.push_back("SETT: aquifers_enabled is set and this host does not generate aquifers; "
+                               "build the pack without it rather than have the terrain quietly differ");
+            return std::nullopt;
+        }
+        if ((s.flags & kSettingsOreVeins) != 0)
+        {
+            problems.push_back("SETT: ore_veins_enabled is set and this host does not generate ore veins; "
+                               "build the pack without it rather than have the terrain quietly differ");
+            return std::nullopt;
+        }
+        if ((s.flags & ~kSettingsKnown) != 0)
+        {
+            problems.push_back("SETT: the flags carry a bit this host does not know, so the pack was built "
+                               "by a newer tool and what it asks for cannot be honoured");
+            return std::nullopt;
+        }
         if (in.heightMin != s.minY || in.heightMax != s.minY + s.height)
         {
             problems.push_back("INFO height does not match SETT");

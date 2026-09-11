@@ -254,6 +254,19 @@ pub const PLAYER_USE_ITEM_ON: &str = "PlayerUseItemOnEvent";
 /// on the synthetic side they go through `dispatchHookEventCancellable`. Both lists were
 /// taken from the source and not from intuition.
 const CANCELLABLE: &[&str] = &[
+    // 来自 iListenAttentively。它们能取消，但只有装了那个 mod 才存在——
+    // 订阅在那时会失败并报出来，而不是静静不触发。
+    ACTOR_DESTROY_BLOCK,
+    MOB_PLACE_BLOCK,
+    MOB_TAKE_BLOCK,
+    PLAYER_EDIT_SIGN,
+    PLAYER_OPERATED_ITEM_FRAME,
+    PLAYER_REQUEST_ITEM_ACTION,
+    PROJECTILE_CREATE,
+    FIRE_TRY_BURN_BLOCK,
+    WITHER_DESTROY,
+    PLAYER_START_SLEEP,
+    ILA_PLAYER_CHANGE_GAME_TYPE,
     // The LeviLamina registry
     "PlayerJoinEvent",
     "PlayerConnectEvent",
@@ -405,4 +418,76 @@ pub const ALL_SYNTHETIC: &[&str] = &[
     PORTAL_CREATE,
     HOPPER_TRANSFER,
     PLAYER_USE_ITEM_ON,
+];
+
+//  Events from iListenAttentively
+//
+// Not this host's own. Subscription resolves any id in LeviLamina's registry by name, so
+// a constant here buys a checked spelling and a place to say what the event covers.
+// A subscription fails when that mod is absent, reported at subscribe time rather than
+// silently never firing, so a node built on one has to say it needs the mod.
+
+/// Cancellable. A non-player actor breaks a block: a creeper explosion taking terrain, an
+/// enderman lifting one. Needs iListenAttentively.
+///
+/// This is the per-area answer to griefing. The dimension rule
+/// `PIER_DIMRULE_MOB_GRIEFING` is the whole-dimension one, and a server that wants claims
+/// protected while the wild stays destructible cannot express that with the rule alone.
+pub const ACTOR_DESTROY_BLOCK: &str = "ActorDestroyBlockEvent";
+
+/// Cancellable. A mob places a block, which in practice is an enderman putting one down.
+/// Needs iListenAttentively.
+pub const MOB_PLACE_BLOCK: &str = "MobPlaceBlockEvent";
+
+/// Cancellable. A mob takes a block, the other half of the enderman pair. Needs
+/// iListenAttentively.
+pub const MOB_TAKE_BLOCK: &str = "MobTakeBlockEvent";
+
+/// Cancellable. A player edits a sign. Needs iListenAttentively.
+///
+/// Placing a sign is a place and is covered; editing the text of one already there is
+/// neither a place nor an interact, so without this there is no way to stop it.
+pub const PLAYER_EDIT_SIGN: &str = "PlayerEditSignEvent";
+
+/// Cancellable. A player rotates the item in an item frame. Needs iListenAttentively.
+/// Attacking the frame to knock the item out is a different event.
+pub const PLAYER_OPERATED_ITEM_FRAME: &str = "PlayerOperatedItemFrameEvent";
+
+/// Cancellable. An item action a player asked for: renaming at an anvil, crafting,
+/// enchanting. Needs iListenAttentively.
+pub const PLAYER_REQUEST_ITEM_ACTION: &str = "PlayerRequestItemActionEvent";
+
+/// Cancellable. A projectile is created from any source, including dispensers and mobs.
+/// Needs iListenAttentively. The player-only case is [`PLAYER_SPAWN_PROJECTILE`].
+pub const PROJECTILE_CREATE: &str = "ProjectileCreateEvent";
+
+/// Cancellable. Fire is about to burn a block away. Needs iListenAttentively.
+pub const FIRE_TRY_BURN_BLOCK: &str = "FireTryBurnBlockEvent";
+
+/// Cancellable. A wither breaks blocks. Needs iListenAttentively.
+pub const WITHER_DESTROY: &str = "WitherDestroyEvent";
+
+/// Cancellable. A player starts sleeping. Needs iListenAttentively.
+pub const PLAYER_START_SLEEP: &str = "PlayerStartSleepEvent";
+
+/// Cancellable. A player changes game mode, as seen by iListenAttentively rather than by
+/// this host. Prefer [`PLAYER_CHANGE_GAME_MODE`]; this one is here for servers that only
+/// have the other mod.
+pub const ILA_PLAYER_CHANGE_GAME_TYPE: &str = "PlayerChangeGameTypeEvent";
+
+/// Every id above. Separate from [`ALL_SYNTHETIC`] because these belong to another mod:
+/// comparing this against [`super::list()`] tells the operator whether that mod is
+/// installed, and a guard built on one of them is off until it is.
+pub const ALL_FROM_ILA: &[&str] = &[
+    ACTOR_DESTROY_BLOCK,
+    MOB_PLACE_BLOCK,
+    MOB_TAKE_BLOCK,
+    PLAYER_EDIT_SIGN,
+    PLAYER_OPERATED_ITEM_FRAME,
+    PLAYER_REQUEST_ITEM_ACTION,
+    PROJECTILE_CREATE,
+    FIRE_TRY_BURN_BLOCK,
+    WITHER_DESTROY,
+    PLAYER_START_SLEEP,
+    ILA_PLAYER_CHANGE_GAME_TYPE,
 ];

@@ -201,6 +201,32 @@ pub enum PierMoneyEvent {
 
 pub type PierTaskCb = unsafe extern "C" fn(user: *mut c_void);
 pub type PierStrSink = unsafe extern "C" fn(ctx: *mut c_void, s: PierStr);
+
+/// One chunk asked of a mod that supplies its own terrain. Mirrors `PierChunkRequest`.
+///
+/// `out_materials` is `256 * height` entries indexed `(x * 16 + z) * height + y`,
+/// `out_biomes` is 256. Both are indices into the palettes given at registration and
+/// both belong to the host, which reuses them.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PierChunkRequest {
+    pub dim_id: i32,
+    pub chunk_x: i32,
+    pub chunk_z: i32,
+    pub min_y: i32,
+    pub height: i32,
+    pub out_materials: *mut u16,
+    pub out_biomes: *mut u16,
+}
+
+/// Fills one chunk. Non-zero means filled.
+///
+/// Called on the host's chunk worker threads, several at once, and **not** on the server
+/// thread. It must be safe to run concurrently with itself, must answer the same for the
+/// same coordinates forever, and must not call any other slot. See `PierGenerateChunkFn`
+/// in `abi.h` for why each of the three is not advice.
+pub type PierGenerateChunkFn =
+    unsafe extern "C" fn(user: *mut c_void, request: *const PierChunkRequest) -> i32;
 pub type PierEventCb = unsafe extern "C" fn(
     user: *mut c_void,
     event_id: PierStr,

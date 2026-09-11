@@ -1,0 +1,8 @@
+dim.height.generator_mismatch=「{}」的配方要 {}..{} 的高度，配引擎的 {} 生成器，而那个生成器是按 {}..{} 写的；这里用生成器自己的范围，旧范围下存过的方块够不着了
+dim.structures.symbol_missing=这个构建里找不到 {}；自定义{}维度不生成结构
+dim.structures.none=「{}」：填生成器结构表的那几个引擎函数不在这个构建里，所以这个维度只生成地形，没有结构。另一条路是给它一个装着全游戏结构集、而每一个后面都没有东西可放的生成器
+dim.resolve.host_registry=从宿主注册表里解析「{}」（号 {}）；引擎的名字表里没有它，传送以前会原地不动就是因为这个
+dim.factory.building=工厂正在建维度「{}」，号 {}
+dim.supplied.by=「{}」：地形由「{}」提供
+dim.supplied.missing=「{}」这一局没有地形：它的配方说地形来自某个 mod，而没有 mod 注册过。已经生成的区块留在原地；那个 mod 装回来之前这个世界是空的
+lang.loaded=语言 {}：{} 个键，来自 {}

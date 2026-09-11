@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -36,8 +37,14 @@
 #include "mc/server/PropertiesSettings.h"
 #include "mc/util/BidirectionalUnorderedMap.h"
 #include "mc/world/actor/player/Player.h"
+#include "mc/deps/game_refs/WeakRef.h"
+#include "mc/world/level/DimensionManager.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/dimension/Dimension.h"
+#include "mc/world/level/dimension/DimensionType.h"
+#include "mc/world/level/ChangeDimensionRequest.h"
+#include "mc/world/level/dimension/DimensionIdType.h"
+#include "mc/world/level/dimension/DimensionRegistry.h"
 #include "mc/world/level/dimension/VanillaDimensions.h"
 #include "mc/world/level/storage/LevelStorage.h"
 
@@ -48,6 +55,7 @@
 #include "pier/dimensions/dim/dimension_height.h"
 #include "pier/dimensions/dim/dimension_rules.h"
 
+#include "pier/support/i18n.h"
 #include "pier/support/log.h"
 
 namespace pier::dimensions
@@ -165,6 +173,8 @@ namespace pier::dimensions
             bool isXboxLive
         )
         {
+            noteClientSession(client.getOrCreateUniqueID().rawID);
+
             auto result = origin(client, isXboxLive);
             if (!result) return result;
 
@@ -234,10 +244,285 @@ namespace pier::dimensions
             );
         }
 
+        /*
+         * Dimension resolution, the half of registration the engine cannot do for a
+         * dimension that came from no resource pack.
+         *
+         * getOrCreateDimension maps an id to a name through mDimensionNameIdStore, a
+         * table nothing exported writes since serverRegisterCustomDimension was inlined
+         * away, so it is empty for every dimension this host registers. The plain
+         * getDimension lookup does find them, because registration builds the instance
+         * into DimensionRegistry directly, which is why block writes worked while
+         * teleports did not: TeleportCommand::computeTarget attaches a
+         * ChangeDimensionRequest only when it can resolve the destination, and without
+         * one the player moves to the coordinates inside the dimension they are already
+         * in.
+         */
+        using GetOrCreateById = ::WeakRef<::Dimension> (DimensionManager::*)(::DimensionType);
+        using GetOrCreateByName = ::WeakRef<::Dimension> (DimensionManager::*)(::std::string_view);
+
+        /** Says once per id that this host answered a resolution the engine could not.
+         *  Reached only after the engine's own call came back with nothing, so the line
+         *  means what it says. Once, because the teleport path asks on every chunk load,
+         *  and the line is there to prove on a live server which side answered. */
+        void noteResolved(int id)
+        {
+            static std::mutex mtx;
+            static std::unordered_set<int> said;
+            {
+                std::lock_guard lock{mtx};
+                if (!said.insert(id).second) return;
+            }
+            hostLogger().info(
+                "[dim] {}", pier::trf("dim.resolve.host_registry", dimensionNameOf(id), id)
+            );
+        }
+
+        /** Builds the instance for an id this host registered, and says whether one is
+         *  there afterwards. Never calls getOrCreateDimension, so it is safe inside a
+         *  detour on it.
+         *
+         *  The guard is for the one path that would still recurse: a dimension
+         *  constructor that asks the engine to resolve its own id would come back
+         *  through the detour, find nothing registered yet, and build again. Per thread
+         *  and per id, because two threads building two different dimensions is not
+         *  re-entry. */
+        bool bringUp(int id)
+        {
+            if (id <= 2) return false;
+            auto const name = dimensionNameOf(id);
+            if (name.empty()) return false;
+
+            thread_local std::unordered_set<int> building;
+            if (!building.insert(id).second) return false;
+            bool const ok = native::ensureBuilt(name, id) != nullptr;
+            building.erase(id);
+            return ok;
+        }
+
+        /*
+         * The one door into DimensionRegistry, and where the two numbers a Dimension
+         * carries are made to agree. mDimensions is keyed by the DimensionIdType that
+         * comes out of the engine's name table; mId is the DimensionType everything else
+         * speaks; the row tying them together went with serverRegisterCustomDimension.
+         *
+         * registerDimension assigns, so a custom dimension whose registry id is 0 is
+         * stored over the overworld and drops the OwnerPtr that was there. The next
+         * custom dimension of the boot is then refused, and the server dies shortly after
+         * anyone joins, in engine code that names neither this host nor the dimension
+         * that was added. Hooked here because the engine also builds and registers on
+         * paths this host does not see.
+         */
+        LL_TYPE_INSTANCE_HOOK(
+            DimensionRegistryRegisterHook,
+            HookPriority::Normal,
+            DimensionRegistry,
+            &DimensionRegistry::registerDimension,
+            ::WeakRef<::Dimension>,
+            ::DimensionIdType id,
+            ::OwnerPtr<::Dimension> dimension
+        )
+        {
+            if (auto* d = dimension.get())
+            {
+                if (auto const key = native::claimRegistryKey(*d))
+                {
+                    auto const wanted = ::DimensionIdType{static_cast<ushort>(*key)};
+                    if (id.mValue != wanted.mValue)
+                    {
+                        hostLogger().warn(
+                            "[dim] '{}' was about to be registered under key {} while it is "
+                            "dimension {}; using {}, because the key it was given belongs to "
+                            "another dimension and storing it there would destroy that one",
+                            d->mName.get(), id.mValue, *key, *key
+                        );
+                        id = wanted;
+                    }
+                }
+            }
+            return origin(id, std::move(dimension));
+        }
+
+        /*
+         * getDimension is a plain lookup and every part of the engine uses it. It resolves
+         * through the engine name table, which has no row for a dimension registered from
+         * outside, so it answers empty for one that is registered and running: the caller
+         * gets nothing back and walks into it. That is the shape of every crash in this
+         * series, on the tick and on the chunk workers alike, and it is why a void
+         * dimension crashed exactly like a dimension with terrain.
+         *
+         * The host's own ledger is consulted after the engine, never before, and directly
+         * rather than through instanceRef, which asks the engine first and would call back
+         * into this hook.
+         */
+        LL_TYPE_INSTANCE_HOOK(
+            DimensionManagerGetDimensionHook,
+            HookPriority::Normal,
+            DimensionManager,
+            &DimensionManager::getDimension,
+            ::WeakRef<::Dimension>,
+            ::DimensionType type
+        )
+        {
+            if (auto ref = origin(type); ref.lock()) return ref;
+            if (type.mValue < native::firstCustomDimensionId) return {};
+            return native::rememberedInstanceRef(type.mValue);
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            LevelGetDimensionHook,
+            HookPriority::Normal,
+            Level,
+            &Level::$getDimension,
+            ::WeakRef<::Dimension>,
+            ::DimensionType id
+        )
+        {
+            if (auto ref = origin(id); ref.lock()) return ref;
+            if (id.mValue < native::firstCustomDimensionId) return {};
+            return native::rememberedInstanceRef(id.mValue);
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimensionManagerGetOrCreateByIdHook,
+            HookPriority::Normal,
+            DimensionManager,
+            static_cast<GetOrCreateById>(&DimensionManager::getOrCreateDimension),
+            ::WeakRef<::Dimension>,
+            ::DimensionType type
+        )
+        {
+            if (type.mValue <= 2 || dimensionNameOf(type.mValue).empty()) return origin(type);
+            // The engine first, always. It creates and registers a dimension through its
+            // own machinery, which does more than put a pointer in a table, and the
+            // evidence that it could not do so for these ids was collected while they
+            // were numbered 3, the value of VanillaDimensions::Undefined(), where every
+            // engine path refuses. Only when it comes back with nothing does this host
+            // build one, and instanceRef is then what the caller gets: getDimension
+            // resolves through the engine name table, which has no row for these ids, so
+            // it answers empty even for a dimension that is registered and running.
+            if (auto ref = origin(type); ref.lock()) return ref;
+            noteResolved(type.mValue);
+            if (auto ref = native::instanceRef(type.mValue); ref.lock()) return ref;
+            if (bringUp(type.mValue)) return native::instanceRef(type.mValue);
+            // The build failed and said why.
+            return {};
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimensionManagerGetOrCreateByNameHook,
+            HookPriority::Normal,
+            DimensionManager,
+            static_cast<GetOrCreateByName>(&DimensionManager::getOrCreateDimension),
+            ::WeakRef<::Dimension>,
+            ::std::string_view name
+        )
+        {
+            int const id = dimensionIdOf(name);
+            if (id < 3) return origin(name);
+            if (auto ref = origin(name); ref.lock()) return ref;
+            noteResolved(id);
+            if (auto ref = native::instanceRef(id); ref.lock()) return ref;
+            if (bringUp(id)) return native::instanceRef(id);
+            return {};
+        }
+
+        /*
+         * Level forwards to the manager, and whether that call survives as a call or is
+         * inlined into Level's own body is a property of the build. Hooking both ends
+         * costs one detour and removes the question.
+         */
+        LL_TYPE_INSTANCE_HOOK(
+            LevelGetOrCreateDimensionHook,
+            HookPriority::Normal,
+            Level,
+            &Level::$getOrCreateDimension,
+            ::WeakRef<::Dimension>,
+            ::DimensionType type
+        )
+        {
+            if (type.mValue <= 2 || dimensionNameOf(type.mValue).empty()) return origin(type);
+            if (auto ref = origin(type); ref.lock()) return ref;
+            noteResolved(type.mValue);
+            if (auto ref = native::instanceRef(type.mValue); ref.lock()) return ref;
+            if (bringUp(type.mValue)) return native::instanceRef(type.mValue);
+            return {};
+        }
+
+        /*
+         * A player cannot be sent into a dimension their game has never been told about.
+         *
+         * The set of dimensions reaches a client once, in the data it is sent while
+         * joining. A dimension registered after that arrives at no client that is already
+         * on the server: the transfer runs on the server, the client has no definition for
+         * the id, and the player is left standing where they were with no explanation. The
+         * transfer is refused here instead, and the player is told what to do about it.
+         */
+        LL_TYPE_INSTANCE_HOOK(
+            LevelRequestPlayerChangeDimensionHook,
+            HookPriority::Normal,
+            Level,
+            &Level::$requestPlayerChangeDimension,
+            void,
+            ::Player& player,
+            ::ChangeDimensionRequest&& request
+        )
+        {
+            int const to = static_cast<int>(request.mToDimensionId.get());
+            if (to >= native::firstCustomDimensionId && !dimensionNameOf(to).empty()
+                && !clientKnowsDimension(player.getOrCreateUniqueID().rawID, to))
+            {
+                player.sendMessage(
+                    "\u00a7eThis world was created after you joined, so your game does not know it "
+                    "yet. Leave the server and come back, then try again."
+                    "\n\u00a7e\u8fd9\u4e2a\u4e16\u754c\u662f\u4f60\u8fdb\u670d\u4e4b\u540e"
+                    "\u521b\u5efa\u7684\uff0c\u4f60\u7684\u5ba2\u6237\u7aef\u8fd8\u4e0d"
+                    "\u77e5\u9053\u5b83\u3002\u8bf7\u9000\u51fa\u670d\u52a1\u5668\u91cd"
+                    "\u65b0\u8fdb\u5165\u540e\u518d\u8bd5\u3002"
+                );
+                hostLogger().info(
+                    "[dim] {} was not sent into '{}' (id {}): it was registered after they joined, "
+                    "so their client has no definition for it and would not have loaded it",
+                    player.getRealName(), dimensionNameOf(to), to
+                );
+                return;
+            }
+            origin(player, std::move(request));
+        }
+
+        /*
+         * Active means the engine holds a usable dimension under this id. It answers
+         * false for these ids for the same reason as above, and paths that gate on it
+         * refuse before they ever reach the registry. The override is the registry
+         * itself, so it states a fact rather than forcing a true: with no instance
+         * registered the answer stays false.
+         */
+        LL_TYPE_INSTANCE_HOOK(
+            LevelIsDimensionTypeActiveHook,
+            HookPriority::Normal,
+            Level,
+            &Level::$isDimensionTypeActive,
+            bool,
+            ::DimensionType type
+        )
+        {
+            if (origin(type)) return true;
+            if (type.mValue <= 2 || dimensionNameOf(type.mValue).empty()) return false;
+            return native::hasInstance(type.mValue);
+        }
+
         using HookReg = ll::memory::HookRegistrar<
             VanillaDimensionsConvertPointHook,
             VanillaDimensionsFromSerializedIntHook,
-            LevelStorageLoadServerPlayerDataHook>;
+            LevelStorageLoadServerPlayerDataHook,
+            LevelRequestPlayerChangeDimensionHook,
+            DimensionRegistryRegisterHook,
+            DimensionManagerGetDimensionHook,
+            LevelGetDimensionHook,
+            DimensionManagerGetOrCreateByIdHook,
+            DimensionManagerGetOrCreateByNameHook,
+            LevelGetOrCreateDimensionHook,
+            LevelIsDimensionTypeActiveHook>;
     } // namespace hook_list
 
     struct CustomDimensionManager::Impl
@@ -284,19 +569,46 @@ namespace pier::dimensions
 
         for (auto& [name, info] : CustomDimensionConfig::getConfig().dimensionList)
         {
-            if (info.dimId < 3)
+            if (info.dimId < native::firstCustomDimensionId)
             {
-                hostLogger().error(
-                    "[dim] dimension_config: '{}' has id {} while a custom dimension id starts "
-                    "at 3, so this entry will be reallocated",
-                    name, info.dimId
+                // Below the floor the id is unusable, and an entry written by an earlier
+                // build of this host is exactly that: it registered from 3, the engine
+                // read that as VanillaDimensions::Undefined(), and a teleport into it left
+                // the player standing where they were. The name and the payload are kept,
+                // the number is dropped, and the next registration allocates a real one.
+                // The chunks saved under the old number stay in the save and are not
+                // reachable from the new one: they were written into a dimension the
+                // engine never really had.
+                hostLogger().warn(
+                    "[dim] dimension_config: '{}' has id {}, below the first usable custom "
+                    "dimension id {}; the entry keeps its data and is reallocated on "
+                    "registration. Anything built in it under the old id stays in the save "
+                    "and will not appear in the new dimension",
+                    name, info.dimId, native::firstCustomDimensionId
                 );
                 continue;
             }
             if (!impl->usedIds.insert(info.dimId).second)
             {
+                // Two entries on one id. Whichever is read second loses the number, and
+                // the chunks it wrote are under an id another dimension now answers for,
+                // so this is not a formality: entering either of them can hand the engine
+                // terrain generated by the other.
+                std::string other;
+                for (auto const& [otherName, otherInfo] : CustomDimensionConfig::getConfig().dimensionList)
+                {
+                    if (otherName != name && otherInfo.dimId == info.dimId)
+                    {
+                        if (!other.empty()) other += ", ";
+                        other += otherName;
+                    }
+                }
                 hostLogger().error(
-                    "[dim] dimension_config: id {} is declared by more than one dimension, '{}' will be reallocated", info.dimId, name
+                    "[dim] dimension_config: id {} is declared by '{}' and by {}. '{}' loses the "
+                    "number and is reallocated on registration; anything it saved under id {} "
+                    "belongs to the other dimension now and will not be reachable. Sort this out "
+                    "in dimension_config.json before running either of them",
+                    info.dimId, name, other.empty() ? std::string{"another entry"} : other, name, info.dimId
                 );
                 continue;
             }
@@ -336,6 +648,8 @@ namespace pier::dimensions
         unregisterDimensionRuleHooks();
         unregisterChunkTraceHooks();
         hook_list::HookReg::unhook();
+        // Before the static destructors, whose order against the level is not defined.
+        native::forgetAllInstances();
     }
 
     CustomDimensionManager& CustomDimensionManager::getInstance()
@@ -383,8 +697,11 @@ namespace pier::dimensions
         // player who is standing in it right now.
         if (auto level = ll::service::getLevel())
         {
-            level->getDimensionFactory().mFactoryMap.erase(dimName);
+            level->getDimensionFactory().mFactoryMap.erase(native::engineNameOf(dimName));
         }
+        // The remembered instance goes with it, or every later resolution of this id would
+        // keep handing out a dimension nothing is meant to enter any more.
+        if (id >= 0) native::forgetInstance(id);
         forgetDimension(dimName);
 
         if (inConfig && !CustomDimensionConfig::saveConfigFile())
@@ -460,36 +777,62 @@ namespace pier::dimensions
         // insert_or_assign and not emplace. A second registration within one boot, or
         // one after a reload, must replace the old closure, otherwise the engine builds
         // the dimension with the closure from the previous round.
-        ll::service::getLevel()->getDimensionFactory().mFactoryMap.insert_or_assign(
-            dimName,
+        // Keyed by the engine-facing name, because DimensionFactory::create is called by
+        // the engine with the name the engine knows, and that is the qualified one.
+        // Bound here and bound again from inside native registration, right after the
+        // engine call that registers its own factory over this one.
+        std::function<OwnerPtr<Dimension>(DerivedDimensionArguments&&)> closure =
             [dimName, shared, factory = std::move(factory)](
                 DerivedDimensionArguments&& arguments) -> OwnerPtr<Dimension>
             {
+                // The id comes from the engine's definition group, not from the record:
+                // the definition is what this boot registered the name under and what
+                // registerDimension is about to be called with, while shared->id is the
+                // number from dimension_config.json, which is the previous boot's answer.
+                // A live server built the Dimension as 1001 off the record while the
+                // engine had allocated 1000, registered the object under 1000, then built
+                // a second one under 1001 when a player asked, and died in the level tick.
                 DimensionType id = shared->id;
-                if (id.mValue < 3)
+                if (auto engineId = native::engineDimensionId(dimName))
                 {
-                    // Not written back yet, which means this is a re-entrant call from
-                    // inside serverRegisterCustomDimension. The engine is asked
-                    // directly.
-                    if (auto engineId = native::engineDimensionId(dimName))
-                    {
-                        id = DimensionType{*engineId};
-                    }
-                    else
-                    {
-                        hostLogger().error(
-                            "[dim] the factory for '{}' was called before its id was fixed and "
-                            "the engine does not know it either; refusing to build the "
-                            "dimension rather than using a default that would most likely be "
-                            "the overworld, 0",
-                            dimName
-                        );
-                        return {};
-                    }
+                    id = DimensionType{*engineId};
                 }
+                if (id.mValue < native::firstCustomDimensionId)
+                {
+                    hostLogger().error(
+                        "[dim] the factory for '{}' was called before its id was fixed and "
+                        "the engine does not know it either; refusing to build the "
+                        "dimension rather than using a default that would most likely be "
+                        "the overworld, 0",
+                        dimName
+                    );
+                    return {};
+                }
+
+                // An id that already has an instance gets that instance back, not a second
+                // one. The engine calls this closure itself, on paths this host does not
+                // see, and a Dimension built here goes on to be assigned into the registry
+                // over the one the level, the players and the chunk threads are holding.
+                // Handing back the same object makes that assignment a no-op instead.
+                if (::std::shared_ptr<::Dimension> existing = native::rememberedInstanceRef(id.mValue).lock())
+                {
+                    hostLogger().info(
+                        "[dim] the factory for '{}' was called for id {} while an instance is "
+                        "already there; handing back the one in use rather than building a second",
+                        dimName, id.mValue
+                    );
+                    return OwnerPtr<Dimension>{std::move(existing)};
+                }
+                hostLogger().info("[dim] {}", pier::trf("dim.factory.building", dimName, id.mValue));
                 return factory(DimensionFactoryInfo{arguments, shared->nbt, id});
-            }
-        );
+            };
+        auto const bindFactory = [dimName, closure]()
+        {
+            ll::service::getLevel()->getDimensionFactory().mFactoryMap.insert_or_assign(
+                native::engineNameOf(dimName), closure
+            );
+        };
+        bindFactory();
 
         // 3. The id is allocated only by native registration. From BDS 26.20 the
         //    DimensionManager carries its own NameIdStore, the engine persists the id
@@ -504,9 +847,21 @@ namespace pier::dimensions
         // readers the SpecDimension base constructor uses. When the two consumers read
         // different sources the client requests subchunks outside its buffer and crashes
         // on entering.
-        auto const range = spec::dimensionHeightOf(info.nbt);
+        auto const range = spec::dimensionHeightOf(info.nbt, dimName.c_str());
+
+        // The ids other dimensions hold, which is usedIds without this one's own. Leaving
+        // its own number in there made the suggestion step over it: a dimension recorded
+        // as 1000 was handed 1001, the record was corrected to 1001, and the next boot
+        // handed it 1000 again. It changed id on every start, and the chunks it had
+        // written stayed behind under the number it no longer had.
+        auto taken = impl->usedIds;
+        if (shared->id.mValue >= native::firstCustomDimensionId)
+        {
+            taken.erase(shared->id.mValue);
+        }
         auto const nativeId = native::registerCustomDimension(
-            dimName, static_cast<int>(range.mMin), static_cast<int>(range.mMax), spec::clientGeneratorOf(info.nbt)
+            dimName, static_cast<int>(range.mMin), static_cast<int>(range.mMax), spec::clientGeneratorOf(info.nbt),
+            taken, bindFactory, shared->id.mValue
         );
 
         if (!nativeId)
@@ -534,6 +889,7 @@ namespace pier::dimensions
         }
         info.id = DimensionType{*nativeId};
         impl->usedIds.insert(*nativeId);
+        noteDimensionAvailable(*nativeId);
 
         // Written back. The closure reads this copy, so it must be updated before any
         // dimension is actually created.

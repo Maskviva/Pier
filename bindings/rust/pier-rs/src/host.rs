@@ -193,17 +193,16 @@ impl Host {
         })
     }
 
-    /// The network protocol version of the server.
+    /// The network protocol version of the server, derived from the running build's
+    /// game version.
     ///
-    /// A named accessor rather than having the caller pass `PIER_SRV_PROTOCOL_VERSION`: this
-    /// number is the first criterion a version-adapting mod uses, and the cost of the wrong
-    /// constant is receiving the BDS version string and failing to parse it, a failure far
-    /// from its cause.
+    /// **The host fails this on a version it does not know and on any pre-release
+    /// build.** An `Err` means cannot-be-determined, which must stay apart from a
+    /// protocol version of 0 (contract §5.2) — that is why this returns a `Result`.
     ///
-    /// On the ABI it is a string, converted from `SharedConstants::NetworkProtocolVersion`.
-    /// This parses it into a number and reports a parse failure truthfully rather than
-    /// returning 0: cannot-be-determined and a protocol version of 0 must stay apart
-    /// (contract §5.2).
+    /// When it fails, read [`Self::game_sem_version`] and map it yourself. Do not reach
+    /// for [`Self::level_protocol_version`]: that is the save's tag, and on any world
+    /// older than the server it is a different number.
     pub fn protocol_version(&self) -> Result<u32> {
         let raw = self.server_info(sys::PIER_SRV_PROTOCOL_VERSION)?;
         raw.trim().parse::<u32>().map_err(|e| {
@@ -211,6 +210,28 @@ impl Host {
                 "the protocol version {raw:?} the host reported does not parse as a number: {e}"
             ))
         })
+    }
+
+    /// The protocol the **level** was last written by (`LevelData::mNetworkVersion`).
+    ///
+    /// This says how old the save is. It is not what the server speaks, and using it as
+    /// such is the bug this pair of accessors was split to prevent.
+    pub fn level_protocol_version(&self) -> Result<u32> {
+        let raw = self.server_info(sys::PIER_SRV_LEVEL_PROTOCOL_VERSION)?;
+        raw.trim().parse::<u32>().map_err(|e| {
+            Error(format!(
+                "the level protocol version {raw:?} the host reported does not parse as a number: {e}"
+            ))
+        })
+    }
+
+    /// `"major.minor.patch"` of the running build, from `CurrentGameSemVersion`.
+    ///
+    /// Carry your own version→protocol table off this when [`Self::protocol_version`]
+    /// does not know a build: a Pier release should not be on the critical path for
+    /// supporting a BDS that shipped yesterday.
+    pub fn game_sem_version(&self) -> Result<String> {
+        self.server_info(sys::PIER_SRV_GAME_SEM_VERSION)
     }
 
     /// The BDS version string, from `Common::getGameVersionString`.

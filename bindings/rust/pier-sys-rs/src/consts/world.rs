@@ -345,5 +345,12 @@ pub const PIER_SYS_LOCAL_TIME: i32 = 3;
 
 /// Common::getGameVersionString
 pub const PIER_SRV_BDS_VERSION: i32 = 0;
-/// SharedConstants::NetworkProtocolVersion → string
+/// Protocol the running server speaks, from `CurrentGameSemVersion`.
+/// Fails on a version Pier does not know and on any pre-release build —
+/// treat that as "cannot be determined", never as 0.
 pub const PIER_SRV_PROTOCOL_VERSION: i32 = 1;
+/// `LevelData::mNetworkVersion`: the protocol the level was last written by.
+/// How old the save is, not what the server speaks.
+pub const PIER_SRV_LEVEL_PROTOCOL_VERSION: i32 = 2;
+/// `"major.minor.patch"` of the running build.
+pub const PIER_SRV_GAME_SEM_VERSION: i32 = 3;

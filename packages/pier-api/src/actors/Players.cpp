@@ -961,14 +961,30 @@ namespace pier::api_impl
                     using ScoreEntry =
                         std::variant<::RemoveScore, ::ChangePlayerScore, ::ChangeEntityScore, ::ChangeFakePlayerScore>;
                     std::vector<ScoreEntry> infos;
+                    // A ChangeFakePlayerScore for an id the client already knows is a
+                    // score update, not a rename, so the row keeps its old text. The id
+                    // is released first, in its own packet ahead of the changes: nothing
+                    // here can verify a client applies one packet's entries in order,
+                    // and a remove applied after the re-add blanks the row.
+                    std::vector<ScoreEntry> stale;
                     infos.reserve(lines.size() - 2);
                     int score = static_cast<int>(lines.size()) - 2;
                     for (size_t i = 2; i < lines.size(); ++i, --score)
                     {
                         // Same shape: only the rows whose text changed go out.
-                        if (sameShape && known->second.rows[i - 2] == lines[i]) continue;
+                        bool const reused = sameShape;
+                        if (reused && known->second.rows[i - 2] == lines[i]) continue;
+                        int64_t const rawId = kSidebarIdBase + static_cast<int64_t>(i - 1);
+                        if (reused)
+                        {
+                            // This id is already on the client carrying the old text.
+                            ::RemoveScore drop{};
+                            drop.mScoreboardId->mRawID = rawId;
+                            drop.mObjectiveName = objective;
+                            stale.emplace_back(std::move(drop));
+                        }
                         ::ChangeFakePlayerScore info{};
-                        info.mScoreboardId->mRawID = kSidebarIdBase + static_cast<int64_t>(i - 1);
+                        info.mScoreboardId->mRawID = rawId;
                         info.mObjectiveName = objective;
                         info.mScoreValue = score;
                         info.mFakePlayerName = lines[i].empty() ? std::string{" "} : lines[i];
@@ -976,12 +992,30 @@ namespace pier::api_impl
                     }
 
                     auto const rows = infos.size();
+                    // Send order matters: release the ids, then re-add them.
+                    if (!stale.empty())
+                    {
+                        auto drops = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
+                        if (!drops)
+                        {
+                            hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                            return false;
+                        }
+                        static_cast<SetScorePacket*>(drops.get())->mScoreInfo = std::move(stale);
+                        p->sendNetworkPacket(*drops);
+                    }
                     if (!infos.empty())
                     {
                         auto scores = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
                         if (!scores)
                         {
+                            // The removes already went out, so the rows they covered are
+                            // gone from the client. The cached state must not be updated
+                            // below or the next call will see "same shape, same text" and
+                            // send nothing, leaving those rows blank until the row count
+                            // changes. Dropping the entry forces a full rebuild instead.
                             hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                            gSidebars.erase(skey);
                             return false;
                         }
                         auto* sp = static_cast<SetScorePacket*>(scores.get());

@@ -12,8 +12,8 @@
 
 #include "mc/deps/nbt/CompoundTag.h"
 #include "mc/world/level/dimension/Dimension.h"
-#include "mc/world/level/dimension/OverworldDimension.h"
 
+#include "pier/dimensions/pack/template_pack.h"
 #include "pier/dimensions/spec/dimension_spec.h"
 
 namespace pier::dimensions
@@ -23,12 +23,12 @@ namespace pier::dimensions
     class SpecDimension final : public Dimension
     {
         spec::DimensionSpec mSpec;
-
-        /** This object seen as the overworld, for the four chunk-upgrade overrides only.
-         *  The bodies they used to call are inlined away and the overworld's are not;
-         *  OverworldDimension adds no data member over Dimension, which is the only
-         *  reason the view is safe. SpecDimension.cpp carries the full reasoning. */
-        OverworldDimension& asOverworldForUpgrade();
+        /** The pack assembled from a layers spec. MountedTemplate points into it, so it
+         *  has to outlive the generator, and the generator lives as long as this. */
+        std::shared_ptr<pack::TemplatePack const> mLayersPack;
+        /** The range the Dimension was built with. Not mSpec's, which an engine generator
+         *  overrides: see spec::dimensionHeightOf. */
+        DimensionHeightRange mHeight;
 
     public:
         SpecDimension(std::string const& name, DimensionFactoryInfo const& info);

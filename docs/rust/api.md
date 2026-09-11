@@ -85,6 +85,27 @@ back with `container.set_item(0, &stack)` and then `container.refresh()`.
 | `sim` | Simulated players. |
 | `nbt` | `NbtValue`, SNBT parsing and writing, the binary bridge. |
 
+## Server and level versions
+
+`Host` reports three version numbers and they answer different questions. Mixing them up
+is a bug that shipped once already.
+
+| | |
+|---|---|
+| `protocol_version()` | What the **running server** speaks. `Err` means cannot be determined — see below. |
+| `level_protocol_version()` | What the **save** was last written by. Says how old the world is. |
+| `game_sem_version()` | `"major.minor.patch"` of the running build. |
+
+`protocol_version()` fails on a BDS version Pier does not have in its table, and on any
+pre-release build. That is the honest answer, not a fault: the protocol constant is not
+readable on a dedicated server, so the number is derived from the game version, and a
+pre-release shares its version triple with retail while speaking a different protocol.
+
+When it fails and you still need the number, read `game_sem_version()` and map it
+yourself. Do not fall back to `level_protocol_version()` — that is the save's tag, and on
+any world older than the server it is a different and wrong number. Before 26.40.1
+`protocol_version()` returned exactly that value, which is why the two are now separate.
+
 ## Two habits worth forming
 
 **Handle the `Err`.** Everything that can fail to answer returns one, and it says why.

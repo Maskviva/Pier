@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <vector>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -72,6 +73,17 @@ namespace pier::api_impl
         {
             DepthGuard() { ++gDepth; }
             ~DepthGuard() { --gDepth; }
+        };
+
+        /** The callers of the service callbacks on this thread's stack, innermost last.
+         *  An empty string is a call made without a mod handle. thread_local for the
+         *  same reason as gDepth: two threads' calls are unrelated. */
+        thread_local std::vector<std::string> gCallers;
+
+        struct CallerGuard
+        {
+            explicit CallerGuard(std::string name) { gCallers.push_back(std::move(name)); }
+            ~CallerGuard() { gCallers.pop_back(); }
         };
 
         /** Warns about excessive depth once per service. A cycle spins as fast as the
@@ -203,6 +215,9 @@ namespace pier::api_impl
                 // absent unregisters its service in on_disable.
 
                 DepthGuard depth;
+                // The caller is alive: it is the one executing this call. Its name is
+                // copied so the provider sees a string that outlives nothing it holds.
+                CallerGuard who(caller ? caller->getName() : std::string());
                 bool ok = false;
                 try
                 {
@@ -248,6 +263,14 @@ namespace pier::api_impl
             PIER_API_GUARD_END_VOID
         }
 
+        void api_service_caller(void* ctx, PierStrSink sink)
+        {
+            PIER_API_GUARD_BEGIN
+                if (!sink || gCallers.empty() || gCallers.back().empty()) return;
+                sink(ctx, ps(gCallers.back()));
+            PIER_API_GUARD_END_VOID
+        }
+
         /** Teardown. Unregisters every service held under this mod. */
         void teardown(HostedMod* mod)
         {
@@ -273,6 +296,7 @@ namespace pier::api_impl
             api.service_unregister = &api_service_unregister;
             api.service_call = &api_service_call;
             api.service_list = &api_service_list;
+            api.service_caller = &api_service_caller;
         }
 
         spi::SlotPackReg regSlots{{"services", &fill}};

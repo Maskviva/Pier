@@ -454,3 +454,118 @@ pub fn retire_dimension(name: &str) -> Result<bool> {
     let f = crate::require_slot!(md_retire_dimension, "retiring a dimension");
     Ok(unsafe { f(s(name)) })
 }
+
+/// 由 mod 自己填地形的维度。
+///
+/// 实现这个 trait 的东西会被交到区块工作线程上，所以它是 `Send + Sync`，而且
+/// **一旦注册就不能再改**。这不是风格要求，是 `abi.h` 的 `PierGenerateChunkFn`
+/// 写死的契约：宿主并发调用它，同一坐标必须永远给同一答案，回调里不能调宿主的
+/// 任何别的槽位。
+///
+/// 一个只读自己 mount 结果的生成器天然满足这三条；一个去问世界当前状态的一条都
+/// 不满足。
+pub trait ChunkSource: Send + Sync + 'static {
+    /// 填一个区块。`materials` 有 `256 * height` 项，下标
+    /// `(x * 16 + z) * height + y`，y 从 `min_y` 起；`biomes` 有 256 项，每列一个。
+    /// 两者都是注册时那两张调色板的下标，材质 0 是空气。
+    ///
+    /// 返回 false = 这一块填不出来，宿主填空气并记一行。
+    fn fill(
+        &self,
+        chunk_x: i32,
+        chunk_z: i32,
+        min_y: i32,
+        height: i32,
+        materials: &mut [u16],
+        biomes: &mut [u16],
+    ) -> bool;
+}
+
+/// 注册时交给宿主的那一份，连同它的两张调色板。
+pub struct Terrain {
+    pub source: Box<dyn ChunkSource>,
+    /// 下标 0 必须是 `minecraft:air`：宿主拿它当「这一格没人写过」。
+    pub materials: Vec<String>,
+    pub biomes: Vec<String>,
+}
+
+unsafe extern "C" fn generate_trampoline(
+    user: *mut core::ffi::c_void,
+    request: *const sys::PierChunkRequest,
+) -> i32 {
+    // 恐慌不能穿过 FFI 边界：那边是引擎的区块流水线，展开进去是未定义行为。
+    // 抓住、返回 0，宿主会填空气并说一句——比让整个进程按未定义行为走要好。
+    let done = std::panic::catch_unwind(|| {
+        let (source, req) = unsafe { (&*(user as *const Terrain), &*request) };
+        let n = 256usize * req.height.max(0) as usize;
+        if n == 0 || req.out_materials.is_null() || req.out_biomes.is_null() {
+            return false;
+        }
+        let materials = unsafe { std::slice::from_raw_parts_mut(req.out_materials, n) };
+        let biomes = unsafe { std::slice::from_raw_parts_mut(req.out_biomes, 256) };
+        source.source.fill(
+            req.chunk_x,
+            req.chunk_z,
+            req.min_y,
+            req.height,
+            materials,
+            biomes,
+        )
+    });
+    i32::from(done.unwrap_or(false))
+}
+
+/// 注册一个由这个 mod 填地形的维度；见 `abi.h` 的 `md_add_dimension_generated`。
+///
+/// `spec_snbt` 只带 seed / height / sky，**没有 terrain 段**——宿主不再理解地形。
+///
+/// `terrain` 被泄漏成一个 `'static`：宿主会在区块线程上一直用它，而维度的生命期
+/// 由宿主决定，这一侧没有一个能安全回收它的时刻。一个维度一份，数量等于世界数量。
+pub fn add_dimension_generated(name: &str, spec_snbt: &str, terrain: Terrain) -> Result<i32> {
+    let f = crate::require_slot!(
+        md_add_dimension_generated,
+        "registering a generated dimension"
+    );
+    if terrain.materials.first().map(String::as_str) != Some("minecraft:air") {
+        return Err(Error(
+            "material palette entry 0 must be minecraft:air; the host writes it where nothing was filled".into(),
+        ));
+    }
+    let mats = terrain.materials.join("\n");
+    let bios = terrain.biomes.join("\n");
+    let leaked: &'static Terrain = Box::leak(Box::new(terrain));
+    let r = unsafe {
+        f(
+            s(name),
+            s(spec_snbt),
+            s(&mats),
+            s(&bios),
+            generate_trampoline,
+            leaked as *const Terrain as *mut core::ffi::c_void,
+        )
+    };
+    if r < 0 {
+        return Err(Error(format!(
+            "the host refused the generated dimension '{name}'; the reason is in the host log"
+        )));
+    }
+    Ok(r)
+}
+
+/// 给一个维度的圈禁规则装上格子几何；见 `md_set_dimension_cells`。
+///
+/// `cell` 是格子边长，`gap` 是格子之间的间隔，单位是方块。`cell` 传 0 表示撤掉，
+/// 之后 `PIER_DIMRULE_*_CROSS_CELL` 两条规则就没有可依据的答案了。
+pub fn set_dimension_cells(dim_id: i32, cell: i32, gap: i32) -> Result<()> {
+    let f = crate::require_slot!(
+        md_set_dimension_cells,
+        "setting a dimension's cell geometry"
+    );
+    if unsafe { f(dim_id, cell, gap) } {
+        Ok(())
+    } else {
+        Err(Error(format!(
+            "dimension {dim_id} is not one this host registered, so it has no cell geometry"
+        )))
+    }
+}

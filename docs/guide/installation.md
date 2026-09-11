@@ -30,7 +30,7 @@ Download `pier-windows-x64.zip` from the
 Start the server. The log carries a line from the host once it is ready:
 
 ```
-[host] ready, ABI v2, api table 1592 bytes
+[host] ready, ABI v2, api table 1600 bytes
 ```
 
 The byte count is whatever the host compiled and grows every time a capability is

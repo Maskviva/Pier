@@ -49,6 +49,26 @@ after every `on_load` has run. Being unreachable in that window would fail every
 that resolves its dependency during its own `on_load`.
 :::
 
+### Who is asking
+
+A request names whoever it likes. A provider that keys an owner, an account or a permission
+on a field of the request has only the sender's word for it. `service::caller()` asks the
+host instead: inside a service callback it returns the manifest name of the mod whose
+`service::call` is on the stack, `None` outside a callback or on a host without the slot.
+
+```rust
+service::register("perms:mount", |_name, req| {
+    let Some(mod_name) = service::caller() else {
+        return Err("this host cannot say who is calling; refusing to attribute".into());
+    };
+    // bind req.owner to mod_name the first time, and refuse the name from any other mod
+    Ok("{}".into())
+})?;
+```
+
+`None` deserves its own decision. Attributing to nobody and refusing are both defensible;
+attributing to an empty name is not, which is why the function never returns `Some("")`.
+
 ## The bus: tell everyone
 
 ```rust

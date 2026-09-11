@@ -299,6 +299,16 @@ namespace pier::dimensions::pack
             bool unreadable = !local.empty() && local.front().find("cannot be") != std::string::npos;
             status = unreadable ? PackStatus::BinaryUnreadable : PackStatus::Corrupt;
             for (auto& p : local) problems.push_back(std::move(p));
+            if (unreadable)
+            {
+                // The path and where it came from. `binary` is joined onto the config's
+                // own directory, and a config written with a path relative to the server
+                // root instead produces exactly this: a doubled prefix that names nothing.
+                // Saying only that a file cannot be opened leaves the reader checking a
+                // path the host never tried.
+                problems.push_back("the path tried was '" + loc.binaryPath
+                                   + "', which is the pack config's own directory joined with its 'binary' key");
+            }
             return std::nullopt;
         }
         if (hex(file->fileHash()) != loc.sha256)

@@ -11,6 +11,25 @@ from __future__ import annotations
 
 import base64
 import datetime as _dt
+import os as _os
+
+
+def _built_at() -> str:
+    """The build stamp, honouring SOURCE_DATE_EPOCH.
+
+    It is inside the hashed part of the file, so a wall-clock reading here makes every
+    build of one source a different binary. That defeats the sha256 a pack config pins:
+    an operator who rebuilds from the same source gets a hash the config no longer names,
+    and two people building the same source can never compare results. Setting
+    SOURCE_DATE_EPOCH makes the build reproducible, which is what the variable is for.
+    """
+    epoch = _os.environ.get("SOURCE_DATE_EPOCH")
+    if epoch:
+        try:
+            return _dt.datetime.fromtimestamp(int(epoch), _dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except (ValueError, OverflowError, OSError):
+            pass
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 import json
 import os
 import struct
@@ -375,7 +394,7 @@ class TemplateBuilder:
         bodies = []
         bodies.append((F.SEC_INFO, F.INFO.pack(
             tool_version_str=self.strings.add(TOOL_VERSION),
-            built_at_str=self.strings.add(_dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+            built_at_str=self.strings.add(_built_at()),
             source_name_str=self.strings.add(str(self.src.get("name", ""))),
             height_min=int(height.get("min", -512)), height_max=int(height.get("max", 320)),
             flags=F.INFO_HEIGHT_FIXED if height.get("fixed", False) else 0,
@@ -497,11 +516,46 @@ def encode_rle(cells: list, sx: int, sy: int, sz: int) -> tuple[bytes, bytes]:
     return bytes(out), struct.pack("<%dI" % len(cols), *cols)
 
 
+
+#: 顶层允许出现的键。不认识的键是错误而不是忽略：一个拼错的名字、或者从 Java 数据包
+#: 抄来的一项这边没有的设置，静静地不生效，出来的地形和作者写的不是一回事，而没有任何
+#: 一侧会说话。列表随实现走——加了一项支持才往里加一个名字。
+TEMPLATE_KEYS = {
+    "pier_pack",
+    "type",
+    "name",
+    "height",
+    "params",
+    "roles",
+    "zones",
+    "period",
+    "spans",
+    "combine",
+    "stacks",
+    "constraints",
+    "voxels",
+    "shapes",
+    "pick",
+    "confine",
+    "biome",
+}
+
+
+def _reject_unknown_keys(src, allowed, what):
+    unknown = sorted(k for k in src if k not in allowed)
+    if unknown:
+        raise SourceError(
+            f"{what} 源码里有这边不认识的键：{', '.join(unknown)}。"
+            f"拼错的名字和不支持的设置都会静静失效，所以这里拒绝而不是忽略。"
+        )
+
+
 def build_file(source_path: str, out_path: str) -> bytes:
     with open(source_path, encoding="utf-8") as f:
         src = json.load(f)
     if src.get("type", "template") != "template":
         raise SourceError("this source is not a template pack")
+    _reject_unknown_keys(src, TEMPLATE_KEYS, "模板包")
     data = TemplateBuilder(src, base_dir=os.path.dirname(os.path.abspath(source_path))).build()
     with open(out_path, "wb") as f:
         f.write(data)

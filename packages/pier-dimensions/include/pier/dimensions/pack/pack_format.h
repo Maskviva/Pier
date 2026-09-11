@@ -340,9 +340,14 @@ namespace pier::dimensions::pack
     inline constexpr std::uint32_t kSecBiomes = fourcc('B', 'I', 'O', 'M');
     inline constexpr std::uint32_t kSecRandoms = fourcc('R', 'A', 'N', 'D');
 
+    /** The two below are recorded so the bit meanings stay fixed, and are refused on
+     *  load: nothing here generates aquifers or ore veins, and a pack asking for either
+     *  would otherwise produce terrain its author did not describe, silently. */
     inline constexpr std::uint32_t kSettingsAquifers = 1u << 0;
     inline constexpr std::uint32_t kSettingsOreVeins = 1u << 1;
     inline constexpr std::uint32_t kSettingsLegacyRandom = 1u << 2;
+    /** Every bit this host acts on. A flag outside it is refused, not ignored. */
+    inline constexpr std::uint32_t kSettingsKnown = kSettingsLegacyRandom;
 
     /** SETT: one entry. height is a multiple of 16. sizeHorizontal and sizeVertical are
      *  the interpolation cell sizes in quarters, as in Java. surfaceRand names the RAND

@@ -17,35 +17,28 @@ namespace pier::dimensions
      * rather than one reading NBT while the other uses a hardcoded constant.
      */
 
-    /** The bottom is -512 and not -64, because a client does not use the geometry the
-     * server sends for a custom dimension. Under -64..320, 0..384 and 0..256 alike the
-     * client always requests subchunks -32..-24: it falls back to the largest possible
-     * world and takes the bottom as subchunk -32, y = -512. With the server validating
-     * against -64, every request is judged IndexOutOfBounds and no block data gets
-     * through. A vanilla dimension is exempt: the client knows its geometry itself and
-     * requests -4..4 there. The top stays at 320, so the dimension is 832 blocks tall,
-     * 52 subchunks.
-     * The cost is 28 extra pure-air subchunks per column, whose palette holds one entry
-     * and which serialize small while still occupying memory. Whether the engine caps
-     * dimension height is unconfirmed; setting this back to -64 restores the previous
-     * state if a boot fails or a dimension cannot be built. Chunks in an existing save
-     * were written against a bottom of -64 and no longer line up, so a test world is best
-     * deleted and recreated. */
-    inline constexpr int kWorldMinY = -512;
+    /** The bottom is the vanilla bottom, -64.
+     *
+     *  It was -512 for a while, to meet a client that requested subchunks -32..-24 for a
+     *  custom dimension: with no definition of its own to go by, the client fell back to
+     *  the largest possible world. That fallback existed because the definition the
+     *  engine hands the client never carried a height; NativeDimensions now writes the
+     *  height into it, so the workaround has nothing left to do.
+     *
+     *  It also had a cost. A dimension 52 subchunks tall is outside anything the engine
+     *  ships, and a server entering one died on a chunk worker a third of a second later,
+     *  every time, with the height the only thing that never varied across the runs. A
+     *  spec may still ask for more; nothing here forbids it or vouches for it. */
+    inline constexpr int kWorldMinY = -64;
     inline constexpr int kWorldMaxY = 320;
 
-    /**
-     * The y of the bedrock layer.
-     *
-     * With the dimension bottom moved to -512, keeping bedrock at buffer index 0, which
-     * is y=-512, would fill 576 layers with dirt between it and the surface, costing
-     * memory for nothing. Bedrock therefore stays at y=-64, the 448 blocks below it are
-     * all air, and the world a player sees is exactly as it was.
-     */
+    /** The y of the bedrock layer: the vanilla bottom, which is now also the dimension
+     *  bottom. Kept apart from kWorldMinY so a spec that lowers the bottom keeps its
+     *  bedrock where the terrain expects it. */
     inline constexpr int kBedrockY = -64;
 
     static_assert(kWorldMinY % 16 == 0, "the dimension bottom must align to a subchunk boundary");
     static_assert(kWorldMaxY % 16 == 0, "the dimension top must align to a subchunk boundary");
     static_assert(kWorldMinY < kWorldMaxY, "the dimension height range is empty");
-    static_assert(kWorldMinY < kBedrockY && kBedrockY < kWorldMaxY, "the bedrock layer must lie inside the dimension range");
+    static_assert(kWorldMinY <= kBedrockY && kBedrockY < kWorldMaxY, "the bedrock layer must lie inside the dimension range");
 } // namespace pier::dimensions

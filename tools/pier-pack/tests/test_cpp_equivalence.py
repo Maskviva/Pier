@@ -75,11 +75,13 @@ def test_cpp_matches_reference():
                         diffs = [(y + res.min_y, got[i][y], want[i][y]) for y in range(len(want[i])) if got[i][y] != want[i][y]]
                         raise AssertionError(f"{src} chunk ({cx},{cz}) column ({x},{z}) params {params}: {diffs[:4]}")
     # Refusals must agree too: a fixed parameter given another value, a bad role.
-    r = subprocess.run([exe, os.path.join(tempfile.gettempdir(), "eq_town.ptpl"), "-512", "320", "0", "0", "plot_size=32"], capture_output=True, text=True)
+    r = subprocess.run([exe, os.path.join(tempfile.gettempdir(), "eq_town.ptpl"), "-64", "320", "0", "0", "plot_size=32"], capture_output=True, text=True)
     assert r.returncode == 3 and "fixed" in r.stderr, r.stderr
-    r = subprocess.run([exe, os.path.join(tempfile.gettempdir(), "eq_town.ptpl"), "-512", "320", "0", "0", "role:nope=minecraft:stone"], capture_output=True, text=True)
+    r = subprocess.run([exe, os.path.join(tempfile.gettempdir(), "eq_town.ptpl"), "-64", "320", "0", "0", "role:nope=minecraft:stone"], capture_output=True, text=True)
     assert r.returncode == 3 and "unknown role" in r.stderr, r.stderr
-    r = subprocess.run([exe, os.path.join(tempfile.gettempdir(), "eq_town.ptpl"), "-64", "320", "0", "0"], capture_output=True, text=True)
+    # A dimension that does not contain the pack's range. -64..320 is the pack's own
+    # range now, so the probe has to be a range that really excludes it.
+    r = subprocess.run([exe, os.path.join(tempfile.gettempdir(), "eq_town.ptpl"), "0", "320", "0", "0"], capture_output=True, text=True)
     assert r.returncode == 3 and "height" in r.stderr, r.stderr
 
 
