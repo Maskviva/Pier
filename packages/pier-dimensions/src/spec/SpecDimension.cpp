@@ -302,7 +302,7 @@ namespace pier::dimensions
             {
             case GeneratorType::Overworld:
                 gen = std::make_unique<OverworldGeneratorMultinoise>(*this, LevelSeed64{seed}, biome);
-                hostLogger().info("[dim] '{}': overworld generator", mName.get());
+                hostLogger().debug("[dim] '{}': overworld generator", mName.get());
                 setStructureState(
                     *this, *gen, seed, structureSetRegistry,
                     overworldAddStructureFeatures(*gen->mStructureFeatureRegistry, seed, false, levelData.getBaseGameVersion())
@@ -310,7 +310,7 @@ namespace pier::dimensions
                 break;
             case GeneratorType::Nether:
                 gen = std::make_unique<NetherGenerator>(*this, seed, biome);
-                hostLogger().info("[dim] '{}': nether generator", mName.get());
+                hostLogger().debug("[dim] '{}': nether generator", mName.get());
                 setStructureState(
                     *this, *gen, seed, structureSetRegistry,
                     netherAddStructureFeatures(
@@ -323,7 +323,7 @@ namespace pier::dimensions
             {
                 uint s = seed;
                 gen = std::make_unique<TheEndGenerator>(*this, seed, biome);
-                hostLogger().info("[dim] '{}': end generator", mName.get());
+                hostLogger().debug("[dim] {}", pier::trf("dim.terrain.end", mName.get()));
                 setStructureState(
                     *this, *gen, seed, structureSetRegistry,
                     createEndCityFeature(gen->mStructureFeatureRegistry.get(), *this, s)
@@ -354,7 +354,7 @@ namespace pier::dimensions
             // register against next time, so a void here loses nothing.
             if (auto terrain = suppliedTerrainOf(mName.get()))
             {
-                hostLogger().info("[dim] {}", pier::trf("dim.supplied.by", mName.get(), terrain->owner));
+                hostLogger().debug("[dim] {}", pier::trf("dim.supplied.by", mName.get(), terrain->owner));
                 gen = std::make_unique<SuppliedGenerator>(*this, seed, levelData.mFlatWorldOptions,
                                                           std::move(terrain), mHeight.mMin,
                                                           mHeight.mMax - mHeight.mMin);
@@ -387,9 +387,13 @@ namespace pier::dimensions
             if (mLayersPack) mounted = pack::mountTemplate(*mLayersPack, {}, {}, mHeight.mMin, mHeight.mMax, problems);
             if (mLayersPack && mounted)
             {
-                hostLogger().info(
-                    "[dim] '{}': layered terrain, {} layer(s){}", mName.get(), l->layers.size(),
-                    l->grid ? ", on a grid" : ""
+                // The grid tail is its own key rather than a hardcoded ", on a grid":
+                // a translation that cannot move that clause has to reorder the whole
+                // sentence around it, and some languages put it first.
+                hostLogger().debug(
+                    "[dim] {}",
+                    pier::trf("dim.terrain.layers", mName.get(), l->layers.size(),
+                              l->grid ? pier::tr("dim.terrain.layers.grid") : std::string_view{})
                 );
                 gen = std::make_unique<TemplateGenerator>(*this, seed, levelData.mFlatWorldOptions, mLayersPack,
                                                           std::move(*mounted));

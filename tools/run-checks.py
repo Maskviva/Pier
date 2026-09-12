@@ -57,6 +57,7 @@ SCRIPTS = [
     ("manifest_matches_host.py", ["manifest-matches-host"]),
     ("host_loadable.py", ["host-loadable"]),
     ("ledger_covers_tree.py", ["ledger-covers-tree"]),
+    ("lang_embedded.py", ["lang-embedded"]),
     ("prose_and_fallback.py", ["comment-claims", "no-silent-fallback"]),
     ("comment_style.py", ["comment-style"]),
 ]

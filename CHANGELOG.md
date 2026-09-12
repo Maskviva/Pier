@@ -8,6 +8,75 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
 
 ## [Unreleased]
 
+### Fixed
+
+- **The lang directory never reached an installed server, so every log was English.**
+  `loadLanguages` reads `getModDir()/lang`, modpacker packages the target and
+  `manifest.json` and nothing else, so `lang/` sat in the repository and shipped in no
+  archive. Nothing reported it: a missing lang directory is not an error, and the one
+  line that would have said so only printed when keys loaded.
+
+  **The translations are now compiled in**, generated from `lang/*.lang` by
+  `tools/embed-lang.py`. A build step copying the directory was tried first and fixes
+  that instance while keeping its shape — translations only as reliable as a packaging
+  rule nobody tests. A file on disk still overrides the compiled table per key, which is
+  what that path was for.
+
+  The startup line now prints on every boot rather than only when a file was found, and
+  reports how many lines the active locale has rather than how many a file contributed.
+  Suppressing it when there is no file would leave exactly the gap this closed.
+
+- **`PIER_SRV_PROTOCOL_VERSION` reported 2169 for BDS 1.26.40, which speaks 2168.** The
+  row came from a published metadata table rather than from a server; the banner on a
+  real 1.26.40.8 reads `ProtocolVersion 2168`. A consumer mapped the 2169 back through
+  its own table and announced the server as 1.26.45 — a confident wrong answer on a
+  clean boot, which is the failure the key was rewritten to stop producing. The 1.21.93
+  row went with it: it was taken from a save file's `NetworkVersion` tag, which is the
+  same class of unchecked evidence. An unlisted version fails the key, and failing is
+  the correct outcome. 2168 covers 1.26.40 through 1.26.44 and 2169 is 1.26.45, but only
+  1.26.40 is listed — a range known second-hand is the evidence that produced the wrong
+  row in the first place.
+
+- **`tools/checks/i18n_keys.py` truncated any English value containing `{},`.** It cut
+  the value at the first `},`, which also matches a placeholder followed by a comma, so
+  `... as id {}, registry id {}` was read as having one placeholder. A correct
+  translation was then reported as having too many. It now collects the C++ string
+  literals properly.
+
+### Added
+
+- Seven more log keys: the per-dimension boot lines an operator reads to answer "did my
+  world come up the way I wrote it" (`dim.height.set`, `dim.registered`, `dim.ready`,
+  `dim.terrain.layers`, `dim.terrain.end`), and the host's own ready line
+  (`host.ready`). The grid clause of the layers line is its own key rather than a
+  hardcoded tail, because a translation that cannot move that clause has to reorder the
+  sentence around it.
+
+
+### Added
+
+- **Three events that used to need iListenAttentively are hooked here.**
+  `PlayerEditSignEvent`, `PlayerOperatedItemFrameEvent` and
+  `PlayerRequestItemActionEvent` moved from `ALL_FROM_ILA` to `ALL_SYNTHETIC`.
+
+  Each closes a hole rather than adding a convenience. Placing a sign is a block place
+  and was covered; editing the text of one already there was neither a place nor an
+  interact. Taking an item out of a frame was covered by `PlayerAttackItemFrameEvent`;
+  rotating it was not. Opening an enchanting table is an interact and was covered;
+  everything after that arrives on the item-stack request path and was not.
+
+  Taking them off another mod is deliberate. A protection feature that only works when a
+  third-party mod happens to be installed is not a protection feature, and the version
+  matrix was already BDS × LeviLamina without adding a third pin that this repository
+  cannot fix when it lags a BDS release.
+
+  `PlayerRequestItemActionEvent` reports only the `Craft*` action types, as an `action`
+  word (`craft` / `creative` / `anvil` / `grindstone` / `loom`) rather than the engine's
+  enumerator number, which shifts when Mojang inserts a type. Take, place and swap are
+  not reported: several arrive per click, and a cross-mod dispatch on that path would
+  cost more than it protects.
+
+
 ## [26.40.1] - 2026-09-11
 
 Built for BDS 1.26.40 and LeviLamina 26.40.0. Two fixes, both of the same shape: a value

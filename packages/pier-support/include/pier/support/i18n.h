@@ -26,6 +26,12 @@ namespace pier
      *  off disk, for the one startup line that reports it. */
     std::size_t loadLanguages(std::string const& langDir);
 
+    /** How many lines the active locale has, counting the compiled-in translations and
+     *  anything a file on disk added. This is what the startup line reports: an operator
+     *  asking "is my server translated" is asking about this number, not about how many
+     *  a file contributed. */
+    std::size_t activeKeyCount();
+
     /** The current locale code, as the engine reports it. */
     std::string_view localeCode();
 

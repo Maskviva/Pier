@@ -801,6 +801,9 @@ false, nullptr or NotPossibleHere, so no half-updated state is created.
 | `packages/pier-hooks/src/player/EatEvent.cpp` | `PlayerUseItemCompleteEvent`, hooking `Player::completeUsingItem`, observation only |
 | `packages/pier-hooks/src/protect/ArmorStandEvent.cpp` | `ArmorStandSwapItemEvent`, hooking `ArmorStand::_trySwapItem`, protecting the equipment on an armor stand |
 | `packages/pier-hooks/src/protect/ItemFrameEvent.cpp` | `PlayerAttackItemFrameEvent`, hooking `ItemFrameBlock::$attack`, protecting the item in an item frame |
+| `packages/pier-hooks/src/protect/ItemFrameRotateEvent.cpp` | `PlayerOperatedItemFrameEvent`, hooking `ItemFrameBlock::use`, the rotate half of the item frame pair |
+| `packages/pier-hooks/src/protect/SignEditEvent.cpp` | `PlayerEditSignEvent`, hooking `SignBlockActor::$_playerCanUpdate`, the text on a sign already placed |
+| `packages/pier-hooks/src/protect/ItemActionEvent.cpp` | `PlayerRequestItemActionEvent`, hooking `ItemStackNetManagerServer::handleRequest`, the craft / anvil / grindstone / loom actions |
 | `packages/pier-hooks/src/protect/RideEvent.cpp` | `ActorRideEvent` appended, for a non-player passenger, sharing the detour with `PlayerRideEvent` |
 | `packages/pier-hooks/src/protect/PressurePlateEvent.cpp` | `ActorStepOnPressurePlateEvent` appended, for a non-player actor, with its own throttle table |
 
@@ -898,6 +901,7 @@ fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotG
 | `lang/zh_CN.lang` | the Chinese lines for the keys an operator sees on a normal boot |
 | `packages/pier-support/include/pier/support/i18n.h` | the key lookup and the fallback chain for the host's own log lines |
 | `packages/pier-support/src/I18n.cpp` | the built-in English table, the `.lang` reader, and the locale the engine reports |
+| `packages/pier-support/src/LangShipped.inc` | the shipped translations, generated from `lang/*.lang` by `tools/embed-lang.py` so packaging cannot drop them |
 | `packages/pier-dimensions/include/pier/dimensions/gen/supplied_generator.h` | the palettes and callback of a dimension a mod fills, and the generator that asks it per chunk |
 | `packages/pier-dimensions/src/gen/SuppliedGenerator.cpp` | resolving both palettes once against the live registries, the per-chunk call with its bounds checks and its refusal to let a throw cross back, and the name-to-terrain table a supplied dimension is built from |
 | `packages/pier-dimensions/include/pier/dimensions/pack/pack_locate.h` | from a config path to a verified binary: the path policy, the four keys, the hash and kind checks, and the cache of decoded packs |

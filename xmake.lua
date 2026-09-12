@@ -127,4 +127,26 @@ target("Pier")
         add_packages("levilamina")
     end
     add_packages("prelink", "zlib")
+
+    -- The lang directory has to land next to the dll.
+    --
+    -- `loadLanguages` reads `getModDir()/lang`, and modpacker packages the target plus
+    -- manifest.json and nothing else. So `lang/` sat in the repository, shipped in no
+    -- archive, and the host fell back to built-in English on every server — with no
+    -- error anywhere, because a missing lang directory is not an error. The symptom was
+    -- a boot log in English on a Chinese server, and the one line that would have said
+    -- so (`lang.loaded`) only prints when keys actually load.
+    --
+    -- after_build rather than an install rule: the release archive is `bin/`, so the
+    -- files have to be there by the time the build finishes, not at install time.
+    after_build(function (target)
+        local src = path.join(os.projectdir(), "lang")
+        if not os.isdir(src) then
+            raise("lang/ is missing from the source tree; the host would ship English-only")
+        end
+        local dest = path.join(path.directory(target:targetfile()), "lang")
+        os.mkdir(dest)
+        os.cp(path.join(src, "*.lang"), dest)
+        print("pier: copied lang/ to " .. dest)
+    end)
 target_end()

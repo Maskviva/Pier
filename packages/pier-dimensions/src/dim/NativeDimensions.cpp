@@ -25,6 +25,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 #include "mc/world/level/dimension/VanillaDimensions.h"
 
+#include "pier/support/i18n.h"
 #include "pier/support/log.h"
 
 namespace pier::dimensions
@@ -108,7 +109,11 @@ namespace pier::dimensions
                     );
                     return;
                 }
-                hostLogger().info(
+                // debug: it fires for every custom dimension on every boot, because a
+                // definition the engine has not seen before always disagrees. The case
+                // worth an operator's attention is the one the generator cannot honour,
+                // and that is already a warn above.
+                hostLogger().debug(
                     "[dim] '{}': the engine's definition says height {}..{}, generator {}; the spec "
                     "asks for {}..{}, generator {}",
                     name, d.mHeightMinimum, d.mHeightMaximum, static_cast<int>(d.mGeneratorType),
@@ -147,7 +152,7 @@ namespace pier::dimensions
                 );
                 return false;
             }
-            hostLogger().info("[dim] '{}': definition set to height {}..{}", name, minY, maxY);
+            hostLogger().debug("[dim] {}", pier::trf("dim.height.set", name, minY, maxY));
             return true;
         }
 
@@ -978,9 +983,8 @@ namespace pier::dimensions
                     // Remembered before anything else can ask: the next question about this
                     // id arrives on the chunk threads within the millisecond.
                     rememberInstance(id, keep);
-                    hostLogger().info(
-                        "[dim] '{}' built through the factory and registered as id {}, registry id {}",
-                        name, id, builtRegistryId
+                    hostLogger().debug(
+                        "[dim] {}", pier::trf("dim.registered", name, id, builtRegistryId)
                     );
                     hostLogger().debug("[dim] the level now holds: {}", census);
                     return ptr;

@@ -83,7 +83,10 @@ namespace pier::dimensions
                 std::lock_guard lock{mtx};
                 if (!announced.insert(name).second) return;
             }
-            hostLogger().info("[dim] '{}' ready with id {}", name, id);
+            // The one info line per dimension. The steps that led here are at debug:
+            // they are read when something went wrong, and printing them on every boot
+            // trains an operator to skip the whole [dim] block, warnings included.
+            hostLogger().info("[dim] {}", pier::trf("dim.ready", name, id));
         }
     } // namespace
 
@@ -273,7 +276,8 @@ namespace pier::dimensions
                 std::lock_guard lock{mtx};
                 if (!said.insert(id).second) return;
             }
-            hostLogger().info(
+            // debug: this narrates a path that works, once per dimension per boot.
+            hostLogger().debug(
                 "[dim] {}", pier::trf("dim.resolve.host_registry", dimensionNameOf(id), id)
             );
         }
@@ -823,7 +827,11 @@ namespace pier::dimensions
                     );
                     return OwnerPtr<Dimension>{std::move(existing)};
                 }
-                hostLogger().info("[dim] {}", pier::trf("dim.factory.building", dimName, id.mValue));
+                            // debug, not info. Seven lines per dimension on every boot say the same
+            // thing every time, and an operator who starts skipping them skips their
+            // neighbours too -- including the warnings. The one line that reports the
+            // outcome is at dim.ready; these are for someone reading a bug report.
+            hostLogger().debug("[dim] {}", pier::trf("dim.factory.building", dimName, id.mValue));
                 return factory(DimensionFactoryInfo{arguments, shared->nbt, id});
             };
         auto const bindFactory = [dimName, closure]()

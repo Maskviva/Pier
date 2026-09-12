@@ -53,16 +53,20 @@ namespace pier
             // Languages before the ready line, so that line can already be translated
             // and so a broken lang directory is reported by a host that is otherwise up.
             auto langDir = (getSelf().getModDir() / "lang").string();
-            auto keys = pier::loadLanguages(langDir);
-            if (keys > 0)
-            {
-                logger.info("[host] {}", pier::trf("lang.loaded", pier::localeCode(), keys, langDir));
-            }
+            auto fromDisk = pier::loadLanguages(langDir);
+            // Printed every boot, not only when a file was found. The translations are
+            // compiled in now, so "no file on disk" is the normal case; suppressing the
+            // line there would leave the same gap this whole path was fixed to close --
+            // an operator with an English log and nothing saying why.
+            logger.info("[host] {}",
+                        pier::trf("lang.loaded", pier::localeCode(), pier::activeKeyCount(),
+                                  fromDisk > 0 ? std::string_view{langDir}
+                                               : pier::tr("lang.source.builtin")));
             // The build stamp is on this line because the question it answers comes up
             // on every report: whether the binary running is the one that was just
             // changed. A log that cannot answer it costs a round trip each time.
-            logger.info("[host] ready, ABI v{}, api table {} bytes, built {} {}", PIER_ABI_VERSION,
-                        sizeof(PierApi), __DATE__, __TIME__);
+            logger.info("[host] {}", pier::trf("host.ready", PIER_ABI_VERSION, sizeof(PierApi),
+                                              __DATE__, __TIME__));
             return true;
         }
 

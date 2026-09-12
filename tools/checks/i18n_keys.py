@@ -20,13 +20,46 @@ LANGS = ROOT / "lang"
 
 
 def builtin_keys():
-    """key -> placeholder count, from the compiled-in English table."""
+    """key -> placeholder count, from the compiled-in English table.
+
+    The value is read by collecting the C++ string literals that follow the key, which
+    is more work than cutting at the first `},` — and the extra work is the point. A
+    value ending in a placeholder before a comma, `... id {}, registry id {}`, contains
+    `},` inside itself, so cutting there truncates the value and undercounts its
+    placeholders. The symptom was a correct translation reported as having too many
+    placeholders, which reads as a bug in the .lang file and is not one.
+    """
     text = BUILTIN.read_text(encoding="utf-8")
     body = text.split("builtinEnglish()", 1)[-1]
     out = {}
-    parts = re.split(r'\{"([a-z0-9_.]+)",', body)
-    for i in range(1, len(parts), 2):
-        out[parts[i]] = parts[i + 1].split("},")[0].count("{}")
+    for m in re.finditer(r'\{"([a-z0-9_.]+)"\s*,', body):
+        key = m.group(1)
+        i = m.end()
+        value = []
+        # Adjacent literals are one string in C++, so keep taking them. Stop at the `}`
+        # that closes this entry, which is the first one outside a literal.
+        while i < len(body):
+            c = body[i]
+            if c == '"':
+                i += 1
+                while i < len(body):
+                    if body[i] == "\\":
+                        i += 2
+                        continue
+                    if body[i] == '"':
+                        i += 1
+                        break
+                    value.append(body[i])
+                    i += 1
+                continue
+            if c == "}":
+                break
+            if c in " \t\r\n":
+                i += 1
+                continue
+            # Anything else on this line is not part of the value.
+            break
+        out[key] = "".join(value).count("{}")
     return out
 
 

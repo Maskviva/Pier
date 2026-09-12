@@ -232,11 +232,14 @@ namespace pier::api_impl
                 int patch;
                 int32_t protocol;
             };
-            // Only versions actually confirmed against a running server. A row nobody
-            // checked is worth less than no row at all, because no row fails loudly.
+            // Rows come from a server's own startup banner, never from a published
+            // table: 1.26.40 was entered as 2169 from one of those, and a consumer
+            // mapped it back and announced the server as 1.26.45 on a clean boot.
+            // 2168 is reported to cover 1.26.40 through 1.26.44 and 2169 to be 1.26.45,
+            // but only 1.26.40 is listed, because only it has been seen on a banner
+            // here and a second-hand range is the evidence that produced the bad row.
             static constexpr Row kKnown[] = {
-                {1, 21, 93, 819},
-                {1, 26, 40, 2169}, // retail; the beta of the same triple is 2168
+                {1, 26, 40, 2168},
             };
             for (auto const& row : kKnown)
             {

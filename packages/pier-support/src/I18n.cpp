@@ -1,13 +1,22 @@
 /**
  * I18n.cpp: the key table and the two files behind it.
  *
- * The built-in English is a static table compiled in, so a host with no lang directory
- * still says everything it has to say. A file on disk adds to it and overrides it per
- * key -- an operator translating half the lines gets half translated, not a file that
- * has to be complete before it is useful.
+ * Three layers, each overriding the one under it: built-in English, the shipped
+ * translations compiled in from lang/*.lang by tools/embed-lang.py, then a .lang file
+ * on disk.
+ *
+ * The middle layer is compiled rather than read because it used to be the top one and
+ * never arrived: packaging carried the target and the manifest, lang/ stayed in the
+ * repository, and every server ran on English with nothing reporting why. A build step
+ * copying the directory fixes that instance and keeps its shape -- translations only as
+ * reliable as a packaging rule nobody tests.
+ *
+ * Disk stays, per key rather than per file: an operator translating half the lines gets
+ * half overridden, not a file that must be complete before it is useful.
  */
 #include "pier/support/i18n.h"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -27,10 +36,39 @@ namespace pier
             std::string locale = "en_US";
         };
 
+        /** A locale code as a map key: lowercased, and `-` folded to `_`.
+         *
+         *  The engine reports `zh-CN` and a .lang file is called `zh_CN.lang`, after
+         *  Minecraft's own. Keying the table on either spelling makes the other miss,
+         *  and the miss is silent: the lookup falls through to English and the startup
+         *  line reports zero keys for a language whose file is sitting right there. */
+        std::string localeKey(std::string_view code)
+        {
+            std::string out;
+            out.reserve(code.size());
+            for (char c : code)
+            {
+                out.push_back(c == '-' ? '_' : static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+            }
+            return out;
+        }
+
         Table& table()
         {
             static Table t;
             return t;
+        }
+
+        /** The translations this host ships with, generated from lang/*.lang.
+         *
+         *  Returned by value: it is built once into the table at load and never read
+         *  again, and a static would keep a second copy alive for the process. */
+        std::map<std::string, std::map<std::string, std::string, std::less<>>, std::less<>>
+        shippedTranslations()
+        {
+            return
+#include "LangShipped.inc"
+                ;
         }
 
         /** The lines this host ships with. English, because it is the one language the
@@ -57,6 +95,17 @@ namespace pier
                  "registered it. The chunks already generated stay where they are; the world is void until "
                  "that mod is loaded again"},
                 {"lang.loaded", "language {}: {} key(s) from {}"},
+                {"lang.source.builtin", "the lines shipped with this host"},
+                // Every boot prints these once per custom dimension, and an operator
+                // reads them to answer "did my world come up the way I wrote it".
+                // That is the bar in i18n.h, so they carry keys.
+                {"dim.height.set", "'{}': definition set to height {}..{}"},
+                {"dim.registered", "'{}' built through the factory and registered as id {}, registry id {}"},
+                {"dim.ready", "'{}' ready with id {}"},
+                {"dim.terrain.layers", "'{}': layered terrain, {} layer(s){}"},
+                {"dim.terrain.layers.grid", ", on a grid"},
+                {"dim.terrain.end", "'{}': end generator"},
+                {"host.ready", "ready, ABI v{}, api table {} bytes, built {} {}"},
             };
             return m;
         }
@@ -97,20 +146,41 @@ namespace pier
     {
         auto& t = table();
         std::lock_guard<std::mutex> g(t.lock);
+        // Kept as the engine spells it, for the startup line; the map is keyed on
+        // localeKey() so the two spellings cannot miss each other.
         t.locale = std::string{ll::i18n::getDefaultLocaleCode()};
-        t.byLocale["en_US"] = builtinEnglish();
+        t.byLocale[localeKey("en_US")] = builtinEnglish();
+        // Compiled-in translations go on before the disk pass, so a file on disk
+        // overrides them key by key rather than having to restate the whole language.
+        for (auto& [code, lines] : shippedTranslations())
+        {
+            auto& into = t.byLocale[localeKey(code)];
+            for (auto& [key, value] : lines) into[key] = value;
+        }
 
         std::size_t fromDisk = 0;
+        // Counted after the disk pass, below: what an operator wants from the startup
+        // line is how many lines his server actually has, not how many a file added.
         std::error_code ec;
         std::filesystem::path dir{langDir};
+        // No directory is the normal case now: the shipped translations are already in
+        // the table above, and 0 only means "nothing came off disk".
         if (!std::filesystem::is_directory(dir, ec)) return 0;
         for (auto const& entry : std::filesystem::directory_iterator(dir, ec))
         {
             if (entry.path().extension() != ".lang") continue;
             auto code = entry.path().stem().string();
-            fromDisk += readFile(entry.path(), t.byLocale[code]);
+            fromDisk += readFile(entry.path(), t.byLocale[localeKey(code)]);
         }
         return fromDisk;
+    }
+
+    std::size_t activeKeyCount()
+    {
+        auto& t = table();
+        std::lock_guard<std::mutex> g(t.lock);
+        auto it = t.byLocale.find(localeKey(t.locale));
+        return it == t.byLocale.end() ? 0 : it->second.size();
     }
 
     std::string_view localeCode()
@@ -129,7 +199,7 @@ namespace pier
         // The chain, in order. Each step is a whole locale, not a merge: a half-finished
         // translation falls back per key, which is what makes it usable while it is being
         // written.
-        for (auto const& locale : {std::string_view{t.locale}, std::string_view{"en_US"}})
+        for (auto const& locale : {localeKey(t.locale), localeKey("en_US")})
         {
             auto l = t.byLocale.find(locale);
             if (l == t.byLocale.end()) continue;
