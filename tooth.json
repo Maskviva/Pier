@@ -31,7 +31,7 @@
             {
               "type": "dir",
               "src": "Pier/",
-              "dest": "plugins/pier/"
+              "dest": "plugins/Pier/"
             }
           ]
         }
@@ -53,7 +53,7 @@
             {
               "type": "dir",
               "src": "Pier/",
-              "dest": "mods/pier/"
+              "dest": "mods/Pier/"
             }
           ]
         }
