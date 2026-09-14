@@ -30,7 +30,7 @@
           "placements": [
             {
               "type": "dir",
-              "src": ".",
+              "src": "Pier/",
               "dest": "plugins/pier/"
             }
           ]
@@ -52,7 +52,7 @@
           "placements": [
             {
               "type": "dir",
-              "src": ".",
+              "src": "Pier/",
               "dest": "mods/pier/"
             }
           ]
