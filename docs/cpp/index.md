@@ -78,9 +78,8 @@ PIER_MAIN_EXPORT bool pier_main(PierApi const* api, PierModHandle self,
 Three things in there are not optional.
 
 **`PIER_MAIN_EXPORT`, not a bare `extern "C"`.** Naming the symbol is not the same as
-exporting it. A Windows DLL exports nothing unless asked, so a plain declaration builds
-cleanly and is then refused at load with "does not export pier_main". An ELF build exports
-it by default, so testing on Linux does not catch this.
+exporting it. A DLL exports nothing unless asked, so a plain declaration builds cleanly and
+is then refused at load with "does not export pier_main".
 
 **The four header scalars.** The host reads `struct_size` to know how much of your table
 it may touch, which is the mirror of what you do to its table. Leaving them zero means the

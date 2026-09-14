@@ -2,6 +2,7 @@
  * handed out. */
 #include "pier/dimensions/pack/pack_reader.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -87,11 +88,45 @@ namespace pier::dimensions::pack
                 problems.push_back("section " + tagName(e.type) + " fails its hash");
                 return std::nullopt;
             }
-            for (auto const& o : f.mTable)
+        }
+
+        /* Duplicate tags and overlapping spans, both by sorting rather than by comparing
+         * every entry with every other. The section count is bounded only by the file
+         * length and a zero-length section is legal, so a 100MB pack can declare about
+         * 1.8 million of them; the pair-by-pair form is 3e12 comparisons and turns
+         * opening one file into a hung startup.
+         *
+         * The overlap half is new here. rsw-pack has refused overlapping sections since
+         * it was written and this side did not, which is the reader difference the
+         * header of TemplatePack.cpp says must never exist: every section is decoded
+         * independently, so an overlap means one run of bytes with two meanings, and
+         * each of the two passing its own hash says nothing about that. Zero-length
+         * sections sit out, they cover no byte and overlap nothing. */
+        {
+            std::vector<std::uint32_t> tags;
+            tags.reserve(f.mTable.size());
+            for (auto const& e : f.mTable) tags.push_back(e.type);
+            std::sort(tags.begin(), tags.end());
+            auto const dup = std::adjacent_find(tags.begin(), tags.end());
+            if (dup != tags.end())
             {
-                if (&o != &e && o.type == e.type)
+                problems.push_back("section " + tagName(*dup) + " appears twice");
+                return std::nullopt;
+            }
+
+            std::vector<SectionEntry const*> spans;
+            spans.reserve(f.mTable.size());
+            for (auto const& e : f.mTable)
+                if (e.length) spans.push_back(&e);
+            std::sort(spans.begin(), spans.end(), [](SectionEntry const* x, SectionEntry const* y) {
+                return x->offset < y->offset;
+            });
+            for (std::size_t i = 1; i < spans.size(); ++i)
+            {
+                if (spans[i]->offset < spans[i - 1]->offset + spans[i - 1]->length)
                 {
-                    problems.push_back("section " + tagName(e.type) + " appears twice");
+                    problems.push_back("section " + tagName(spans[i]->type) + " overlaps section "
+                                       + tagName(spans[i - 1]->type));
                     return std::nullopt;
                 }
             }

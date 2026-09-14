@@ -18,11 +18,19 @@
 #include <string>
 #include <unordered_map>
 
+#include "pier/support/config.h"
+
 namespace pier::hooks
 {
-    /** 250 ms, which is 5 ticks. Long enough to matter, short enough to go
-     *  unnoticed. */
-    inline constexpr long long kDecisionTtlMs = 250;
+    /** The window, from hooks.decision_ttl_ms. The default is 250 ms, which is 5 ticks:
+     *  long enough to matter, short enough to go unnoticed. 0 means every tick really
+     *  dispatches, which is the cost this cache exists to avoid and is offered only so
+     *  that a claim mod under test sees each call.
+     *
+     *  Read per lookup rather than cached in a static. The value is installed once
+     *  during load and never changes afterwards, so this is a field read behind an
+     *  inlined call, and a static would only make the first call order matter. */
+    inline long long decisionTtlMs() { return static_cast<long long>(config().decisionTtlMs); }
 
     struct ThrottledDecision
     {
@@ -61,7 +69,7 @@ namespace pier::hooks
         if (it == cache.end()) return false;
         auto const& c = it->second;
         if (c.x != x || c.y != y || c.z != z || c.dim != dim) return false;
-        if (now - c.atMs >= kDecisionTtlMs) return false;
+        if (now - c.atMs >= decisionTtlMs()) return false;
         out = c.cancelled;
         return true;
     }

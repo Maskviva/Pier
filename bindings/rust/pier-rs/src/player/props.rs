@@ -16,6 +16,9 @@ accessors! { Player;
     /// `address:port`. IPv6 has the same shape, so it must not be split on the last colon.
     str  ip_and_port                = PIER_PSTR_IP_AND_PORT;
     str  locale_code                = PIER_PSTR_LOCALE_CODE;
+    /// `{x,y,z,dim}` as SNBT: where this player would respawn. Never empty -- a player
+    /// with no bed reports the world spawn, and the two cannot be told apart.
+    str  respawn_pos                = PIER_PSTR_RESPAWN_POS;
     /// The name shown above the head, which can be changed. An identity decision uses
     /// [`Player::xuid`].
     str  name_tag                   = PIER_PSTR_NAME_TAG;

@@ -898,10 +898,27 @@ fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotG
 | `packages/pier-dimensions/include/pier/dimensions/pack/layers_pack.h` | a layers spec assembled into a template pack in memory, so the inline terrain kind needs no tool and no file |
 | `packages/pier-dimensions/src/pack/LayersPack.cpp` | the mapping `pierpack/from_layers.py` performs offline, with every expression a constant because the inline spec names concrete numbers |
 | `tools/checks/i18n_keys.py` | that a `.lang` file names only keys the code has, with matching placeholder counts |
+| `packages/pier-hooks/src/protect/SignEvent.cpp` | the synthetic, cancellable PlayerEditSignEvent, through the engine's own `_playerCanUpdate` gate |
+| `packages/pier-hooks/src/protect/ItemFrameOperateEvent.cpp` | the synthetic, cancellable PlayerOperatedItemFrameEvent: the right click that rotates a framed item |
+| `packages/pier-api/src/core/Exports.cpp` | the three C symbols a mod outside Pier calls the service registry through |
+| `docs/guide/bridge.md` | how a mod outside Pier calls a Pier mod's services, and why the caller is anonymous |
+| `docs/guide/configuration.md` | every setting `config.json` holds, what each one is wired to, and what a file that cannot be read costs |
+| `docs/zh/guide/configuration.md` | the Chinese translation of that page |
+| `bindings/bridge/pier-bridge.h` | the bridge SDK: header-only, binds those symbols, for a mod that is not a Pier mod |
+| `docs/zh/guide/bridge.md` | the Chinese translation of the bridge page |
+| `examples/hello-bridge/manifest.json` | a `type: native` manifest that depends on pier, which is what orders the two |
+| `examples/hello-bridge/src/Main.cpp` | a native LeviLamina mod opening the bridge in enable() and handling an absent Pier as normal |
+| `examples/hello-bridge/xmake.lua` | the build, with no link against Pier: the header binds its symbols at runtime |
+| `examples/hello-bridge/README.md` | what the example shows, and where the bridge stops |
+| `lang/en_US.lang` | the English lines an operator edits and a translator copies; the build copies it next to the dll |
 | `lang/zh_CN.lang` | the Chinese lines for the keys an operator sees on a normal boot |
 | `packages/pier-support/include/pier/support/i18n.h` | the key lookup and the fallback chain for the host's own log lines |
-| `packages/pier-support/src/I18n.cpp` | the built-in English table, the `.lang` reader, and the locale the engine reports |
-| `packages/pier-support/src/LangShipped.inc` | the shipped translations, generated from `lang/*.lang` by `tools/embed-lang.py` so packaging cannot drop them |
+| `packages/pier-support/src/I18n.cpp` | the built-in English table, the `.lang` reader, and resolving `auto` against the engine |
+| `packages/pier-support/include/pier/support/config.h` | the settings `config.json` holds, and a problem carried as a key so it can be said in the operator's language |
+| `packages/pier-support/src/Config.cpp` | the seed text, the typed reads with their clamps, and dropping a key it does not read |
+| `packages/pier-support/include/pier/support/lang_files.h` | `lang/en_US.lang` as data, because the fallback of the chain has to answer with no file on disk |
+| `packages/pier-support/src/LangFiles.cpp` | that file line by line, byte-checked against `lang/en_US.lang` by `lang-embedded` |
+| `tools/checks/lang_embedded.py` | that the embedded copy has not drifted from `lang/en_US.lang`, which is the one way holding the text twice fails |
 | `packages/pier-dimensions/include/pier/dimensions/gen/supplied_generator.h` | the palettes and callback of a dimension a mod fills, and the generator that asks it per chunk |
 | `packages/pier-dimensions/src/gen/SuppliedGenerator.cpp` | resolving both palettes once against the live registries, the per-chunk call with its bounds checks and its refusal to let a throw cross back, and the name-to-terrain table a supplied dimension is built from |
 | `packages/pier-dimensions/include/pier/dimensions/pack/pack_locate.h` | from a config path to a verified binary: the path policy, the four keys, the hash and kind checks, and the cache of decoded packs |
@@ -942,6 +959,4 @@ fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotG
 | `tools/pier-pack/tests/test_vol_equivalence.py` | the C++ volume layer against the Python reference, blocks and biomes, on two fixtures and two seeds |
 | `tools/pier-pack/cpp_check/vol_main.cpp` | the driver the volume equivalence test compiles |
 | `tools/pier-pack/pierpack/from_datapack.py` | assembles a volume source from a Java datapack directory: dimension, noise settings, density functions, noises, biome temperatures |
-| `docs/guide/terrain-packs.md` | the guide to the three terrain kinds, the pack layout, the config keys, parameter kinds and the mod-side calls |
 | `tools/pier-pack/README.md` | how to build, inspect and convert packs, and how to run the tests |
-| `docs/zh/guide/terrain-packs.md` | the Chinese mirror of the terrain packs guide |

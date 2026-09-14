@@ -73,8 +73,8 @@ PIER_MAIN_EXPORT bool pier_main(PierApi const* api, PierModHandle self,
 里面有三处不是可选的。
 
 **`PIER_MAIN_EXPORT`，不是裸的 `extern "C"`。** 给符号起名不等于把它导出。
-Windows 的 DLL 不主动要求就什么都不导出，光声明能干净编过，加载时才被拒，报
-"does not export pier_main"。ELF 构建默认导出它，所以在 Linux 上测不出来。
+DLL 不主动要求就什么都不导出，光声明能干净编过，加载时才被拒，报
+"does not export pier_main"。
 
 **那四个头部标量。** 宿主读 `struct_size` 才知道能碰你这张表的多少，这正是你对它的表做的事情的镜像。
 留零就等于告诉宿主这张表长度为零。

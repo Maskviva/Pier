@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <string>
+#include <type_traits>
 // ll/api/utils/StacktraceUtils.h, reached through ErrorUtils.h below, names
 // std::thread::id without including <thread> in 26.32. Pulling it in first is the
 // smallest fix on this side of the boundary.
@@ -16,12 +17,19 @@
 
 #include "ll/api/utils/ErrorUtils.h"
 
+#include "mc/deps/nbt/ByteTag.h"
 #include "mc/deps/nbt/CompoundTag.h"
+#include "mc/deps/nbt/CompoundTagVariant.h"
+#include "mc/deps/nbt/DoubleTag.h"
+#include "mc/deps/nbt/FloatTag.h"
+#include "mc/deps/nbt/Int64Tag.h"
 #include "mc/platform/UUID.h"
 #include "mc/world/actor/player/Player.h"
 
 #include "pier/host/hosted_mod.h"
 #include "pier/host/spi.h"
+#include "pier/support/config.h"
+#include "pier/support/i18n.h"
 #include "pier/support/log.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
@@ -79,6 +87,39 @@ namespace pier::hooks
         }
 
         /**
+         * The numeric value of a tag, for every type is_number() admits.
+         *
+         * Not static_cast<double>(v), which is silently wrong for four of the six.
+         * CompoundTagVariant::operator T() returns T{} when the held tag does not convert
+         * to T, and ByteTag, ShortTag, IntTag and Int64Tag all constrain their conversion
+         * operator to std::integral, so all four read back as 0.0 while is_number()
+         * answers true. Event::cancel writes NbtValue::Byte(1), so every cancel from every
+         * synthetic event was read as zero and dropped after the mod had told the player
+         * it blocked the action. Integers are read as int64 and floats as double, each
+         * through the conversion its own tag offers.
+         */
+        double numberOf(CompoundTagVariant const& v)
+        {
+            if (v.is_number_integer()) return static_cast<double>(static_cast<std::int64_t>(v));
+            if (v.is_number_float()) return static_cast<double>(v);
+            return 0.0;
+        }
+
+        // What the two branches above rest on, stated so a later edit that collapses them
+        // back into one cast stops at compile time rather than at a protection that
+        // reports a block and does not block. The integer tags convert to an integer and
+        // the float tags to a floating point value; neither set converts to both, which is
+        // why one cast cannot serve them.
+        static_assert(std::is_convertible_v<::ByteTag, std::int64_t>,
+                      "numberOf reads integer tags as int64");
+        static_assert(std::is_convertible_v<::Int64Tag, std::int64_t>,
+                      "numberOf reads integer tags as int64");
+        static_assert(std::is_convertible_v<::DoubleTag, double>,
+                      "numberOf reads floating point tags as double");
+        static_assert(std::is_convertible_v<::FloatTag, double>,
+                      "numberOf reads floating point tags as double");
+
+        /**
          * Extracts the cancel bit from a reply. Parsed, not substring-searched.
          *
          * cancelled:1b, "cancelled":1 and cancelled:1 are all valid SNBT, and the other
@@ -86,8 +127,7 @@ namespace pier::hooks
          * or edits a string. Searching for a substring would mean enumerating every
          * spelling, and missing one makes that form of cancel fail silently while
          * everything else keeps working. CompoundTag::fromSnbt parses it and the tag
-         * truth value decides, so the shape difference is irrelevant. A failed parse
-         * counts as not cancelled.
+         * value decides, read through numberOf. A failed parse counts as not cancelled.
          */
         bool replyCancelled(std::string const& reply, std::string_view eventId)
         {
@@ -106,7 +146,7 @@ namespace pier::hooks
             }
             if (!tag->contains("cancelled")) return false;
             auto const& v = tag->at("cancelled");
-            if (v.is_number()) return static_cast<double>(v) != 0.0;
+            if (v.is_number()) return numberOf(v) != 0.0;
             return false;
         }
 
@@ -125,7 +165,7 @@ namespace pier::hooks
                 if (v.is_number())
                 {
                     out.hasDimension = true;
-                    out.dimension = static_cast<int>(static_cast<double>(v));
+                    out.dimension = static_cast<int>(numberOf(v));
                 }
             }
             // The three coordinates move together. A partial position would silently
@@ -139,9 +179,12 @@ namespace pier::hooks
                 if (x.is_number() && y.is_number() && z.is_number())
                 {
                     out.hasPosition = true;
-                    out.x = static_cast<float>(static_cast<double>(x));
-                    out.y = static_cast<float>(static_cast<double>(y));
-                    out.z = static_cast<float>(static_cast<double>(z));
+                    // Through numberOf for the same reason: a caller naming a whole
+                    // block coordinate writes an int, and read as a double that is 0,
+                    // which lands the player at the world origin instead of refusing.
+                    out.x = static_cast<float>(numberOf(x));
+                    out.y = static_cast<float>(numberOf(y));
+                    out.z = static_cast<float>(numberOf(z));
                 }
             }
             return out;
@@ -291,6 +334,15 @@ namespace pier::hooks
         {
             auto* def = findDef(wanted);
             if (!def || !cb) return nullptr;
+            // Refused, not dropped. An operator turning an event off in hooks.disabled
+            // is turning off a protection, and a mod handed a handle that never fires
+            // would report itself as active for the rest of the session.
+            if (eventDisabled(def->name))
+            {
+                auto const who = mod ? std::string{mod->getName()} : std::string{"?"};
+                hostLogger().warn("[hooks] {}", trf("hooks.disabled", def->name, who));
+                return nullptr;
+            }
             if (!def->installed)
             {
                 // A detour that fails to install refuses the subscription, failing

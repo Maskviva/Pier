@@ -677,6 +677,9 @@ enum PierPlayerStrProp
     PIER_PSTR_LAST_DEATH_DIMENSION = 7, /* dimension id as string */
     PIER_PSTR_NETWORK_STATUS = 8, /* SNBT {ping,avg_ping,packet_loss,max_ping} */
     PIER_PSTR_PLATFORM_ONLINE_ID = 9, /* Player::getPlatformOnlineId */
+    PIER_PSTR_RESPAWN_POS = 10, /* SNBT {x,y,z,dim}: where this player would respawn.
+                                   Never empty; a player with no bed reports the world
+                                   spawn, and the two are not distinguishable. */
 };
 
 /**

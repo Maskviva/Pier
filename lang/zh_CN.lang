@@ -1,3 +1,15 @@
+# Pier —— 简体中文（zh_CN）
+#
+# 一行一条，`键=值`。`#` 开头是注释，空行忽略。
+# `{}` 是宿主按位置填进来的占位符：一行的占位符个数和 en_US.lang 里那一行不一样时，
+# 这一句会打印成 `[bad translation]`；顺序查不出来，所以调换位置会让参数落错槽。
+#
+# 宿主读 `plugins/Pier/lang/<语言码>.lang`，读哪一份由 `config.json` 决定：
+# `"language": "auto"` 跟引擎报出来的语言走，写别的值就直接指定这个文件，
+# zh_CN 和 zh-CN 两种写法都认。
+#
+# 这里没有任何生成的东西：没翻的键退回 en_US.lang 那一行。加一门语言不需要重编。
+
 dim.height.generator_mismatch=「{}」的配方要 {}..{} 的高度，配引擎的 {} 生成器，而那个生成器是按 {}..{} 写的；这里用生成器自己的范围，旧范围下存过的方块够不着了
 dim.structures.symbol_missing=这个构建里找不到 {}；自定义{}维度不生成结构
 dim.structures.none=「{}」：填生成器结构表的那几个引擎函数不在这个构建里，所以这个维度只生成地形，没有结构。另一条路是给它一个装着全游戏结构集、而每一个后面都没有东西可放的生成器
@@ -5,7 +17,11 @@ dim.resolve.host_registry=从宿主注册表里解析「{}」（号 {}）；引�
 dim.factory.building=工厂正在建维度「{}」，号 {}
 dim.supplied.by=「{}」：地形由「{}」提供
 dim.supplied.missing=「{}」这一局没有地形：它的配方说地形来自某个 mod，而没有 mod 注册过。已经生成的区块留在原地；那个 mod 装回来之前这个世界是空的
-lang.loaded=语言 {}：{} 个键，来自 {}
+lang.loaded=语言 {}（{}）：{} 个键，来自 {}
+lang.source.builtin=随宿主内置的那份
+lang.pick.config=config.json 里指定的
+lang.pick.engine=auto，跟引擎走
+lang.no_file=没有 lang/{}.lang 这个文件，所以每一行都退回英文；想开一份翻译就把 en_US.lang 复制成这个名字
 dim.height.set=「{}」：定义的高度设为 {}..{}
 dim.registered=「{}」已通过工厂建好并注册为号 {}，注册表号 {}
 dim.ready=「{}」就绪，号 {}
@@ -13,4 +29,12 @@ dim.terrain.layers=「{}」：层栈地形，{} 层{}
 dim.terrain.layers.grid=，带网格
 dim.terrain.end=「{}」：末地生成器
 host.ready=已就绪，ABI v{}，接口表 {} 字节，构建于 {} {}
-lang.source.builtin=随宿主内置的那份
+conf.seeded={} 原本不存在，已经写出一份默认的
+conf.seed_failed={} 写不出去；这一局按默认值跑，下一次启动会再试一遍
+conf.unreadable={} 打不开。这一局每一项都是默认值，所以 mods.disabled 里点名的 mod 照常装载
+conf.parse_failed={} 不是合法的 JSON。这一局每一项都是默认值，所以 mods.disabled 里点名的 mod 照常装载
+conf.bad_type=「{}」要的是{}，写在那里的值被忽略了
+conf.bad_entry=「{}」里有一条不是文本，只有那一条被忽略
+conf.clamped=「{}」写的是 {}，落在 {}..{} 之外；实际用的是 {}
+mod.disabled=「{}」在 config.json 的 mods.disabled 里被点名，这个宿主不会装载它
+hooks.disabled=合成事件「{}」在 hooks.disabled 里被点名，所以「{}」的订阅被拒绝，而不是发给它一个永远不触发的句柄

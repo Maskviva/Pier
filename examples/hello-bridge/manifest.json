@@ -1,0 +1,11 @@
+{
+    "name": "hello-bridge",
+    "entry": "hello_bridge.dll",
+    "type": "native",
+    "platform": "server",
+    "version": "0.1.0",
+    "description": "A native LeviLamina mod that calls a Pier mod's services through pier-bridge.h. Not a Pier mod.",
+    "dependencies": [
+        { "name": "pier" }
+    ]
+}

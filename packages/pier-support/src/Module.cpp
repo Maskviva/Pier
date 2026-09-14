@@ -1,17 +1,24 @@
+/** Module.cpp: which loaded module an address belongs to.
+ *
+ * Windows only, because LeviLamina is. A portable stub here would have to answer "no
+ * module" for every address, and the callers read that as "this function is not owned by
+ * the mod being unloaded", which is the answer that lets a stale pointer through.
+ */
 #include "pier/support/module.h"
 
-#ifdef _WIN32
+#ifndef _WIN32
+#error "Pier targets Windows; LeviLamina has no other build"
+#endif
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#endif
 
 namespace pier
 {
     void const* moduleContaining(void const* fn) noexcept
     {
-#ifdef _WIN32
         if (!fn) return nullptr;
         HMODULE owner = nullptr;
         if (!::GetModuleHandleExW(
@@ -22,10 +29,6 @@ namespace pier
             return nullptr;
         }
         return static_cast<void const*>(owner);
-#else
-        (void)fn;
-        return nullptr;
-#endif
     }
 
     bool addressOwnedBy(void const* moduleBase, void const* fn) noexcept

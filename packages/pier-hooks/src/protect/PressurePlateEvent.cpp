@@ -54,7 +54,7 @@ namespace pier::hooks
 
         /**
          * Returns true when this trigger must be refused. Each (player, block position)
-         * dispatches at most once within kDecisionTtlMs.
+         * dispatches at most once within the hooks.decision_ttl_ms window.
          */
         bool refuseTrigger(
             ::Actor& entity, ::BlockSource& region, ::BlockPos const& pos, char const* kind)

@@ -6,7 +6,71 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more slowly.
 
-## [Unreleased]
+## [26.40.2]
+
+### Added
+
+- **A mod that is not a Pier mod can call a Pier mod's services.** `pier_bridge_call`,
+  `pier_bridge_list` and `pier_bridge_abi` are exported from the host, and
+  `bindings/bridge/pier-bridge.h` is a header-only client that binds them. Until now the
+  registry was reachable only with a `PierModHandle` the loader issues, and the only
+  exported symbol pointed the other way, so a permission manager whose value is being the
+  backend everyone shares was reachable only by mods that had already adopted Pier.
+
+  The registry is unchanged: `api_service_call` already accepted a null handle and its
+  self-call check was already conditional on one. What a bridge caller lacks is identity,
+  which is a real limit and is documented as one -- a provider that grants anything on the
+  strength of the caller alone must not be reachable this way. See `docs/guide/bridge.md`.
+
+- **`PlayerEditSignEvent` and `PlayerOperatedItemFrameEvent` are raised.** Both were
+  declared in `ALL_SYNTHETIC` and listed as names, and no hook in the tree produced
+  either, so a subscription succeeded and never fired. A protection mod gating on them
+  reported a refusal its own operator could see while the player edited the sign anyway.
+  Sign editing goes through `SignBlockActor::_playerCanUpdate`, which is the engine's own
+  gate and is asked before the text is taken from the packet; the item-frame right click
+  goes through `ItemFrameBlock::use`. Both are in `CANCELLABLE` now.
+
+- **Every player event with a position carries `block`, and every one with a player
+  carries `item`.** Injected by the enricher rather than by each hook, because the events
+  that need them are LeviLamina's own and have no hook here to extend. A consumer
+  subdividing a permission by what was touched had nowhere to get the answer: the payload
+  named the action and never the object. `block` is the block at the event's coordinates
+  and `item` is what the player held. Both are absent rather than empty when they cannot
+  be read, since a name invented here is indistinguishable from a real one and a rule
+  keyed on it fires on the wrong block.
+
+- **`PlayerOpenContainerEvent` carries `container` and `block`.** The payload had only a
+  numeric `containerType`, so a subscriber wanting to tell a chest from a dropper had to
+  carry its own copy of a network enum. `container` is that enum as a word and `block` is
+  the block's type name, which is empty rather than a placeholder when it cannot be read:
+  an invented name is indistinguishable from a real one, and a rule keyed on it fires on
+  the wrong block.
+
+### Fixed
+
+- **`PlayerRequestItemActionEvent` is declared observation-only.** Nothing raises it and
+  there is no point at which it can be cancelled; `is_cancellable` answered `None`, which
+  a caller reads as "unknown" rather than "no". It now answers `Some(false)` with where to
+  block instead, which is what stops a protection mod from treating a subscription to it
+  as a working gate.
+
+### Changed
+
+- **Translations are files again, not a generated C++ table.**
+  `packages/pier-support/src/LangShipped.inc`, `tools/embed-lang.py` and
+  `tools/checks/lang_embedded.py` are gone. The host reads `plugins/Pier/lang/<code>.lang`
+  and nothing else is compiled in beyond the built-in English, so a language is a file an
+  operator drops in and edits rather than a table only a rebuild can change.
+
+  The packaging half that made the table necessary is handled where it belongs: the
+  `after_build` step in `xmake.lua` names `en_US.lang` and `zh_CN.lang` explicitly and
+  fails the build when either is absent, so `bin/Pier/lang/` carries both and a release
+  cannot ship half-translated. A glob alone still succeeds on one file, which is the
+  shape that let the directory go missing before.
+
+- `lang/en_US.lang` is added and carries every key. It is what a translator copies and
+  what an operator edits; `i18n_keys.py` now fails when it is missing a key, when either
+  shipped file is absent, or when a placeholder count disagrees with the English.
 
 ### Fixed
 
@@ -15,12 +79,6 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
   `manifest.json` and nothing else, so `lang/` sat in the repository and shipped in no
   archive. Nothing reported it: a missing lang directory is not an error, and the one
   line that would have said so only printed when keys loaded.
-
-  **The translations are now compiled in**, generated from `lang/*.lang` by
-  `tools/embed-lang.py`. A build step copying the directory was tried first and fixes
-  that instance while keeping its shape — translations only as reliable as a packaging
-  rule nobody tests. A file on disk still overrides the compiled table per key, which is
-  what that path was for.
 
   The startup line now prints on every boot rather than only when a file was found, and
   reports how many lines the active locale has rather than how many a file contributed.

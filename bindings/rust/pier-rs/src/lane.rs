@@ -121,15 +121,18 @@ impl<C: LaneContract> Lane<C> {
 
     /// Runs a piece of code inside the provider. Returns `None` when the provider is gone.
     ///
-    /// `busy` is incremented on the way in and decremented on the way out. During that window
-    /// the host refuses to unload the provider, so `FreeLibrary` cannot pull that stack frame
-    /// out from under you; see the module documentation.
+    /// `busy` goes up on the way in and down on the way out, and the host refuses to unload
+    /// the provider while it is up, so `FreeLibrary` cannot pull the stack frame out from
+    /// under you. It goes up **before** the liveness flag is read: the other order leaves a
+    /// window with the count at zero, where a retire passes its veto and unmaps the dylib
+    /// while this call is already on its way in.
+    ///
     /// The closure receives a [`LaneData`] rather than a raw `*mut c_void`, because the first
     /// parameter of every function in a lane table is a `LaneData`, which is the other side's
     /// self, and handing over a raw pointer would make the caller wrap it by hand at every
     /// call site.
     pub fn with<R>(&self, f: impl FnOnce(&C::Table, LaneData) -> R) -> Option<R> {
-        if !self.is_alive() || self.vtable.is_null() {
+        if self.vtable.is_null() {
             return None;
         }
         let busy = if self.busy.is_null() {
@@ -141,8 +144,15 @@ impl<C: LaneContract> Lane<C> {
         if let Some(b) = busy {
             b.fetch_add(1, Ordering::AcqRel);
         }
-        // SAFETY: the vtable is non-null and alive is true, and the provider keeps it alive
-        // until the lane is withdrawn.
+        if !self.is_alive() {
+            if let Some(b) = busy {
+                b.fetch_sub(1, Ordering::AcqRel);
+            }
+            return None;
+        }
+        // SAFETY: the vtable is non-null, and `alive` was read after the busy count went
+        // up, so a retire that had not already happened cannot happen until it comes down
+        // again. The provider keeps the table alive until the lane is withdrawn.
         let table = unsafe { &*self.vtable };
         let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             f(table, LaneData(self.data))

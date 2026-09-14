@@ -103,4 +103,17 @@ namespace pier::bridge
      *  read, such as _player, dim and _identifier. The definition and the reasoning
      *  are in the Enrich.cpp file header. */
     [[nodiscard]] std::string enrichEventData(CompoundTag const& data);
+    /** The service registry, reachable from inside this dll without a mod handle.
+     *
+     *  Exists for `pier-bridge`, which exports a door for mods outside Pier. Declared
+     *  here rather than having that package reach into `Services.cpp`: the registry's
+     *  locking and weak_ptr revalidation are the whole safety of the call path, and a
+     *  second implementation of them would be a second thing to keep right.
+     *
+     *  `mod` is null for a caller that has no handle. The registry already treats that as
+     *  an anonymous caller; nothing is relaxed by passing it. */
+    int32_t callService(PierModHandle mod, PierStr name, PierStr request, void* ctx, PierStrSink reply);
+
+    /** Every registered service, as the JSON array `service_list` produces. */
+    void listServices(void* ctx, PierStrSink sink);
 } // namespace pier::bridge

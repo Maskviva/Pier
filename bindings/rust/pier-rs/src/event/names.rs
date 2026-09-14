@@ -314,6 +314,8 @@ const CANCELLABLE: &[&str] = &[
     "PlayerUseItemOnEvent",
     "PlayerChangeDimensionEvent",
     "PortalCreateEvent",
+    "PlayerEditSignEvent",
+    "PlayerOperatedItemFrameEvent",
 ];
 
 /// The events known to be observation only, each with where to block instead.
@@ -322,6 +324,14 @@ const CANCELLABLE: &[&str] = &[
 /// no-op, harmless meaning it does not crash while leaving the impression of having
 /// blocked it. In a protection mod that impression is far more dangerous than a crash.
 const OBSERVE_ONLY: &[(&str, &str)] = &[
+    // This host raises none of these. A name is shipped because a mod may already
+    // subscribe to it, and answering `Some(false)` is what stops a protection mod from
+    // treating a subscription as a working gate.
+    (
+        "PlayerRequestItemActionEvent",
+        "no cancellable hook point: the item stack request is applied by the time it can \
+         be observed, so a crafting or anvil action is blocked at the container instead",
+    ),
     // The LeviLamina registry
     ("PlayerDisconnectEvent", "the player is already leaving and cannot be stopped"),
     ("PlayerDieEvent", "the death is already done; block ActorHurtEvent to prevent it"),

@@ -1,33 +1,74 @@
-#!/usr/bin/env python3
-"""lang_embedded：编译进去的那份翻译和 lang/*.lang 对得上。
+# -*- coding: utf-8 -*-
+"""lang-embedded: `LangFiles.cpp` still holds byte for byte what `lang/en_US.lang` holds.
 
-The translations are compiled in (see tools/embed-lang.py for why). A generated file
-that is not regenerated is worse than no generated file: it compiles, it runs, and it
-ships text that someone already corrected in the .lang and reasonably believes is live.
+What it watches: English is the fallback of the language chain, so it has to answer with
+no file on disk, which means the text exists twice: once as the file the release ships and
+once as string data the binary carries. Two copies of anything drift, and this pair drifts
+silently. The repository looks translated while the binary falls back to older wording, and
+nothing on either side reports it.
 
-Covered: the generated .inc byte for byte against what the .lang files produce now.
-Not covered: whether a translation is correct, or whether its placeholders match the
-English — i18n_keys.py answers the second.
+Byte equality and not key equality. The header comments of a `.lang` are what tell a
+translator the format, so the embedded copy has to be the file and not a reconstruction of
+its keys.
+
+The criterion reconstructs the array literal rather than compiling anything, so an escape
+form that arrives later is read by the compiler and not by this script.
 """
-
-import os
-import subprocess
+import pathlib
+import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-GEN = os.path.join(ROOT, "tools", "embed-lang.py")
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+EMBED = ROOT / "packages/pier-support/src/LangFiles.cpp"
+REFERENCE = ROOT / "lang/en_US.lang"
 
-if not os.path.exists(GEN):
-    print("  tools/embed-lang.py 不在，跳过")
-    sys.exit(0)
+ARRAY = re.compile(r"constexpr std::string_view kEnUS\[\] = \{(.*?)\n        \};", re.S)
+LINE = re.compile(r'^\s*"((?:[^"\\]|\\.)*)",\s*$')
 
-r = subprocess.run([sys.executable, GEN, "--check"], capture_output=True, text=True)
-out = (r.stdout + r.stderr).strip()
 
-if r.returncode == 0:
-    print("  lang_embedded：通过")
-else:
-    print(out if out else "  生成的表和 lang/*.lang 对不上")
-print("  覆盖：生成的 .inc 和 lang/*.lang 逐字节一致")
-print("  看不见：翻译对不对；占位符对不对（那是 i18n_keys）")
-sys.exit(r.returncode)
+def unescape(s):
+    return s.replace('\\"', '"').replace("\\\\", "\\")
+
+
+def main():
+    problems = []
+    if not EMBED.exists():
+        print("    ✗ LangFiles.cpp was not found, so nothing carries the English lines")
+        return 1
+    if not REFERENCE.exists():
+        print("    ✗ lang/en_US.lang was not found, so there is nothing to compare against")
+        return 1
+
+    m = ARRAY.search(EMBED.read_text(encoding="utf-8"))
+    if not m:
+        print("    ✗ the kEnUS array was not found in LangFiles.cpp; its shape changed")
+        return 1
+
+    lines = []
+    for raw in m.group(1).split("\n"):
+        hit = LINE.match(raw)
+        if hit:
+            lines.append(unescape(hit.group(1)))
+    embedded = "\n".join(lines) + "\n"
+    want = REFERENCE.read_text(encoding="utf-8")
+
+    print("    · lang/en_US.lang: %d line(s), %d byte(s)" % (want.count("\n"), len(want)))
+    if embedded != want:
+        first = next(
+            (i for i, (a, b) in enumerate(zip(embedded.splitlines(), want.splitlines()), 1) if a != b),
+            min(len(embedded.splitlines()), len(want.splitlines())) + 1,
+        )
+        problems.append(
+            "the copy in LangFiles.cpp differs from lang/en_US.lang, first at line %d; "
+            "regenerate the array" % first
+        )
+    else:
+        print("    · the copy in LangFiles.cpp is identical")
+
+    for p in problems:
+        print("    ✗ %s" % p)
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

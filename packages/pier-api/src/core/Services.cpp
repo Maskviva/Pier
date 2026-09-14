@@ -302,4 +302,28 @@ namespace pier::api_impl
         spi::SlotPackReg regSlots{{"services", &fill}};
         spi::TeardownReg regDown{{30, "services", &teardown}};
     } // namespace
+
+    // Lifted out of the anonymous namespace so `pier::bridge` below can reach them. They
+    // keep internal linkage: nothing outside this file calls them by name, and the two
+    // exported entry points go through `pier::bridge`.
+    int32_t callServiceHere(PierModHandle mod, PierStr name, PierStr request, void* ctx, PierStrSink reply)
+    {
+        return api_service_call(mod, name, request, ctx, reply);
+    }
+
+    void listServicesHere(void* ctx, PierStrSink sink) { api_service_list(ctx, sink); }
 } // namespace pier::api_impl
+
+namespace pier::bridge
+{
+    // Declared in pier/api/bridge.h and defined here, where the registry is. The file
+    // scope above is `pier::api_impl`, so these have to name their own namespace: a
+    // definition under the wrong one compiles and fails at link, naming a symbol nobody
+    // wrote.
+    int32_t callService(PierModHandle mod, PierStr name, PierStr request, void* ctx, PierStrSink reply)
+    {
+        return api_impl::callServiceHere(mod, name, request, ctx, reply);
+    }
+
+    void listServices(void* ctx, PierStrSink sink) { api_impl::listServicesHere(ctx, sink); }
+} // namespace pier::bridge

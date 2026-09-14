@@ -44,6 +44,38 @@ Then, in the console:
 
 That lists the mods Pier has loaded. It is empty until you install one.
 
+## The language of the log
+
+Pier reads `plugins/pier/lang/<code>.lang` and never writes there. The directory comes
+with the release and holds `en_US.lang` and `zh_CN.lang`, so a server in either language
+needs nothing done.
+
+Install by copying the whole mod directory. Copying the dll alone leaves the lang
+directory behind, and the symptom is an English log on a translated server; English is
+compiled in as the fallback, so nothing fails, and nothing says why either.
+
+Which code is read is `language` in `config.json`, and the default `"auto"` follows the
+locale the engine reports.
+
+Set it explicitly when the operator reads a different language than the server runs in:
+
+```json
+{ "language": "zh_CN" }
+```
+
+`zh_CN` and `zh-CN` both work. The startup line says whether the code came from the
+config or from the engine, and a code with no file behind it gets a warning of its own.
+See [Configuring](./configuration).
+
+To change a line, edit its value in the file for that language. To add a language, copy
+`en_US.lang` to a new code and translate the values. Any key left out falls back to
+English, so a half-finished file is usable while it is being written.
+
+`{}` is a placeholder the host fills in by position. A line whose placeholder count
+differs from `en_US.lang` prints `[bad translation]` instead, and their order is not
+checked at all, so moving one lands the arguments in the wrong slots.
+
+
 ## What Pier adds to the server
 
 One command, `/pier`, with these subcommands:
@@ -71,12 +103,3 @@ mods/
 See [The manifest](/guide/manifest) for what goes in that file. The one field worth
 checking twice is `"type": "pier"`, because a wrong value means the mod is never scanned
 and nothing is reported.
-
-## Installing a terrain pack
-
-A mod that creates a custom dimension from a pack ships the pack with itself: a directory
-holding a config file and a binary, anywhere under the server root, named to the host by a
-relative path. The host reads four keys of the config and verifies the binary against the
-hash in it before the dimension is registered, so a pack that was replaced or truncated
-refuses at startup with a line naming the file rather than generating something else.
-See [Terrain packs](/guide/terrain-packs).

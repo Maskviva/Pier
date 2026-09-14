@@ -182,8 +182,7 @@ Then in game, `/hello`.
 ## When it does not load
 
 **"does not export pier_main"** — the symbol is named but not exported. Use
-`PIER_MAIN_EXPORT` in front of the definition. This is the most common first failure and
-it does not reproduce on Linux, where ELF exports it by default.
+`PIER_MAIN_EXPORT` in front of the definition. This is the most common first failure.
 
 **Nothing in the log at all** — check `entry` in manifest.json against the DLL name, and
 check that the file is in `plugins/<name>/` rather than loose in `plugins/`.

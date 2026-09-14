@@ -45,6 +45,7 @@ SCRIPTS = [
     ("abi_additive.py", ["abi-additive"]),
     ("abi_no_lang.py", ["abi-no-lang"]),
     ("i18n_keys.py", ["i18n-keys"]),
+    ("lang_embedded.py", ["lang-embedded"]),
     ("abi_fixed_width.py", ["abi-fixed-width"]),
     ("pkg_layering.py", ["pkg-layering", "object-kind", "optional-drops"]),
     ("build_config.py", ["build-config"]),
@@ -57,7 +58,6 @@ SCRIPTS = [
     ("manifest_matches_host.py", ["manifest-matches-host"]),
     ("host_loadable.py", ["host-loadable"]),
     ("ledger_covers_tree.py", ["ledger-covers-tree"]),
-    ("lang_embedded.py", ["lang-embedded"]),
     ("prose_and_fallback.py", ["comment-claims", "no-silent-fallback"]),
     ("comment_style.py", ["comment-style"]),
 ]

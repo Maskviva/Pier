@@ -33,6 +33,7 @@ const enSidebar = {
         { text: 'Why it exists', link: '/guide/why' },
         { text: 'How it is designed', link: '/guide/design' },
         { text: 'Installing', link: '/guide/installation' },
+        { text: 'Configuring', link: '/guide/configuration' },
       ],
     },
     {
@@ -45,9 +46,9 @@ const enSidebar = {
       ],
     },
     {
-      text: 'Custom dimensions',
+      text: 'From outside Pier',
       items: [
-        { text: 'Terrain packs', link: '/guide/terrain-packs' },
+        { text: 'The bridge', link: '/guide/bridge' },
       ],
     },
   ],
@@ -108,6 +109,7 @@ const zhSidebar = {
         { text: '为什么有 Pier', link: '/zh/guide/why' },
         { text: '是怎么设计的', link: '/zh/guide/design' },
         { text: '安装', link: '/zh/guide/installation' },
+        { text: '配置', link: '/zh/guide/configuration' },
       ],
     },
     {
@@ -120,9 +122,9 @@ const zhSidebar = {
       ],
     },
     {
-      text: '自定义维度',
+      text: '从 Pier 外面调进来',
       items: [
-        { text: '地形包', link: '/zh/guide/terrain-packs' },
+        { text: 'bridge', link: '/zh/guide/bridge' },
       ],
     },
   ],

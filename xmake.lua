@@ -128,25 +128,50 @@ target("Pier")
     end
     add_packages("prelink", "zlib")
 
-    -- The lang directory has to land next to the dll.
+    -- The lang directory has to land in the packed mod, not only in the build output.
     --
-    -- `loadLanguages` reads `getModDir()/lang`, and modpacker packages the target plus
-    -- manifest.json and nothing else. So `lang/` sat in the repository, shipped in no
-    -- archive, and the host fell back to built-in English on every server — with no
-    -- error anywhere, because a missing lang directory is not an error. The symptom was
-    -- a boot log in English on a Chinese server, and the one line that would have said
-    -- so (`lang.loaded`) only prints when keys actually load.
+    -- `target:targetfile()` is under `build/`, and the release archive is `bin/`, so a
+    -- copy made only beside the target reaches nobody: the symptom is an English boot log
+    -- on a Chinese server, with a lang directory sitting in a build tree the operator
+    -- never opens. Nothing is compiled in beyond the built-in English, so what an operator
+    -- gets is whatever this step put in `bin/`.
     --
-    -- after_build rather than an install rule: the release archive is `bin/`, so the
-    -- files have to be there by the time the build finishes, not at install time.
+    -- modpacker writes the packed mod to `bin/<target name>/` and copies the target and
+    -- manifest.json into it, nothing else. That directory is created here rather than
+    -- waited for: the two after_build steps have no defined order between them, and
+    -- modpacker only ever adds to it.
+    --
+    -- Both shipped languages are named rather than globbed alone, because a glob that
+    -- matches one file still succeeds and ships a half-translated release.
     after_build(function (target)
         local src = path.join(os.projectdir(), "lang")
-        if not os.isdir(src) then
-            raise("lang/ is missing from the source tree; the host would ship English-only")
+        for _, name in ipairs({"en_US.lang", "zh_CN.lang"}) do
+            if not os.isfile(path.join(src, name)) then
+                raise("lang/" .. name .. " is missing; the release would ship without it")
+            end
         end
-        local dest = path.join(path.directory(target:targetfile()), "lang")
-        os.mkdir(dest)
-        os.cp(path.join(src, "*.lang"), dest)
-        print("pier: copied lang/ to " .. dest)
+
+        local function put(dest)
+            os.mkdir(dest)
+            os.cp(path.join(src, "*.lang"), dest)
+            print("pier: lang -> " .. dest)
+        end
+
+        local packed = path.join(os.projectdir(), "bin", target:name())
+        put(path.join(packed, "lang"))
+        put(path.join(path.directory(target:targetfile()), "lang"))
+
+        -- Every mod directory `bin/` actually holds, in case modpacker names it something
+        -- other than the target. Printing what was found rather than guessing silently:
+        -- a wrong assumption here is invisible until a server boots in the wrong language.
+        local found = false
+        for _, manifest in ipairs(os.files(path.join(os.projectdir(), "bin", "*", "manifest.json"))) do
+            local dir = path.directory(manifest)
+            found = true
+            if dir ~= packed then put(path.join(dir, "lang")) end
+        end
+        if not found then
+            print("pier: no manifest.json under bin/*/ yet; lang was placed in " .. packed)
+        end
     end)
 target_end()

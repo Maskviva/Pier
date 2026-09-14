@@ -14,6 +14,11 @@ the compiler cannot find.
 
 Three criteria:
 
+0. A manifest whose `type` is `native` is a LeviLamina mod and not a pier mod, so none of
+   the three below apply to it. Two of those exist on purpose: the host's own manifest at
+   the repository root, and `examples/hello-bridge`, which demonstrates reaching a pier
+   mod's services from outside the loader. Skipping by type rather than by path keeps the
+   exemption from having to name each one.
 1. `type` equals the host's `ModHostName`;
 2. the host name inside `dependencies` equals it as well, since a wrong one depends on a
    mod that does not exist;
@@ -69,13 +74,21 @@ def run():
         # produce a false failure.
         if os.path.abspath(dp) == os.path.abspath(scan_root):
             continue
-        found += 1
         try:
             with open(p, encoding="utf-8") as f:
                 j = json.load(f)
         except Exception as e:  # noqa: BLE001
+            found += 1
             r.fail("%s is not valid JSON: %s" % (rel, e))
             continue
+
+        # A native mod is LeviLamina's to load, not the host's, so the equality below is
+        # not its contract. It is read here only to say so, because a pier mod that got
+        # this field wrong would otherwise leave the run silently.
+        if j.get("type") == "native":
+            r.note("%s is type 'native', a LeviLamina mod that is not loaded by the host" % rel)
+            continue
+        found += 1
 
         if j.get("type") != host:
             r.fail("the type of %s is %r while the host recognizes only %r, so this mod is never "

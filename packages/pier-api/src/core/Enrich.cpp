@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -33,6 +34,7 @@
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/item/ItemStack.h"
+#include "mc/world/level/BlockPos.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/block/Block.h"
@@ -63,6 +65,51 @@ namespace pier::bridge
             std::string type;
             uintptr_t addr;
         };
+
+        /** The block coordinates an event is about, whatever shape they arrived in.
+         *
+         *  A hook written here emits `x`, `y` and `z` at the top level. A LeviLamina
+         *  registry event is serialized by reflection, and its `mPos` becomes a nested
+         *  object. Reading only the flat shape is what makes an injection that looks
+         *  right do nothing at all on exactly the events that need it -- break, place and
+         *  interact are all registry events.
+         *
+         *  `_player` is skipped: its `pos` is where the player stands, not what they
+         *  touched, and using it would name the block under their feet.
+         *
+         *  Only an unambiguous answer is returned. Two nested triples mean the event has
+         *  a from and a to, and picking either is a guess this cannot make. */
+        std::optional<BlockPos> eventBlockPos(CompoundTag const& data)
+        {
+            auto triple = [](CompoundTag const& o) -> std::optional<BlockPos>
+            {
+                if (!o.contains("x") || !o.contains("y") || !o.contains("z")) return std::nullopt;
+                auto num = [&](char const* k) -> std::optional<int>
+                {
+                    auto const& v = o.at(k);
+                    if (v.is_number_integer()) return static_cast<int>(static_cast<int64_t>(v));
+                    if (v.is_number_float()) return static_cast<int>(std::floor(static_cast<double>(v)));
+                    return std::nullopt;
+                };
+                auto x = num("x"), y = num("y"), z = num("z");
+                if (!x || !y || !z) return std::nullopt;
+                return BlockPos{*x, *y, *z};
+            };
+
+            if (auto flat = triple(data)) return flat;
+
+            std::optional<BlockPos> found;
+            for (auto const& entry : data.mTags)
+            {
+                if (entry.first == "_player") continue;
+                if (!entry.second.is_object()) continue;
+                auto nested = triple(entry.second.get<CompoundTag>());
+                if (!nested) continue;
+                if (found) return std::nullopt; // Ambiguous: a from and a to.
+                found = nested;
+            }
+            return found;
+        }
 
         std::vector<Stub> findStubs(CompoundTag const& data)
         {
@@ -141,6 +188,11 @@ namespace pier::bridge
         // dispatched synchronously inside the engine call stack, so at that moment it
         // is certainly alive. A pointer absent from the table is never touched. Linear
         // scan, no allocation, and only when a non-player stub appears.
+        // The player whose event this is, once one is resolved. It is what `block` and
+        // `item` below are read through, and both are worth having only for a player:
+        // a permission node names a person.
+        Player* subject = nullptr;
+
         std::vector<Actor*> actors;
         bool actorsReady = false;
         auto liveActor = [&](uintptr_t addr) -> Actor*
@@ -187,6 +239,7 @@ namespace pier::bridge
 
                 if (stub.key == "self")
                 {
+                    subject = player;
                     Vec3 const& ppos = player->getPosition();
                     copy["_player"] = CompoundTagVariant::object(
                         {
@@ -299,6 +352,36 @@ namespace pier::bridge
                     changed = true;
                 }
                 continue;
+            }
+        }
+
+        // `block` and `item` name what an event touched, which the payload otherwise
+        // never says. They are read here because the events needing them are
+        // LeviLamina's own and have no hook in this repository to extend. Absent rather
+        // than empty on failure: an invented name is indistinguishable from a real one,
+        // and a rule keyed on it fires on the wrong block.
+        if (subject != nullptr)
+        {
+            if (!copy.contains("block"))
+            {
+                if (auto at = eventBlockPos(copy))
+                {
+                    auto& region = subject->getDimensionBlockSource();
+                    copy["block"] = CompoundTagVariant(std::string{region.getBlock(*at).getTypeName()});
+                    changed = true;
+                }
+            }
+            if (!copy.contains("item"))
+            {
+                // The item in hand at the moment the event fires. For a use or a place
+                // that is what was used; for a break it is the tool, which is why a
+                // consumer subdividing a break keys on `block` instead.
+                auto const& held = subject->getSelectedItem();
+                if (!held.isNull())
+                {
+                    copy["item"] = CompoundTagVariant(std::string{held.getTypeName()});
+                    changed = true;
+                }
             }
         }
 

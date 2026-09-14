@@ -527,6 +527,21 @@ namespace pier::api_impl
                     sink(ctx, ps(snbt));
                     return true;
                 }
+                case PIER_PSTR_RESPAWN_POS:
+                {
+                    // Where the engine would respawn this player. Never empty: without a
+                    // bed it reports the world spawn, and the two are not distinguishable
+                    // because hasRespawnPosition was inlined away, which is why
+                    // PIER_PPROP_HAS_RESPAWN_POSITION answers false above. Saving and
+                    // restoring it therefore gives a bedless player the world spawn,
+                    // which is where they were going anyway.
+                    auto const& pos = p->getExpectedSpawnPosition();
+                    std::string snbt = "{x:" + snbtNum(pos.x) + ",y:" + snbtNum(pos.y)
+                        + ",z:" + snbtNum(pos.z) + ",dim:"
+                        + snbtNum(static_cast<int>(p->getExpectedSpawnDimensionId())) + "}";
+                    sink(ctx, ps(snbt));
+                    return true;
+                }
                 case PIER_PSTR_LAST_DEATH_DIMENSION:
                 {
                     auto dim = p->getLastDeathDimension();

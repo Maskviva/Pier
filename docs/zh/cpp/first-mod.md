@@ -110,7 +110,7 @@ plugins/my-mod/
 ## 加载不了的时候
 
 **"does not export pier_main"** —— 符号有名字但没导出。在定义前面加 `PIER_MAIN_EXPORT`。
-这是最常见的第一个失败，而且在 Linux 上复现不出来——ELF 默认导出它。
+这是最常见的第一个失败。
 
 **日志里什么都没有** —— 核对 manifest.json 的 `entry` 和 DLL 名字，
 并确认文件在 `plugins/<名字>/` 目录里而不是散在 `plugins/` 下。

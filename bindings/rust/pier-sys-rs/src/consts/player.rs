@@ -115,6 +115,7 @@ pub const PIER_PSTR_LAST_DEATH_DIMENSION: i32 = 7;
 pub const PIER_PSTR_NETWORK_STATUS: i32 = 8;
 /// Player::getPlatformOnlineId
 pub const PIER_PSTR_PLATFORM_ONLINE_ID: i32 = 9;
+pub const PIER_PSTR_RESPAWN_POS: i32 = 10;
 
 // ── PierPlayerAction ──────────────────────────────────────────
 

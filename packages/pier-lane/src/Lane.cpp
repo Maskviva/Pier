@@ -15,10 +15,12 @@
  * lease at unload, before FreeLibrary. It interprets no byte of data or vtable.
  */
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
+#include <thread>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -151,13 +153,18 @@ namespace pier::lane
         }
 
         /**
-         * Retires one lane. Clears the liveness flag, releases every outstanding
-         * lease on the provider's behalf, then removes the table entries.
+         * Retires one lane. Clears the liveness flag, waits for the calls already
+         * inside the provider to come out, releases every outstanding lease on the
+         * provider's behalf, then removes the table entries.
          *
          * gMutex must not be held across this call. `release` jumps into the
-         * provider's dylib, which may well call back into `lane_*`, for instance
-         * unpublishing another of its own lanes from a Drop. Holding a lock across a
-         * dylib boundary deadlocks on the first re-entry.
+         * provider's dylib, which may well call back into `lane_*`. Holding a lock
+         * across a dylib boundary deadlocks on the first re-entry.
+         *
+         * The consumer raises busy then reads the flag; this clears the flag then
+         * reads busy, and the opposite orders are what make the handshake hold. The
+         * wait covers a consumer already inside when the flag went down, and it is
+         * bounded because a wedged one must not hang a shutdown.
          */
         void retireLane(uint64_t laneId)
         {
@@ -165,6 +172,7 @@ namespace pier::lane
             void* data = nullptr;
             uint32_t outstanding = 0;
             std::string name;
+            AliveCell* cell = nullptr;
 
             {
                 std::lock_guard lock(gMutex);
@@ -176,6 +184,7 @@ namespace pier::lane
                 // has not yet reached its call site sees the lane as gone rather
                 // than as a table about to become invalid.
                 if (lane.alive) lane.alive->flag.store(0, std::memory_order_release);
+                cell = lane.alive;
 
                 release = lane.desc.release;
                 data = lane.desc.data;
@@ -200,7 +209,30 @@ namespace pier::lane
                 // The AliveCell is deliberately not deleted, see the file header.
             }
 
-            // Outside the lock. release is called once per outstanding lease and
+            // Outside the lock, and before anything jumps into the provider: wait for
+            // the calls already in flight to come out. The flag is clear by now, so no
+            // new call can get in, and `busy` only falls from here.
+            if (cell)
+            {
+                using namespace std::chrono;
+                auto const deadline = steady_clock::now() + seconds(5);
+                while (cell->busy.load(std::memory_order_acquire) != 0)
+                {
+                    if (steady_clock::now() >= deadline)
+                    {
+                        hostLogger().error(
+                            "[lane] '{}' still has {} call(s) inside it after 5s; unloading "
+                            "anyway. A consumer is wedged in a lane call, and the dylib is "
+                            "about to be unmapped beneath it",
+                            name, cell->busy.load(std::memory_order_acquire)
+                        );
+                        break;
+                    }
+                    std::this_thread::yield();
+                }
+            }
+
+            // release is called once per outstanding lease and
             // for nothing else, which is all abi.h promises under lane_publish and
             // lane_unpublish. The reference handed over at publish time is reclaimed
             // by the provider itself after unpublish. Releasing that one here too

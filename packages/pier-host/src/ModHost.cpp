@@ -15,6 +15,8 @@
 #include "pier/host/api_table.h"
 #include "pier/host/hosted_mod.h"
 #include "pier/host/spi.h"
+#include "pier/support/config.h"
+#include "pier/support/i18n.h"
 #include "pier/support/log.h"
 
 namespace pier
@@ -34,6 +36,14 @@ namespace pier
 
     ll::Expected<> ModHost::load(Manifest manifest)
     {
+        // Before the dylib is mapped, so a mod named in mods.disabled runs no code at
+        // all: not a static constructor, not DllMain. Refusing later would still load
+        // whatever ran on the way in, which is the half of a mod an operator disabling
+        // it is usually trying to stop.
+        if (modDisabled(manifest.name))
+        {
+            return ll::makeStringError(trv("mod.disabled", {manifest.name}));
+        }
         auto mod = std::make_shared<HostedMod>(std::move(manifest));
 
         std::error_code ec;
