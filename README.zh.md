@@ -210,7 +210,7 @@ levilamina::register_mod!(MyMod);
 用 [lip](https://lip.futrime.com)：
 
 ```bash
-lip install github.com/Maskviva/pier
+lip install github.com/Maskviva/Pier
 ```
 
 或者把发布压缩包解压到 `plugins/pier/`。

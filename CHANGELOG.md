@@ -1054,7 +1054,7 @@ a server without it starts normally and only the economy calls return failure va
 ### Installing
 
 ```bash
-lip install github.com/Maskviva/pier
+lip install github.com/Maskviva/Pier
 ```
 
 Two archives are attached to this release:

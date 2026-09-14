@@ -174,7 +174,7 @@ details, and section 10 of [`CONTRACT.md`](CONTRACT.md) is the authoritative ver
 With [lip](https://lip.futrime.com):
 
 ```bash
-lip install github.com/Maskviva/pier
+lip install github.com/Maskviva/Pier
 ```
 
 Or unpack the release archive into `plugins/pier/`.

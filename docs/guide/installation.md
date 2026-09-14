@@ -16,7 +16,7 @@ normally; the economy calls return failure values and everything else is unaffec
 [lip](https://lip.futrime.com) is the LeviLamina package manager.
 
 ```bash
-lip install github.com/Maskviva/pier
+lip install github.com/Maskviva/Pier
 ```
 
 ## By hand

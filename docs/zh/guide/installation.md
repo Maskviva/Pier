@@ -16,7 +16,7 @@ LegacyMoney 是真的可选。Pier 对它走延迟加载，所以没装的服务
 [lip](https://lip.futrime.com) 是 LeviLamina 的包管理器。
 
 ```bash
-lip install github.com/Maskviva/pier
+lip install github.com/Maskviva/Pier
 ```
 
 ## 手动装
