@@ -2,13 +2,13 @@
   "format_version": 3,
   "format_uuid": "289f771f-2c9a-4d73-9f3f-8492495a924d",
   "tooth": "github.com/Maskviva/Pier",
-  "version": "26.40.2",
+  "version": "26.40.3",
   "info": {
     "name": "Pier",
     "description": "Loads LeviLamina mods written in other languages through one C ABI (manifest type: pier).",
     "author": "Maskviva",
     "license": "Apache-2.0",
-    "homepage": "https://github.com/Maskviva/pier",
+    "homepage": "https://github.com/Maskviva/Pier",
     "tags": [
       "platform:levilamina",
       "type:mod",

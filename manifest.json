@@ -1,9 +1,9 @@
 {
     "name": "Pier",
-    "entry": "pier.dll",
+    "entry": "Pier.dll",
     "type": "native",
     "platform": "server",
-    "version": "26.40.2",
+    "version": "26.40.3",
     "author": "Maskviva",
     "description": "Loads LeviLamina mods written in other languages through one C ABI.",
     "minecraft": {

@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more slowly.
 
+## [26.40.3]
+
+### Fixed
+
+- **`lip install` produced a mod directory LeviLamina refuses to load.** The release
+  archive kept the packer's output directory as an extra level, so the package installed
+  as `plugins/pier/Pier/`. LeviLamina scans one level under `plugins/`, finds no
+  `manifest.json` in `plugins/pier/`, and Pier is never loaded.
+
+  Two things were wrong and both are fixed. `tooth.json` placed the whole archive root
+  into `plugins/pier/` instead of placing the mod directory into `plugins/Pier/`. And the
+  release workflow tried to strip the wrapping directory by testing for a literal `pier`,
+  which is silently false on a case-sensitive runner where the packer writes `Pier`.
+
+  The packaging step now finds the mod directory by the `manifest.json` it holds, renames
+  it to the name that manifest states, and refuses to publish an archive whose root is not
+  that directory with its dll and its `lang/` beside it. The folder name is not cosmetic:
+  `ModRegistrar.cpp` compares it against the manifest name as a `std::string`, so `pier`
+  and `Pier` are two different mods and one of them does not exist.
+
+- **`manifest.json` named `pier.dll` while the build produces `Pier.dll`.** Windows
+  resolves it either way, which is why it went unnoticed; it now says what the file is
+  called.
+
 ## [26.40.2]
 
 ### Added

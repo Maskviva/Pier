@@ -21,9 +21,15 @@ lip install github.com/Maskviva/Pier
 
 ## By hand
 
-Download `pier-windows-x64.zip` from the
-[releases page](https://github.com/Maskviva/pier/releases) and unpack it into
-`plugins/pier/`.
+Download `pier-server-windows-x64.zip` from the
+[releases page](https://github.com/Maskviva/Pier/releases) and unpack it into `plugins/`.
+The archive holds one directory, `Pier`, so what you end up with is `plugins/Pier/` with
+`manifest.json`, `Pier.dll` and `lang/` in it.
+
+**The folder has to be named `Pier`, with that capital.** LeviLamina compares the folder
+name against the manifest's name as a plain string, so `plugins/pier/` is refused with
+`Mod name Pier do not match folder pier` and the mod never loads. Windows will not rename
+an existing `pier` to `Pier` for you either: delete it first.
 
 ## Checking it worked
 
@@ -46,7 +52,7 @@ That lists the mods Pier has loaded. It is empty until you install one.
 
 ## The language of the log
 
-Pier reads `plugins/pier/lang/<code>.lang` and never writes there. The directory comes
+Pier reads `plugins/Pier/lang/<code>.lang` and never writes there. The directory comes
 with the release and holds `en_US.lang` and `zh_CN.lang`, so a server in either language
 needs nothing done.
 

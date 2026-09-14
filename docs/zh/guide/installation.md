@@ -21,8 +21,13 @@ lip install github.com/Maskviva/Pier
 
 ## 手动装
 
-从 [发布页](https://github.com/Maskviva/pier/releases) 下载 `pier-windows-x64.zip`，
-解压到 `plugins/pier/`。
+从 [发布页](https://github.com/Maskviva/Pier/releases) 下载 `pier-server-windows-x64.zip`，
+解压到 `plugins/`。压缩包里只有一个目录 `Pier`，解压完就是 `plugins/Pier/`，里面是
+`manifest.json`、`Pier.dll` 和 `lang/`。
+
+**目录名必须是 `Pier`，大写 P。** LeviLamina 把目录名和 manifest 里的 name 按字符串比，
+`plugins/pier/` 会被拒绝，日志里是 `Mod name Pier do not match folder pier`，模组根本不装载。
+Windows 也不会帮你把已有的 `pier` 改成 `Pier`——先把它删掉。
 
 ## 确认装上了
 
@@ -71,7 +76,7 @@ mods/
 
 ## 日志的语言
 
-Pier 读 `plugins/pier/lang/<语言码>.lang`，**只读不写**。这个目录随发行包一起发，里面是
+Pier 读 `plugins/Pier/lang/<语言码>.lang`，**只读不写**。这个目录随发行包一起发，里面是
 `en_US.lang` 和 `zh_CN.lang`，这两种语言的服务器不用动任何东西。
 
 **安装时整个 mod 目录一起拷。** 只拷 dll 会把 lang 目录落下，症状是翻译过的服务器打出

@@ -118,17 +118,47 @@ jobs:
           name: pier-client-${{ github.sha }}-windows-x64
           path: client
 
-      # lip places the archive contents directly into plugins/pier/, so each archive
-      # has to be flat: no wrapping bin/ or pier/ directory.
-      - name: Flatten and archive
+      # The archive keeps the mod directory as its top level, because tooth.json places
+      # `Pier/` into `plugins/Pier/` and LeviLamina refuses a mod whose folder name is not
+      # its manifest name: ModRegistrar.cpp compares the two as std::string, so the
+      # difference between `Pier` and `pier` is a refusal with the mod never loading.
+      #
+      # The directory is found by the manifest it holds rather than by name, and then
+      # renamed to the name that manifest states. Matching on a literal name is what broke
+      # this before: the packer writes `bin/Pier/` and this job runs on a case-sensitive
+      # filesystem, so a test for `pier` was silently false and the wrapping directory
+      # survived into the archive.
+      - name: Package
         shell: bash
         run: |
+          set -euo pipefail
           for t in server client; do
-            cp LICENSE README.md "$t/"
-            if [ -d "$t/pier" ]; then mv "$t"/pier/* "$t/" && rmdir "$t/pier"; fi
-            if [ -d "$t/bin" ];  then mv "$t"/bin/*  "$t/" && rmdir "$t/bin";  fi
+            # -print -quit rather than a pipe into head: under pipefail, find taking
+            # SIGPIPE from a closing head is an exit status this would then abort on.
+            m=$(find "$t" -name manifest.json -print -quit)
+            test -n "$m" || { echo "$t: the artifact holds no manifest.json"; exit 1; }
+            # python3 rather than jq: both are on the runner, and this one can be run
+            # locally against a downloaded artifact without installing anything.
+            field() { python3 -c "import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])" "$1" "$2"; }
+            name=$(field "$m" name)
+            entry=$(field "$m" entry)
+            test -n "$name" || { echo "$t: the manifest has no name"; exit 1; }
+
+            mkdir "$t.pkg"
+            mv "$(dirname "$m")" "$t.pkg/$name"
+            # Inside the mod directory and not beside it: `src` in tooth.json is that
+            # directory, so anything left at the archive root is never installed.
+            cp LICENSE README.md "$t.pkg/$name/"
+            rm -rf "$t"
+            mv "$t.pkg" "$t"
+
             echo "--- $t"
             find "$t"
+            # Loud, because the failure this replaces was silent all the way to install.
+            test -f "$t/$name/manifest.json" || { echo "$t: $name/manifest.json is missing"; exit 1; }
+            test -f "$t/$name/$entry" || { echo "$t: the manifest names $entry and it is not there"; exit 1; }
+            test -d "$t/$name/lang" || { echo "$t: $name/lang is missing"; exit 1; }
+
             ( cd "$t" && zip -r "../pier-$t-windows-x64.zip" . )
           done
 
