@@ -323,7 +323,27 @@ namespace pier::api_impl
             ll::command::ParamKind::Kind kind;
             std::string enumName; // For Enum and SoftEnum
             bool optional = false;
+            /** Set for kind `text`: the literal word this position must match.
+             *
+             *  A literal is not a parameter Bedrock parses, it is a node in the command
+             *  tree, which is what `/scoreboard objectives add` is made of. It is the only
+             *  form whose values the client narrows as the player types: an `enum`
+             *  parameter carries `EnumAutocompleteExpansion` and so lists its values, but
+             *  it is `CommandParameterDataType::Enum` and not `ChainedSubcommand`, so the
+             *  client has no tree node to filter on. Every mod on this host declaring
+             *  subcommands hit that, and none of them could express the fix, because the
+             *  spec had no way to ask for `RuntimeOverload::text`.
+             *
+             *  Empty for every other kind. */
+            std::string literal;
         };
+
+        /** Whether a declaration is a literal rather than a parsed parameter.
+         *
+         *  Kept as a predicate on the decl rather than a `Kind`, because `ParamKind::Kind`
+         *  is LeviLamina's enum and inventing a member of it here would be this repository
+         *  writing into someone else's contract. */
+        bool isLiteral(ParamDecl const& d) { return !d.literal.empty(); }
 
         std::optional<ll::command::ParamKind::Kind> kindFromString(std::string_view s)
         {
@@ -361,6 +381,17 @@ namespace pier::api_impl
             CommandOrigin const& origin)
         {
             using K = ll::command::ParamKind::Kind;
+            if (isLiteral(decl))
+            {
+                // A literal is a tree node and not a parsed value, so `rt[name]` holds
+                // nothing for it. The word is written out anyway, because the mod's
+                // dispatch has to know which subcommand ran and reading it back as a named
+                // argument is the same shape as every other parameter. Reaching for
+                // `overload` instead would tie the mod to an index that moves whenever an
+                // overload is inserted above it.
+                out += "\"" + snbtEscape(decl.name) + "\":\"" + snbtEscape(decl.literal) + "\",";
+                return;
+            }
             auto const& p = rt[decl.name];
             if (!p.has_value()) return; // An optional parameter was not supplied
 
@@ -546,6 +577,26 @@ namespace pier::api_impl
                         if (!po.contains("name") || !po.contains("kind")) continue;
                         ParamDecl d;
                         d.name = std::string_view{po.at("name")};
+                        // `text` is the one kind with no ParamKind behind it: it declares a
+                        // literal, so it is decoded here and never reaches kindFromString.
+                        if (std::string_view{po.at("kind")} == "text")
+                        {
+                            if (!po.contains("text"))
+                            {
+                                mod->getLogger().error(
+                                    "[api] register_command_ex('{}'): a parameter of kind 'text' carries no "
+                                    "`text` field, so there is no literal to match",
+                                    cmdName
+                                );
+                                return false;
+                            }
+                            d.literal = std::string_view{po.at("text")};
+                            // The kind is never read for a literal; `String` is written so
+                            // the field is not left indeterminate.
+                            d.kind = ll::command::ParamKind::String;
+                            decls.push_back(std::move(d));
+                            continue;
+                        }
                         auto kind = kindFromString(std::string_view{po.at("kind")});
                         if (!kind)
                         {
@@ -578,7 +629,13 @@ namespace pier::api_impl
                     shape += '[';
                     for (auto const& d : decls)
                     {
-                        shape += d.name + ':' + std::to_string(static_cast<int>(d.kind))
+                        // The literal is part of the shape. Two overloads differing only
+                        // by their literal are two different commands to the client, and a
+                        // digest that could not tell them apart would let a reload rebind
+                        // one onto the other.
+                        shape += d.name + ':'
+                            + (isLiteral(d) ? "text=" + d.literal
+                                            : std::to_string(static_cast<int>(d.kind)))
                             + (d.optional ? "?" : "") + ',';
                     }
                     shape += ']';
@@ -605,6 +662,14 @@ namespace pier::api_impl
                         auto ovl = handle.runtimeOverload();
                         for (auto const& d : decls)
                         {
+                            if (isLiteral(d))
+                            {
+                                // `text` and not `required(..., Enum, ...)`: only this one
+                                // produces a ChainedSubcommand node, which is the thing the
+                                // client narrows as the player types. See ParamDecl.
+                                static_cast<void>(ovl.text(d.literal));
+                                continue;
+                            }
                             bool isEnum = d.kind == ParamKind::Enum || d.kind == ParamKind::SoftEnum;
                             // required() and optional() return RuntimeOverload&, which
                             // is `ovl` itself for chaining, and are marked

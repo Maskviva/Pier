@@ -8,6 +8,17 @@
 #include <limits>
 #include <string>
 
+// LeviLamina 26.51.5: EventCoordinatorPimpl::_processEvent is an inline member
+// template marked MCAPI (dllimport), which MSVC rejects (C2491). Pre-include it
+// once with MCAPI empty; #pragma once stops Scoreboard.h from re-reading it.
+#include "mc/_HeaderOutputPredefine.h"
+#include "mc/world/events/EventResult.h"
+#pragma push_macro("MCAPI")
+#undef MCAPI
+#define MCAPI
+#include "mc/world/events/EventCoordinatorPimpl.h"
+#pragma pop_macro("MCAPI")
+
 #include "mc/world/level/Level.h"
 #include "mc/world/scores/Objective.h"
 #include "mc/world/scores/ObjectiveCriteria.h"

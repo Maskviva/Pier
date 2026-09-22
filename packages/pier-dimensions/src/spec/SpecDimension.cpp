@@ -26,6 +26,8 @@
 
 #include "mc/common/Brightness.h"
 #include "mc/deps/core/math/Color.h"
+#include "mc/world/level/biome/Biome.h"
+#include "mc/world/level/biome/BiomeIdType.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/DimensionConversionData.h"
 #include "mc/world/level/Level.h"
@@ -135,10 +137,16 @@ namespace pier::dimensions
          *  missing so that a void never fails to build. */
         std::unique_ptr<WorldGenerator> voidWith(Dimension& dim, std::string const& biome)
         {
-            auto v = std::make_unique<VoidGenerator>(dim);
-            v->mBiome = dim.mLevel.getBiomeRegistry().lookupByName(biome);
-            if (!v->mBiome) v->mBiome = dim.mLevel.getBiomeRegistry().lookupByName("minecraft:plains");
-            if (v->mBiome) v->mBiomeSource = std::make_unique<FixedBiomeSource>(*v->mBiome);
+            auto& registry = dim.mLevel.getBiomeRegistry();
+            Biome* b = registry.lookupByName(biome);
+            if (!b) b = registry.lookupByName("minecraft:plains");
+            // 26.51: the default biome is a constructor argument.
+            auto v = std::make_unique<VoidGenerator>(dim, b ? *b->mId : ::BiomeIdType{});
+            if (b)
+            {
+                v->mBiome       = b;
+                v->mBiomeSource = std::make_unique<FixedBiomeSource>(*b);
+            }
             return v;
         }
 

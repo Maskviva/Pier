@@ -23,7 +23,7 @@ code.
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.40.2" }
+pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.1" }
 ```
 
 ## The smallest mod

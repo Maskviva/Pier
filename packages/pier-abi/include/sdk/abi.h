@@ -694,13 +694,17 @@ enum PierPlayerAction
        engine's LayeredAbilities::setAbility is the "switch to custom
        permissions" path and pushes the player to Custom, and that level ships
        to the client inside UpdateAbilitiesPacket together with the ability
-       layer. To change the level, use PIER_PACT_SET_PERMISSION_LEVEL. */
+       layer. To change the level, use PIER_PACT_SET_PERMISSION_LEVEL.
+       Refused (false) until the player has finished joining
+       (Player::isPlayerInitialized): an ability written while the client is still
+       loading desynchronizes until the player rejoins. Simulated players are exempt. */
     PIER_PACT_CAN_USE_ABILITY = 1, /* a=AbilitiesIndex → out "0"/"1" Player::canUseAbility */
     PIER_PACT_SET_SELECTED_SLOT = 2, /* a=slot                          Player::setSelectedSlot */
     PIER_PACT_GIVE_ITEM = 3, /* sarg=item SNBT                  ItemStack::fromTag + Player::addAndRefresh */
     PIER_PACT_SET_SPAWN_POINT = 4, /* a,b,c=pos, sarg=dim id (any registered dim); native Player::setRespawnPosition */
     PIER_PACT_CLEAR_TITLE = 5, /* native SetTitlePacket(Clear) */
-    PIER_PACT_SET_TITLE = 6, /* sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket, text sent verbatim */
+    PIER_PACT_SET_TITLE = 6,
+    /* sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket, text sent verbatim */
     /*  Appended  */
     PIER_PACT_ADD_EXPERIENCE = 7, /* a=xp                  Player::addExperience */
     PIER_PACT_ADD_LEVELS = 8, /* a=levels              Player::addLevels */
@@ -724,7 +728,8 @@ enum PierPlayerAction
     PIER_PACT_SET_PERMISSION_LEVEL = 26,
     /* a=PlayerPermissionLevel (0 Visitor, 1 Member, 2 Operator, 3 Custom).
        LayeredAbilities::setPlayerPermissions plus UpdateAbilitiesPacket.
-       The read side is PIER_PPROP_PERMISSION_LEVEL. */
+       The read side is PIER_PPROP_PERMISSION_LEVEL. Refused until the player has
+       finished joining, like PIER_PACT_SET_ABILITY. */
 };
 
 /** actor_get_num / actor_set_num keys. (S)=settable via actor_set_num. */
@@ -1019,20 +1024,20 @@ enum PierDimRule
 enum PierPackStatus
 {
     PIER_PACK_OK = 0,
-    PIER_PACK_BAD_PATH = -1,          /* absolute, contains "..", or leaves the server root */
+    PIER_PACK_BAD_PATH = -1, /* absolute, contains "..", or leaves the server root */
     PIER_PACK_CONFIG_UNREADABLE = -2, /* the config file cannot be opened */
-    PIER_PACK_CONFIG_INVALID = -3,    /* not JSON, or a required key missing or malformed */
+    PIER_PACK_CONFIG_INVALID = -3, /* not JSON, or a required key missing or malformed */
     PIER_PACK_BINARY_UNREADABLE = -4, /* the binary named by the config cannot be opened */
-    PIER_PACK_CORRUPT = -5,           /* a section fails its hash or an index is out of range */
-    PIER_PACK_KIND_MISMATCH = -6,     /* spec kind, config type and binary magic disagree */
-    PIER_PACK_HASH_MISMATCH = -7,     /* the binary does not hash to the config's sha256 */
-    PIER_PACK_UNSUPPORTED = -8,       /* a pack kind or format version this host does not serve */
-    PIER_PACK_PARAMS = -9,            /* a parameter or role outside what the pack allows */
-    PIER_PACK_CONSTRAINT = -10,       /* a constraint of the pack fails with these values */
-    PIER_PACK_HEIGHT = -11,           /* the dimension height does not fit the pack */
-    PIER_PACK_STORED_MISMATCH = -12,  /* the name exists with another binary or terrain kind */
-    PIER_PACK_SPEC = -13,             /* the spec could not be read or has no pack terrain */
-    PIER_PACK_HOST = -14,             /* another host refusal; the log has the reason */
+    PIER_PACK_CORRUPT = -5, /* a section fails its hash or an index is out of range */
+    PIER_PACK_KIND_MISMATCH = -6, /* spec kind, config type and binary magic disagree */
+    PIER_PACK_HASH_MISMATCH = -7, /* the binary does not hash to the config's sha256 */
+    PIER_PACK_UNSUPPORTED = -8, /* a pack kind or format version this host does not serve */
+    PIER_PACK_PARAMS = -9, /* a parameter or role outside what the pack allows */
+    PIER_PACK_CONSTRAINT = -10, /* a constraint of the pack fails with these values */
+    PIER_PACK_HEIGHT = -11, /* the dimension height does not fit the pack */
+    PIER_PACK_STORED_MISMATCH = -12, /* the name exists with another binary or terrain kind */
+    PIER_PACK_SPEC = -13, /* the spec could not be read or has no pack terrain */
+    PIER_PACK_HOST = -14, /* another host refusal; the log has the reason */
 };
 
 enum PierSysInfoProp
@@ -1052,7 +1057,10 @@ enum PierServerInfoProp
      * build. It used to return LevelData::mNetworkVersion, which is the save file's
      * tag, not the server's protocol — a 1.21.93 world on a 1.26.40 server reported
      * 819. Treat a false return as "cannot be determined" and fall back to
-     * PIER_SRV_GAME_SEM_VERSION; do not treat it as 0. */
+     * - **`PIER_SRV_PROTOCOL_VERSION` asks LeviLamina** through `ll::getNetworkProtocolVersion()`
+     * instead of a table of versions seen here, so a new BDS no longer needs a Pier release
+     * before it answers.
+     */
     PIER_SRV_PROTOCOL_VERSION = 1,
     /* LevelData::mNetworkVersion: the protocol the level was last written by. Says how
      * old the save is, not what the server speaks. */

@@ -71,8 +71,6 @@ namespace pier::dimensions
             case ChunkState::DecorationPostProcessing: return "DecorationPostProcessing";
             case ChunkState::DecorationPostProcessed: return "DecorationPostProcessed";
             case ChunkState::CheckingForReplacementData: return "CheckingForReplacementData";
-            case ChunkState::NeighborAwareUpgradeNeeded: return "NeighborAwareUpgradeNeeded";
-            case ChunkState::NeighborAwareUpgrading: return "NeighborAwareUpgrading";
             case ChunkState::NeedsLighting: return "NeedsLighting";
             case ChunkState::Lighting: return "Lighting";
             case ChunkState::LightingFinished: return "LightingFinished";
@@ -146,7 +144,8 @@ namespace pier::dimensions
                 // otherwise setting the filter to dim 5 and seeing every other dimension
                 // in the log gives no clue why.
                 hostLogger().warn(
-                    "[chunk] PIER_TRACE_CHUNK_DIM='{}' is not an integer, using the default of custom dimensions only, id 3 and above", v
+                    "[chunk] PIER_TRACE_CHUNK_DIM='{}' is not an integer, using the default of custom dimensions only, id 3 and above",
+                    v
                 );
                 return -2;
             }
@@ -368,7 +367,8 @@ namespace pier::dimensions
         try
         {
             auto const& defs = *mDimensionDefinitionGroup->mDimensionDefinitions;
-            hostLogger().info("[dimdata] sending the dimension definition table to the client, {} entries:", defs.size());
+            hostLogger().info("[dimdata] sending the dimension definition table to the client, {} entries:",
+                              defs.size());
             for (auto const& entry : defs)
             {
                 // A scalar member, an int or an enum, is used directly with no .get().
@@ -379,8 +379,8 @@ namespace pier::dimensions
                     "[dimdata]   '{}' id={} height={}..{} generator={}",
                     entry.first,
                     entry.second.mDimensionType->mValue,
-                    entry.second.mHeightMinimum,
-                    entry.second.mHeightMaximum,
+                    entry.second.mMinY,
+                    entry.second.mMinY + entry.second.mHeightRange,
                     static_cast<int>(entry.second.mGeneratorType)
                 );
             }
@@ -395,7 +395,8 @@ namespace pier::dimensions
         }
         catch (...)
         {
-            hostLogger().warn("[dimdata] reading the dimension definition table failed; the packet itself is unaffected");
+            hostLogger().warn(
+                "[dimdata] reading the dimension definition table failed; the packet itself is unaffected");
         }
         origin(stream);
     }
@@ -536,9 +537,11 @@ namespace pier::dimensions
         hostLogger().warn(
             "[chunk] chunk tracing is on (PIER_TRACE_CHUNK=1, dimension filter {}); the "
             "log volume is large, turn it off once the investigation is done",
-            chunkTraceDimFilter() == -2 ? std::string{"custom dimensions only (>=3)"}
-            : chunkTraceDimFilter() == -1 ? std::string{"all"}
-                                          : std::to_string(chunkTraceDimFilter())
+            chunkTraceDimFilter() == -2
+                ? std::string{"custom dimensions only (>=3)"}
+                : chunkTraceDimFilter() == -1
+                ? std::string{"all"}
+                : std::to_string(chunkTraceDimFilter())
         );
     }
 

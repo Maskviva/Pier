@@ -116,7 +116,7 @@ namespace pier::dimensions
                 hostLogger().debug(
                     "[dim] '{}': the engine's definition says height {}..{}, generator {}; the spec "
                     "asks for {}..{}, generator {}",
-                    name, d.mHeightMinimum, d.mHeightMaximum, static_cast<int>(d.mGeneratorType),
+                    name, d.mMinY, d.mMinY + d.mHeightRange, static_cast<int>(d.mGeneratorType),
                     minY, maxY, static_cast<int>(gen)
                 );
                 entry = const_cast<Definition*>(&d);
@@ -133,15 +133,15 @@ namespace pier::dimensions
             }
             if (!entry) return false;
 
-            entry->mHeightMinimum = minY;
-            entry->mHeightMaximum = maxY;
+            entry->mMinY        = minY;
+            entry->mHeightRange = maxY - minY;
             entry->mGeneratorType = gen;
 
             bool agrees = false;
             group.forEachDimensionDefinition([&](std::string const& n, Definition const& d)
             {
                 if (n != name) return;
-                agrees = d.mHeightMinimum == minY && d.mHeightMaximum == maxY && d.mGeneratorType == gen;
+                agrees = d.mMinY == minY && d.mMinY + d.mHeightRange == maxY && d.mGeneratorType == gen;
             });
             if (!agrees)
             {
@@ -641,13 +641,21 @@ namespace pier::dimensions
 
             try
             {
+                // 26.51: the definition is passed whole, so height and generator go in at registration.
+                ::DimensionDefinitionGroup::DimensionDefinition def{
+                    .mMinY          = advertised.first,
+                    .mHeightRange   = advertised.second - advertised.first,
+                    .mGeneratorType = gen,
+                    .mDimensionType = ::DimensionType{suggested},
+                    .mPackId        = ::mce::UUID{},   // no source pack, as before
+                    .mDefaultBiome  = std::string{},
+                };
+
                 // The third argument, from 26.40, is the resource pack the definition
                 // came from. This one comes from no pack, and a zero UUID is what the
                 // engine's own emptiness check reads as none; the field is provenance
                 // and nothing selects a dimension by it.
-                if (!mgr->_registerCustomDimensionWithDimensionDefinitionGroup(
-                        std::string_view{name}, ::DimensionType{suggested}, ::mce::UUID{}
-                    ))
+                if (!mgr->_registerDimensionWithDimensionDefinitionGroup(std::string_view{name}, def))
                 {
                     hostLogger().error(
                         "[dim] '{}' was not registered: DimensionDefinitionGroup did not "

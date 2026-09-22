@@ -45,13 +45,14 @@ namespace pier::hooks
             ::BlockPos const& at,
             uchar face,
             ::Vec3 const& hit,
+            ::HandSlot hand,
             ::Block const* targetBlock,
             bool isFirstEvent)
         {
             auto& def = useItemOnDef();
             if (!def.live())
             {
-                return origin(item, at, face, hit, targetBlock, isFirstEvent);
+                return origin(item, at, face, hit, hand, targetBlock, isFirstEvent);
             }
 
             // mPlayer is a TypedStorage<8, 8, Player&> and not a wrapper: TypedStorageType
@@ -83,7 +84,7 @@ namespace pier::hooks
                 refused.mSwing = false;
                 return refused;
             }
-            return origin(item, at, face, hit, targetBlock, isFirstEvent);
+            return origin(item, at, face, hit, hand, targetBlock, isFirstEvent);
         }
 
         HookEventDef gDef{"PlayerUseItemOnEvent", [] { return PlayerUseItemOnHook::hook() == 0; }};

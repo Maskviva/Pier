@@ -626,6 +626,38 @@ namespace pier::api_impl
             return true;
         }
 
+        /**
+         * Whether the abilities of a player may be written now: only once the client has
+         * finished joining.
+         *
+         * The server and the client load at different speeds. An ability or permission
+         * level written before the client reports itself initialized
+         * (SetLocalPlayerAsInitializedPacket) lands on a client that has not built its
+         * ability layers yet: the server then holds one state and the client another, and
+         * the client can stay without building or attacking for the rest of the session,
+         * cleared only by a rejoin. The write is refused rather than queued, so a caller
+         * that tried too early learns it at the call instead of seeing the change land at
+         * an unrelated moment.
+         *
+         * A simulated player has no client and nothing to desynchronize, so it is never
+         * held back.
+         */
+        bool abilitiesWritable(Player& p, char const* what)
+        {
+            if (p.isSimulatedPlayer() || p.isPlayerInitialized())
+            {
+                return true;
+            }
+            hostLogger().warn(
+                "[api] {} for player {} refused: the player has not finished joining. "
+                "Writing abilities before the client is initialized desynchronizes them "
+                "until the player rejoins; write after the player has fully joined",
+                what,
+                p.getRealName()
+            );
+            return false;
+        }
+
         bool setPlayerAbility(Player& p, int idx, double value)
         {
             if (idx < 0 || idx >= static_cast<int>(AbilitiesIndex::AbilityCount))
@@ -712,6 +744,7 @@ namespace pier::api_impl
                 {
                 case PIER_PACT_SET_ABILITY:
                 {
+                    if (!abilitiesWritable(*p, "setting an ability")) return false;
                     int idx = static_cast<int>(a);
                     return setPlayerAbility(*p, idx, b);
                 }
@@ -1090,6 +1123,9 @@ namespace pier::api_impl
                 }
                 case PIER_PACT_SET_PERMISSION_LEVEL:
                 {
+                    // The level travels in the same UpdateAbilitiesPacket as the ability
+                    // layers, and desynchronizes the same way when written too early.
+                    if (!abilitiesWritable(*p, "setting the permission level")) return false;
                     int lvl = static_cast<int>(a);
                     if (lvl < static_cast<int>(PlayerPermissionLevel::Visitor)
                         || lvl > static_cast<int>(PlayerPermissionLevel::Custom))

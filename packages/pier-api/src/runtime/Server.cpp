@@ -17,6 +17,7 @@
 // CurrentGameSemVersion() returns a reference to an incomplete type and no field on it
 // can be read. The definition, and SemVersionBase underneath it that actually carries
 // mMajor / mMinor / mPatch / mPreRelease, come from here.
+#include "mc/common/StringConstants.h"
 #include "mc/deps/core/sem_ver/SemVersionConstant.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/storage/LevelData.h"
@@ -259,8 +260,12 @@ namespace pier::api_impl
                 switch (prop)
                 {
                 case PIER_SRV_BDS_VERSION:
-                    sink(ctx, ps(Common::getGameVersionString()));
-                    return true;
+                    {
+                        // 26.51 dropped Common::getGameVersionString; its string lives in StringConstants.
+                        static std::string const version = *Common::_buildStringConstants().mGameVersionString;
+                        sink(ctx, ps(version));
+                        return true;
+                    }
                 case PIER_SRV_PROTOCOL_VERSION:
                 {
                     // The protocol the running server speaks, not the one the level was

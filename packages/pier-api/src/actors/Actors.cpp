@@ -128,14 +128,14 @@ namespace pier::api_impl
                     *out = actor->isTame() ? 1.0 : 0.0;
                     return true;
                 case PIER_APROP_SPEED:
-                {
-                    // getSpeedInMetersPerSecond() was inlined away in 26.32 and has no
-                    // symbol left. mPosDelta is the per-tick movement the accessor read,
-                    // and the engine runs at 20 ticks per second.
-                    auto const& d = actor->getPosDelta();
-                    *out = static_cast<double>(std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z) * 20.0f);
-                    return true;
-                }
+                    {
+                        // getSpeedInMetersPerSecond() was inlined away in 26.32 and has no
+                        // symbol left. mPosDelta is the per-tick movement the accessor read,
+                        // and the engine runs at 20 ticks per second.
+                        auto const& d = actor->getPosDelta();
+                        *out = static_cast<double>(std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z) * 20.0f);
+                        return true;
+                    }
                 /*  Appended: actor gap fills  */
                 case PIER_APROP_VIEW_X:
                     *out = actor->getViewVector().x;
@@ -199,14 +199,14 @@ namespace pier::api_impl
                     // unavailable.
                     return false;
                 case PIER_APROP_BRIGHTNESS:
-                {
-                    // The no-argument overload is inlined away. The virtual survives and
-                    // wants the region to read the light from, which is the one this actor
-                    // stands in.
-                    *out = static_cast<double>(
-                        actor->getBrightness(0.0f, actor->getDimensionBlockSource()));
-                    return true;
-                }
+                    {
+                        // The no-argument overload is inlined away. The virtual survives and
+                        // wants the region to read the light from, which is the one this actor
+                        // stands in.
+                        *out = static_cast<double>(
+                            actor->getBrightness(0.0f, actor->getDimensionBlockSource()));
+                        return true;
+                    }
                 case PIER_APROP_RADIUS:
                     // getRadius() is gone; the bounding box size it derived from is
                     // reachable through the ECS. x is the width, and the radius is half.
@@ -314,91 +314,88 @@ namespace pier::api_impl
                     actor->setOnFire(static_cast<int>(a));
                     return true;
                 case PIER_AACT_TELEPORT:
-                {
-                    std::string dimStr = toString(sarg);
-                    int dim = static_cast<int>(actor->getDimensionId());
-                    if (!dimStr.empty())
                     {
-                        try
+                        std::string dimStr = toString(sarg);
+                        int dim = static_cast<int>(actor->getDimensionId());
+                        if (!dimStr.empty())
                         {
-                            dim = std::stoi(dimStr);
+                            try
+                            {
+                                dim = std::stoi(dimStr);
+                            }
+                            catch (...)
+                            {
+                                return false;
+                            }
                         }
-                        catch (...)
-                        {
-                            return false;
-                        }
+                        // The same gate player_teleport uses. The dimension bridge must be
+                        // able to build the instance and the id the engine reports must
+                        // match the request, otherwise a chunk thread throws an uncaught
+                        // exception and the process fastfails.
+                        if (!bridge::blockSourceOf(dim)) return false;
+                        // teleport(pos, dim, rotation) keeps the actor's current
+                        // orientation.
+                        actor->teleport(
+                            Vec3{(float)a, (float)b, (float)c}, DimensionType{dim}, actor->getRotation());
+                        return true;
                     }
-                    // The same gate player_teleport uses. The dimension bridge must be
-                    // able to build the instance and the id the engine reports must
-                    // match the request, otherwise a chunk thread throws an uncaught
-                    // exception and the process fastfails.
-                    if (!bridge::blockSourceOf(dim)) return false;
-                    // teleport(pos, dim, rotation) keeps the actor's current
-                    // orientation.
-                    actor->teleport(
-                        Vec3{(float)a, (float)b, (float)c}, DimensionType{dim}, actor->getRotation());
-                    return true;
-                }
                 case PIER_AACT_SET_NAME_TAG:
                     actor->setNameTag(toString(sarg));
                     return true;
                 case PIER_AACT_ADD_TAG:
-                {
-                    bool ok = actor->addTag(toString(sarg));
-                    if (out) out(ctx, ps(std::string_view{ok ? "1" : "0"}));
-                    return true;
-                }
+                    {
+                        bool ok = actor->addTag(toString(sarg));
+                        if (out) out(ctx, ps(std::string_view{ok ? "1" : "0"}));
+                        return true;
+                    }
                 case PIER_AACT_REMOVE_TAG:
-                {
-                    bool ok = actor->removeTag(toString(sarg));
-                    if (out) out(ctx, ps(std::string_view{ok ? "1" : "0"}));
-                    return true;
-                }
+                    {
+                        bool ok = actor->removeTag(toString(sarg));
+                        if (out) out(ctx, ps(std::string_view{ok ? "1" : "0"}));
+                        return true;
+                    }
                 case PIER_AACT_HAS_TAG:
-                {
-                    bool has = actor->hasTag(toString(sarg));
-                    if (out) out(ctx, ps(std::string_view{has ? "1" : "0"}));
-                    return true;
-                }
+                    {
+                        bool has = actor->hasTag(toString(sarg));
+                        if (out) out(ctx, ps(std::string_view{has ? "1" : "0"}));
+                        return true;
+                    }
                 case PIER_AACT_ADD_EFFECT:
-                {
-                    auto* effect = MobEffect::getByName(toString(sarg));
-                    if (!effect) return false;
-                    // 26.40 leaves the class with no constructor of its own and no
-                    // declaration blocking the implicit one, so the instance is built
-                    // empty and the four fields the caller supplies are assigned. Every
-                    // other field is value-initialized, which is what the removed
-                    // two-argument constructor left them as.
-                    MobEffectInstance inst{};
-                    inst.mId = effect->mId;
-                    inst.mDuration = ::EffectDuration{static_cast<int>(a)};
-                    inst.mAmplifier = static_cast<int>(b);
-                    inst.mEffectVisible = (c != 0.0);
-                    actor->addEffect(inst);
-                    return true;
-                }
+                    {
+                        auto* effect = MobEffect::getByName(toString(sarg));
+                        if (!effect) return false;
+                        // 26.51 exports the two-argument constructor again and declares the
+                        // default one without defining it, so an empty instance no longer
+                        // links. Build it through the engine's constructor and assign the
+                        // two fields it does not take.
+                        MobEffectInstance inst{effect->mId, ::EffectDuration{static_cast<int>(a)}};
+                        inst.mAmplifier = static_cast<int>(b);
+                        inst.mEffectVisible = (c != 0.0);
+                        actor->addEffect(inst);
+                        return true;
+                    }
                 case PIER_AACT_REMOVE_EFFECT:
-                {
-                    auto* effect = MobEffect::getByName(toString(sarg));
-                    if (!effect) return false;
-                    actor->removeEffect(static_cast<int>(effect->mId));
-                    return true;
-                }
+                    {
+                        auto* effect = MobEffect::getByName(toString(sarg));
+                        if (!effect) return false;
+                        actor->removeEffect(static_cast<int>(effect->mId));
+                        return true;
+                    }
                 case PIER_AACT_CLEAR_EFFECTS:
                     actor->removeAllEffects();
                     return true;
                 case PIER_AACT_HURT:
-                {
-                    // Through Actor::hurtByCause, which takes an ActorDamageCause and
-                    // keeps the engine's damage accounting intact. Damage is applied by
-                    // Actor* and not by name, so it works for any actor and no player
-                    // name has to be concatenated into a quoted command, where a quote
-                    // in the name would tear the command apart. Override is generic
-                    // damage attributed to no particular source, which is exactly the
-                    // meaning of this slot: the caller supplied only an amount.
-                    return actor->hurtByCause(
-                        static_cast<float>(a), ::SharedTypes::Legacy::ActorDamageCause::Override);
-                }
+                    {
+                        // Through Actor::hurtByCause, which takes an ActorDamageCause and
+                        // keeps the engine's damage accounting intact. Damage is applied by
+                        // Actor* and not by name, so it works for any actor and no player
+                        // name has to be concatenated into a quoted command, where a quote
+                        // in the name would tear the command apart. Override is generic
+                        // damage attributed to no particular source, which is exactly the
+                        // meaning of this slot: the caller supplied only an amount.
+                        return actor->hurtByCause(
+                            static_cast<float>(a), ::SharedTypes::Legacy::ActorDamageCause::Override);
+                    }
                 case PIER_AACT_ATTRIBUTE_GET:
                     return false; // Reserved for generic attributes by name
                 /*  Appended  */
@@ -433,12 +430,12 @@ namespace pier::api_impl
                         actor->getEntityContext(), ::ActorFlags::CanShowName, a != 0.0);
                     return true;
                 case PIER_AACT_SET_TARGET:
-                {
-                    auto* target = bridge::resolveActor(static_cast<PierActorId>(a));
-                    if (!target) return false;
-                    actor->setTarget(target);
-                    return true;
-                }
+                    {
+                        auto* target = bridge::resolveActor(static_cast<PierActorId>(a));
+                        if (!target) return false;
+                        actor->setTarget(target);
+                        return true;
+                    }
                 case PIER_AACT_SET_OWNER:
                     actor->setOwner(ActorUniqueID{static_cast<int64_t>(a)});
                     return true;
@@ -460,13 +457,13 @@ namespace pier::api_impl
                         Vec3{static_cast<float>(a), static_cast<float>(b), static_cast<float>(c)};
                     return true;
                 case PIER_AACT_APPLY_IMPULSE:
-                {
-                    auto& delta = actor->mBuiltInComponents->mStateVectorComponent->mPosDelta.get();
-                    delta.x += static_cast<float>(a);
-                    delta.y += static_cast<float>(b);
-                    delta.z += static_cast<float>(c);
-                    return true;
-                }
+                    {
+                        auto& delta = actor->mBuiltInComponents->mStateVectorComponent->mPosDelta.get();
+                        delta.x += static_cast<float>(a);
+                        delta.y += static_cast<float>(b);
+                        delta.z += static_cast<float>(c);
+                        return true;
+                    }
                 case PIER_AACT_SET_SCORE_TAG:
                     actor->mEntityData->set<std::string>(
                         static_cast<ushort>(::ActorDataIDs::Score), toString(sarg));

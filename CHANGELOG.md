@@ -6,6 +6,67 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more slowly.
 
+## [26.51.1]
+
+Built for BDS 1.26.51 and LeviLamina 26.51.5. A release is built against the one BDS its
+number names, so 26.40.3 stays the build for BDS 1.26.40 and does not run on 1.26.51.
+None of the engine changes reaches the ABI: `PIER_ABI_VERSION` stays at 2 and a mod built
+against 26.40.3 keeps working without a rebuild. One behaviour does change for mods: an
+ability or permission level written before the player has finished joining is now
+refused, see below.
+
+### Added
+
+- **Literal subcommands in `register_command_ex`.** A parameter of kind `text`, with the
+  word in its `text` field, declares a literal: a node in the command tree, which is what
+  `/scoreboard objectives add` is made of, and the only form the client narrows as the
+  player types. An `enum` parameter lists its values but is not a tree node, so the
+  client had nothing to filter on, and the spec had no way to ask for a literal. The
+  handler receives the word under the parameter's name like any other argument, so
+  dispatch does not depend on an overload index that moves when an overload is inserted
+  above it. Two overloads that differ only by a literal digest differently, so a reload
+  cannot rebind one onto the other. In pier-rs this is `OverloadBuilder::text(name,
+  literal)`. A host before 26.51.1 rejects the kind as unknown and does not register the
+  command.
+
+### Changed
+
+- **Ability and permission-level writes wait until the player has finished joining.**
+  `PIER_PACT_SET_ABILITY` and `PIER_PACT_SET_PERMISSION_LEVEL` return false, with a
+  warning in the log, until `Player::isPlayerInitialized`. Written earlier, the change
+  reaches a client that has not built its ability layers yet: server and client then
+  disagree, and the player can be left unable to build or attack until they rejoin. The
+  write is refused rather than queued, so a caller that tried too early finds out at the
+  call instead of seeing the change land at an unrelated moment. Simulated players have
+  no client and are exempt. A mod that sets abilities while a player joins has to make
+  the write once the player has fully joined.
+- **`PIER_SRV_PROTOCOL_VERSION` knows 1.26.51**, which speaks 2193, read from the
+  startup banner of a 1.26.51 server like the 1.26.40 row before it.
+- **Custom dimension registration passes the whole definition.**
+  `DimensionManager::_registerCustomDimensionWithDimensionDefinitionGroup` is gone in
+  26.51. Its replacement, `_registerDimensionWithDimensionDefinitionGroup`, takes a
+  complete `DimensionDefinition`, so the height and the generator go in at registration
+  instead of being corrected afterwards. The definition carries the 1.26.50
+  `minecraft:dimension_height` shape, `mMinY` and `mHeightRange`, in place of a minimum
+  and a maximum. The top of a dimension is `mMinY + mHeightRange`, and the
+  dimension-data trace prints it that way.
+- **`MobEffectInstance` has its two-argument constructor back.** 26.51 exports
+  `MobEffectInstance(id, duration)` again and declares the default constructor without
+  defining it. Adding an effect builds the instance through that constructor and assigns
+  the amplifier and the visibility; every other field is what the engine's constructor
+  sets rather than value-initialized.
+- **`Common::getGameVersionString` is gone on the server.** `PIER_SRV_BDS_VERSION` reads
+  `Common::StringConstants::mGameVersionString` instead, built once through
+  `Common::_buildStringConstants`.
+- **`GameMode::useItemOn` takes a `HandSlot`**, and the `PlayerUseItemOnEvent` hook
+  passes it through unchanged. The event payload is unchanged.
+- **`VoidGenerator` takes the default biome as a constructor argument.** A void
+  dimension passes the biome its spec names, or plains when that one is missing, as
+  before.
+- **`ChunkState` lost `NeighborAwareUpgradeNeeded` and `NeighborAwareUpgrading`**, and
+  the chunk trace no longer names them.
+- The Rust binding moves to pier-rs 2.1.0 / pier-sys-rs 26.51.1.
+
 ## [26.40.3]
 
 ### Fixed

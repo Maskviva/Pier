@@ -45,13 +45,13 @@ function pier_common()
 end
 
 if is_client then
-    add_requires("levilamina 26.40.0", {configs = {target_type = "client"}})
-    add_requires("legacymoney 0.20.0", {configs = {target_type = "client"}})
-    add_requires("bedrockdata 26.40.5-client.2")
+    add_requires("levilamina 26.51.5", {configs = {target_type = "client"}})
+    add_requires("legacymoney 0.22.0", {configs = {target_type = "client"}})
+    add_requires("bedrockdata 26.51.1-client.6")
 else
-    add_requires("levilamina 26.40.0", {configs = {target_type = "server"}})
-    add_requires("legacymoney 0.20.0", {configs = {target_type = "server"}})
-    add_requires("bedrockdata 26.40.8-server.2")
+    add_requires("levilamina 26.51.5", {configs = {target_type = "server"}})
+    add_requires("legacymoney 0.22.0", {configs = {target_type = "server"}})
+    add_requires("bedrockdata 26.51.1-server.6")
     add_requires("snappy")
     add_requires("magic_enum")
 end

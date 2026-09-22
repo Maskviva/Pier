@@ -104,6 +104,14 @@ pub enum DimensionRule {
     /// Blocks only actor movement crossing a cell boundary. Players and ridden vehicles are
     /// never restricted.
     EntityCrossCell = 12,
+    /// Blocks actor movement on a gap, the ground between the cells.
+    ///
+    /// [`DimensionRule::EntityCrossCell`] keeps an actor inside its cell and leaves the gap
+    /// free, so a mob that spawns on the road walks the road; with this one forbidden the
+    /// road stops being a corridor as well and everything that is not a player stays where
+    /// it stands on it. Same exemptions: players and ridden vehicles pass, and vertical
+    /// movement is untouched.
+    EntityOnGap = 13,
 }
 
 // The retired names keep the variant spelling they had, so an existing caller compiles

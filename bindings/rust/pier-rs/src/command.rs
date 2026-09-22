@@ -282,6 +282,28 @@ impl OverloadBuilder {
         self.push(name, kind, None, true)
     }
 
+    /// A **literal**: a fixed word the player types, and a node in the command tree.
+    ///
+    /// # Why this is not an enum with one value
+    ///
+    /// An `Enum` parameter carries `EnumAutocompleteExpansion`, so the client lists its
+    /// values, but its data type is `Enum` and not `ChainedSubcommand`: there is no tree
+    /// node, and the client has nothing to narrow as the player types. A literal is what
+    /// `/scoreboard objectives add` is made of, and it is the only form that filters.
+    ///
+    /// The word comes back in the arguments under `name`, so the handler reads it the
+    /// same way as any other parameter, rather than keying on an overload index that
+    /// moves when an overload is inserted above it.
+    pub fn text(self, name: &str, literal: &str) -> OverloadBuilder {
+        let mut params = self.params;
+        params.push(NbtValue::obj([
+            ("name".to_owned(), NbtValue::from(name)),
+            ("kind".to_owned(), NbtValue::from("text")),
+            ("text".to_owned(), NbtValue::from(literal)),
+        ]));
+        OverloadBuilder { params }
+    }
+
     pub fn required_enum(self, name: &str, kind: ParamType, enum_name: &str) -> OverloadBuilder {
         self.push(name, kind, Some(enum_name), false)
     }
