@@ -646,8 +646,8 @@ namespace pier::dimensions
                 // by it; this one comes from no pack, and a zero UUID is what the engine's
                 // own emptiness check reads as none.
                 ::DimensionDefinitionGroup::DimensionDefinition def{
-                    .mMinY          = t,
-                    .mHeightRange   = advertised.second - t,
+                    .mMinY          = advertised.first,
+                    .mHeightRange   = advertised.second - advertised.first,
                     .mGeneratorType = gen,
                     .mDimensionType = ::DimensionType{suggested},
                     .mPackId        = ::mce::UUID{},
@@ -676,7 +676,7 @@ namespace pier::dimensions
                 bindFactory();
                 // Before the instance is built: the Dimension takes its height from the
                 // spec and the engine takes it from here, and they have to be one shape.
-                alignDefinitionShape(mgr, name, suggested, t, advertised.second, gen);
+                alignDefinitionShape(mgr, name, suggested, advertised.first, advertised.second, gen);
             }
             catch (std::exception const& e)
             {
