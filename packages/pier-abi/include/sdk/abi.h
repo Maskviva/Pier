@@ -704,7 +704,10 @@ enum PierPlayerAction
     PIER_PACT_SET_SPAWN_POINT = 4, /* a,b,c=pos, sarg=dim id (any registered dim); native Player::setRespawnPosition */
     PIER_PACT_CLEAR_TITLE = 5, /* native SetTitlePacket(Clear) */
     PIER_PACT_SET_TITLE = 6,
-    /* sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket, text sent verbatim */
+    /*
+     * sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket,
+     * text sent verbatim
+     */
     /*  Appended  */
     PIER_PACT_ADD_EXPERIENCE = 7, /* a=xp                  Player::addExperience */
     PIER_PACT_ADD_LEVELS = 8, /* a=levels              Player::addLevels */
@@ -1057,7 +1060,7 @@ enum PierServerInfoProp
      * build. It used to return LevelData::mNetworkVersion, which is the save file's
      * tag, not the server's protocol — a 1.21.93 world on a 1.26.40 server reported
      * 819. Treat a false return as "cannot be determined" and fall back to
-     * - **`PIER_SRV_PROTOCOL_VERSION` asks LeviLamina** through `ll::getNetworkProtocolVersion()`
+     * - `PIER_SRV_PROTOCOL_VERSION` asks LeviLamina through `ll::getNetworkProtocolVersion()`
      * instead of a table of versions seen here, so a new BDS no longer needs a Pier release
      * before it answers.
      */

@@ -132,7 +132,9 @@ namespace pier::api_impl
             std::string title;
             std::vector<std::string> rows;
         };
+
         using SidebarKey = std::pair<int64_t, std::string>;
+
         struct SidebarKeyHash
         {
             size_t operator()(SidebarKey const& k) const noexcept
@@ -140,6 +142,7 @@ namespace pier::api_impl
                 return std::hash<int64_t>{}(k.first) ^ (std::hash<std::string>{}(k.second) << 1);
             }
         };
+
         std::unordered_map<SidebarKey, SidebarState, SidebarKeyHash> gSidebars;
 
         /** Drops every entry at once past a bound. Nothing tells this file that a player
@@ -205,27 +208,27 @@ namespace pier::api_impl
                 {
                 case TextPacketType::Chat:
                 case TextPacketType::Whisper:
-                {
-                    // No author was given, so the server speaks; the client shows
-                    // "<Server> text" for Chat and the whisper form for Whisper.
-                    TextPacketPayload::AuthorAndMessage body{ptype, std::string{"Server"}, toString(msg)};
-                    pkt.mBody = body;
-                    break;
-                }
+                    {
+                        // No author was given, so the server speaks; the client shows
+                        // "<Server> text" for Chat and the whisper form for Whisper.
+                        TextPacketPayload::AuthorAndMessage body{ptype, std::string{"Server"}, toString(msg)};
+                        pkt.mBody = body;
+                        break;
+                    }
                 case TextPacketType::Translate:
-                {
-                    TextPacketPayload::MessageAndParams body{ptype, toString(msg), std::vector<std::string>{}};
-                    pkt.mBody = body;
-                    break;
-                }
+                    {
+                        TextPacketPayload::MessageAndParams body{ptype, toString(msg), std::vector<std::string>{}};
+                        pkt.mBody = body;
+                        break;
+                    }
                 default:
-                {
-                    TextPacketPayload::MessageOnly body;
-                    body.mType = ptype;
-                    body.mMessage->assign(sv(msg));
-                    pkt.mBody = body;
-                    break;
-                }
+                    {
+                        TextPacketPayload::MessageOnly body;
+                        body.mType = ptype;
+                        body.mMessage->assign(sv(msg));
+                        pkt.mBody = body;
+                        break;
+                    }
                 }
 
                 p->sendNetworkPacket(pkt);
@@ -432,14 +435,14 @@ namespace pier::api_impl
                     *out = static_cast<double>(p->mChunkRadius);
                     return true;
                 case PIER_PPROP_NETWORK_RTT:
-                {
-                    // getNetworkStatus() returns optional<NetworkPeer::NetworkStatus>
-                    // and mCurrentPing wraps chrono::milliseconds, so ->count() is used.
-                    auto opt = p->getNetworkStatus();
-                    if (!opt) return false;
-                    *out = static_cast<double>(opt->mCurrentPing->count());
-                    return true;
-                }
+                    {
+                        // getNetworkStatus() returns optional<NetworkPeer::NetworkStatus>
+                        // and mCurrentPing wraps chrono::milliseconds, so ->count() is used.
+                        auto opt = p->getNetworkStatus();
+                        if (!opt) return false;
+                        *out = static_cast<double>(opt->mCurrentPing->count());
+                        return true;
+                    }
                 case PIER_PPROP_PLATFORM:
                     *out = static_cast<double>(static_cast<int>(p->mBuildPlatform));
                     return true;
@@ -515,61 +518,61 @@ namespace pier::api_impl
                     return true;
                 /*  Appended  */
                 case PIER_PSTR_LAST_DEATH_POS:
-                {
-                    auto pos = p->getLastDeathPos();
-                    if (!pos.has_value())
                     {
-                        sink(ctx, ps(std::string_view{}));
+                        auto pos = p->getLastDeathPos();
+                        if (!pos.has_value())
+                        {
+                            sink(ctx, ps(std::string_view{}));
+                            return true;
+                        }
+                        std::string snbt = "{x:" + snbtNum(pos->x) + ",y:" + snbtNum(pos->y)
+                            + ",z:" + snbtNum(pos->z) + "}";
+                        sink(ctx, ps(snbt));
                         return true;
                     }
-                    std::string snbt = "{x:" + snbtNum(pos->x) + ",y:" + snbtNum(pos->y)
-                        + ",z:" + snbtNum(pos->z) + "}";
-                    sink(ctx, ps(snbt));
-                    return true;
-                }
                 case PIER_PSTR_RESPAWN_POS:
-                {
-                    // Where the engine would respawn this player. Never empty: without a
-                    // bed it reports the world spawn, and the two are not distinguishable
-                    // because hasRespawnPosition was inlined away, which is why
-                    // PIER_PPROP_HAS_RESPAWN_POSITION answers false above. Saving and
-                    // restoring it therefore gives a bedless player the world spawn,
-                    // which is where they were going anyway.
-                    auto const& pos = p->getExpectedSpawnPosition();
-                    std::string snbt = "{x:" + snbtNum(pos.x) + ",y:" + snbtNum(pos.y)
-                        + ",z:" + snbtNum(pos.z) + ",dim:"
-                        + snbtNum(static_cast<int>(p->getExpectedSpawnDimensionId())) + "}";
-                    sink(ctx, ps(snbt));
-                    return true;
-                }
-                case PIER_PSTR_LAST_DEATH_DIMENSION:
-                {
-                    auto dim = p->getLastDeathDimension();
-                    if (!dim.has_value())
                     {
-                        sink(ctx, ps(std::string_view{}));
+                        // Where the engine would respawn this player. Never empty: without a
+                        // bed it reports the world spawn, and the two are not distinguishable
+                        // because hasRespawnPosition was inlined away, which is why
+                        // PIER_PPROP_HAS_RESPAWN_POSITION answers false above. Saving and
+                        // restoring it therefore gives a bedless player the world spawn,
+                        // which is where they were going anyway.
+                        auto const& pos = p->getExpectedSpawnPosition();
+                        std::string snbt = "{x:" + snbtNum(pos.x) + ",y:" + snbtNum(pos.y)
+                            + ",z:" + snbtNum(pos.z) + ",dim:"
+                            + snbtNum(static_cast<int>(p->getExpectedSpawnDimensionId())) + "}";
+                        sink(ctx, ps(snbt));
                         return true;
                     }
-                    sink(ctx, ps(snbtNum(static_cast<int>(*dim))));
-                    return true;
-                }
+                case PIER_PSTR_LAST_DEATH_DIMENSION:
+                    {
+                        auto dim = p->getLastDeathDimension();
+                        if (!dim.has_value())
+                        {
+                            sink(ctx, ps(std::string_view{}));
+                            return true;
+                        }
+                        sink(ctx, ps(snbtNum(static_cast<int>(*dim))));
+                        return true;
+                    }
                 case PIER_PSTR_NETWORK_STATUS:
-                {
-                    // NetworkStatus fields: mCurrentPing and mAveragePing wrap
-                    // chrono::milliseconds and need ->count(), while the packet loss
-                    // fields are bare floats used directly. The return is an optional
-                    // and must be tested.
-                    auto opt = p->getNetworkStatus();
-                    if (!opt) return false;
-                    auto const& ns = *opt;
-                    std::string snbt = "{ping:" + snbtNum(ns.mCurrentPing->count());
-                    snbt += ",avg_ping:" + snbtNum(ns.mAveragePing->count());
-                    snbt += ",packet_loss:" + snbtDouble(ns.mCurrentPacketLoss);
-                    snbt += ",avg_packet_loss:" + snbtDouble(ns.mAveragePacketLoss);
-                    snbt += ",max_bps:" + snbtDouble(ns.mApproximateMaxBps) + "}";
-                    sink(ctx, ps(snbt));
-                    return true;
-                }
+                    {
+                        // NetworkStatus fields: mCurrentPing and mAveragePing wrap
+                        // chrono::milliseconds and need ->count(), while the packet loss
+                        // fields are bare floats used directly. The return is an optional
+                        // and must be tested.
+                        auto opt = p->getNetworkStatus();
+                        if (!opt) return false;
+                        auto const& ns = *opt;
+                        std::string snbt = "{ping:" + snbtNum(ns.mCurrentPing->count());
+                        snbt += ",avg_ping:" + snbtNum(ns.mAveragePing->count());
+                        snbt += ",packet_loss:" + snbtDouble(ns.mCurrentPacketLoss);
+                        snbt += ",avg_packet_loss:" + snbtDouble(ns.mAveragePacketLoss);
+                        snbt += ",max_bps:" + snbtDouble(ns.mApproximateMaxBps) + "}";
+                        sink(ctx, ps(snbt));
+                        return true;
+                    }
                 case PIER_PSTR_PLATFORM_ONLINE_ID:
                     sink(ctx, ps(p->mPlatformOnlineId.get()));
                     return true;
@@ -627,20 +630,16 @@ namespace pier::api_impl
         }
 
         /**
-         * Whether the abilities of a player may be written now: only once the client has
+         * Whether a player's abilities may be written now: only once the client has
          * finished joining.
          *
-         * The server and the client load at different speeds. An ability or permission
-         * level written before the client reports itself initialized
-         * (SetLocalPlayerAsInitializedPacket) lands on a client that has not built its
-         * ability layers yet: the server then holds one state and the client another, and
-         * the client can stay without building or attacking for the rest of the session,
-         * cleared only by a rejoin. The write is refused rather than queued, so a caller
-         * that tried too early learns it at the call instead of seeing the change land at
-         * an unrelated moment.
+         * An ability or permission level written before the client reports itself
+         * initialized (SetLocalPlayerAsInitializedPacket) reaches a client that has not
+         * built its ability layers yet. Server and client then disagree, and the client
+         * can be left unable to build or attack until it rejoins. The write is refused
+         * rather than queued, so a caller that tried too early learns it at the call.
          *
-         * A simulated player has no client and nothing to desynchronize, so it is never
-         * held back.
+         * A simulated player has no client to desynchronize and is never held back.
          */
         bool abilitiesWritable(Player& p, char const* what)
         {
@@ -672,44 +671,44 @@ namespace pier::api_impl
             case AbilitiesIndex::FlySpeed:
             case AbilitiesIndex::WalkSpeed:
             case AbilitiesIndex::VerticalFlySpeed:
-            {
-                if (!p.getAbilities().setAbility(index, static_cast<float>(value)))
                 {
-                    return false;
-                }
-                // Pushes the whole layered set to the client. Speeds apply on the
-                // client and do not change without the push.
-                UpdateAbilitiesPacket pkt{p.getOrCreateUniqueID(), p.getAbilities()};
-                p.sendNetworkPacket(pkt);
-                break;
-            }
-            default:
-            {
-                bool const want = value != 0.0;
-                p.setAbility(index, want);
-
-                if (p.canUseAbility(index) != want)
-                {
-                    UpdateAbilitiesPacket resync{p.getOrCreateUniqueID(), p.getAbilities()};
-                    p.sendNetworkPacket(resync);
-
-                    hostLogger().error(
-                        "[api] setPlayerAbility read back a different value after writing "
-                        "idx={} want={}, so the bit did not take effect; the usual cause is "
-                        "writing an ability bit from PlayerJoinEvent, before the player's "
-                        "ability layers exist. Write it a second or two after join, or not "
-                        "at all. A current state has been resent to the client",
-                        idx,
-                        want
-                    );
-
-                    if (idx <= static_cast<int>(AbilitiesIndex::AttackMobs))
+                    if (!p.getAbilities().setAbility(index, static_cast<float>(value)))
                     {
                         return false;
                     }
+                    // Pushes the whole layered set to the client. Speeds apply on the
+                    // client and do not change without the push.
+                    UpdateAbilitiesPacket pkt{p.getOrCreateUniqueID(), p.getAbilities()};
+                    p.sendNetworkPacket(pkt);
+                    break;
                 }
-                break;
-            }
+            default:
+                {
+                    bool const want = value != 0.0;
+                    p.setAbility(index, want);
+
+                    if (p.canUseAbility(index) != want)
+                    {
+                        UpdateAbilitiesPacket resync{p.getOrCreateUniqueID(), p.getAbilities()};
+                        p.sendNetworkPacket(resync);
+
+                        hostLogger().error(
+                            "[api] setPlayerAbility read back a different value after writing "
+                            "idx={} want={}, so the bit did not take effect; the usual cause is "
+                            "writing an ability bit from PlayerJoinEvent, before the player's "
+                            "ability layers exist. Write it a second or two after join, or not "
+                            "at all. A current state has been resent to the client",
+                            idx,
+                            want
+                        );
+
+                        if (idx <= static_cast<int>(AbilitiesIndex::AttackMobs))
+                        {
+                            return false;
+                        }
+                    }
+                    break;
+                }
             }
 
             if (p.getPlayerPermissionLevel() != before)
@@ -743,87 +742,88 @@ namespace pier::api_impl
                 switch (action)
                 {
                 case PIER_PACT_SET_ABILITY:
-                {
-                    if (!abilitiesWritable(*p, "setting an ability")) return false;
-                    int idx = static_cast<int>(a);
-                    return setPlayerAbility(*p, idx, b);
-                }
-                case PIER_PACT_CAN_USE_ABILITY:
-                {
-                    int idx = static_cast<int>(a);
-                    if (idx < 0 || idx >= static_cast<int>(AbilitiesIndex::AbilityCount)) return false;
-                    bool can = p->canUseAbility(static_cast<AbilitiesIndex>(idx));
-                    if (out) out(ctx, ps(std::string_view{can ? "1" : "0"}));
-                    return true;
-                }
-                case PIER_PACT_SET_SELECTED_SLOT:
-                {
-                    int slot = static_cast<int>(a);
-                    if (slot < 0 || slot > 8) return false;
-                    p->setSelectedSlot(slot);
-                    return true;
-                }
-                case PIER_PACT_GIVE_ITEM:
-                {
-                    auto opt = bridge::itemFromSnbt(sv(sarg));
-                    if (!opt) return false;
-                    ItemStack item = std::move(*opt);
-                    if (item.isNull()) return false;
-                    return p->addAndRefresh(item);
-                }
-                case PIER_PACT_SET_SPAWN_POINT:
-                {
-                    std::string dimStr = toString(sarg);
-                    int dim = 0;
-                    if (!dimStr.empty())
                     {
-                        try
-                        {
-                            // Not clamped to 0..2. Clamping moves a respawn point in a
-                            // custom dimension silently into the end.
-                            dim = std::stoi(dimStr);
-                        }
-                        catch (...)
-                        {
-                            return false;
-                        }
+                        if (!abilitiesWritable(*p, "setting an ability")) return false;
+                        int idx = static_cast<int>(a);
+                        return setPlayerAbility(*p, idx, b);
                     }
-                    // Native. As above, no player name is concatenated into a command
-                    // string.
-                    p->setRespawnPosition(
-                        BlockPos{static_cast<int>(a), static_cast<int>(b), static_cast<int>(c)},
-                        static_cast<::DimensionType>(dim)
-                    );
-                    return true;
-                }
+                case PIER_PACT_CAN_USE_ABILITY:
+                    {
+                        int idx = static_cast<int>(a);
+                        if (idx < 0 || idx >= static_cast<int>(AbilitiesIndex::AbilityCount)) return false;
+                        bool can = p->canUseAbility(static_cast<AbilitiesIndex>(idx));
+                        if (out) out(ctx, ps(std::string_view{can ? "1" : "0"}));
+                        return true;
+                    }
+                case PIER_PACT_SET_SELECTED_SLOT:
+                    {
+                        int slot = static_cast<int>(a);
+                        if (slot < 0 || slot > 8) return false;
+                        p->setSelectedSlot(slot);
+                        return true;
+                    }
+                case PIER_PACT_GIVE_ITEM:
+                    {
+                        auto opt = bridge::itemFromSnbt(sv(sarg));
+                        if (!opt) return false;
+                        ItemStack item = std::move(*opt);
+                        if (item.isNull()) return false;
+                        return p->addAndRefresh(item);
+                    }
+                case PIER_PACT_SET_SPAWN_POINT:
+                    {
+                        std::string dimStr = toString(sarg);
+                        int dim = 0;
+                        if (!dimStr.empty())
+                        {
+                            try
+                            {
+                                // Not clamped to 0..2. Clamping moves a respawn point in a
+                                // custom dimension silently into the end.
+                                dim = std::stoi(dimStr);
+                            }
+                            catch (...)
+                            {
+                                return false;
+                            }
+                        }
+                        // Native. As above, no player name is concatenated into a command
+                        // string.
+                        p->setRespawnPosition(
+                            BlockPos{static_cast<int>(a), static_cast<int>(b), static_cast<int>(c)},
+                            static_cast<::DimensionType>(dim)
+                        );
+                        return true;
+                    }
                 case PIER_PACT_CLEAR_TITLE:
-                {
-                    // A native packet. The command path would concatenate the player
-                    // name into a quoted string, which a quote in the name tears apart,
-                    // and /title also runs command parsing and a permission check, all
-                    // of which is wasted on sending one packet to one player.
-                    // The one-argument constructor is inlined away; the three-argument
-                    // one survives and an empty text is what Clear carried anyway.
-                    SetTitlePacketPayload payload{
-                        SetTitlePacketPayload::TitleType::Clear, std::string{}, std::nullopt};
-                    SetTitlePacket{std::move(payload)}.sendTo(*p);
-                    return true;
-                }
+                    {
+                        // A native packet. The command path would concatenate the player
+                        // name into a quoted string, which a quote in the name tears apart,
+                        // and /title also runs command parsing and a permission check, all
+                        // of which is wasted on sending one packet to one player.
+                        // The one-argument constructor is inlined away; the three-argument
+                        // one survives and an empty text is what Clear carried anyway.
+                        SetTitlePacketPayload payload{
+                            SetTitlePacketPayload::TitleType::Clear, std::string{}, std::nullopt
+                        };
+                        SetTitlePacket{std::move(payload)}.sendTo(*p);
+                        return true;
+                    }
                 case PIER_PACT_SET_TITLE:
-                {
-                    auto kind = static_cast<int>(a);
-                    auto type = kind == 1
-                                    ? SetTitlePacketPayload::TitleType::Subtitle
-                                    : kind == 2
-                                    ? SetTitlePacketPayload::TitleType::Actionbar
-                                    : SetTitlePacketPayload::TitleType::Title;
-                    // filteredTitleText is nullopt. That is the fallback text for chat
-                    // filtering, and the text on this path comes from a mod rather than
-                    // player input, so there is nothing to filter.
-                    SetTitlePacketPayload payload{type, toString(sarg), std::nullopt};
-                    SetTitlePacket{std::move(payload)}.sendTo(*p);
-                    return true;
-                }
+                    {
+                        auto kind = static_cast<int>(a);
+                        auto type = kind == 1
+                                        ? SetTitlePacketPayload::TitleType::Subtitle
+                                        : kind == 2
+                                        ? SetTitlePacketPayload::TitleType::Actionbar
+                                        : SetTitlePacketPayload::TitleType::Title;
+                        // filteredTitleText is nullopt. That is the fallback text for chat
+                        // filtering, and the text on this path comes from a mod rather than
+                        // player input, so there is nothing to filter.
+                        SetTitlePacketPayload payload{type, toString(sarg), std::nullopt};
+                        SetTitlePacket{std::move(payload)}.sendTo(*p);
+                        return true;
+                    }
                 /*  Appended  */
                 case PIER_PACT_ADD_EXPERIENCE:
                     p->addExperience(static_cast<int>(a));
@@ -836,49 +836,49 @@ namespace pier::api_impl
                     p->startItemCooldown(HashedString{toString(sarg)}, static_cast<int>(a), true);
                     return true;
                 case PIER_PACT_START_RIDING:
-                {
-                    auto* vehicle = bridge::resolveActor(static_cast<PierActorId>(a));
-                    if (!vehicle) return false;
-                    // startRiding(Actor&, bool forceRiding), where force=true makes the
-                    // request succeed even when the vehicle is full.
-                    return p->startRiding(*vehicle, true);
-                }
+                    {
+                        auto* vehicle = bridge::resolveActor(static_cast<PierActorId>(a));
+                        if (!vehicle) return false;
+                        // startRiding(Actor&, bool forceRiding), where force=true makes the
+                        // request succeed even when the vehicle is full.
+                        return p->startRiding(*vehicle, true);
+                    }
                 case PIER_PACT_STOP_RIDING:
                     // stopRiding(bool exitFromPassenger, bool actorIsBeingDestroyed,
                     //            bool switchingVehicles, bool isBeingTeleported)
                     p->stopRiding(true, false, false, false);
                     return true;
                 case PIER_PACT_ATTACK:
-                {
-                    auto* target = bridge::resolveActor(static_cast<PierActorId>(a));
-                    if (!target) return false;
-                    // attack(Actor&, ActorDamageCause const&). The caller named no
-                    // source, so Override, the generic cause, is used.
-                    p->attack(*target, ::SharedTypes::Legacy::ActorDamageCause::Override);
-                    return true;
-                }
+                    {
+                        auto* target = bridge::resolveActor(static_cast<PierActorId>(a));
+                        if (!target) return false;
+                        // attack(Actor&, ActorDamageCause const&). The caller named no
+                        // source, so Override, the generic cause, is used.
+                        p->attack(*target, ::SharedTypes::Legacy::ActorDamageCause::Override);
+                        return true;
+                    }
                 case PIER_PACT_DROP:
-                {
-                    auto opt = bridge::itemFromSnbt(sv(sarg));
-                    if (!opt) return false;
-                    return p->drop(std::move(*opt), a != 0.0);
-                }
+                    {
+                        auto opt = bridge::itemFromSnbt(sv(sarg));
+                        if (!opt) return false;
+                        return p->drop(std::move(*opt), a != 0.0);
+                    }
                 case PIER_PACT_INTERACT:
-                {
-                    auto* target = bridge::resolveActor(static_cast<PierActorId>(a));
-                    if (!target) return false;
-                    // interact(Actor&, Vec3 const& location) returns an
-                    // InteractionResult, whose mSuccess bit is returned as the bool.
-                    auto result = p->interact(*target, target->getPosition());
-                    return result.mSuccess;
-                }
+                    {
+                        auto* target = bridge::resolveActor(static_cast<PierActorId>(a));
+                        if (!target) return false;
+                        // interact(Actor&, Vec3 const& location) returns an
+                        // InteractionResult, whose mSuccess bit is returned as the bool.
+                        auto result = p->interact(*target, target->getPosition());
+                        return result.mSuccess;
+                    }
                 case PIER_PACT_START_USING_ITEM:
-                {
-                    auto opt = bridge::itemFromSnbt(sv(sarg));
-                    if (!opt) return false;
-                    p->startUsingItem(std::move(*opt), static_cast<int>(a));
-                    return true;
-                }
+                    {
+                        auto opt = bridge::itemFromSnbt(sv(sarg));
+                        if (!opt) return false;
+                        p->startUsingItem(std::move(*opt), static_cast<int>(a));
+                        return true;
+                    }
                 case PIER_PACT_STOP_USING_ITEM:
                     p->stopUsingItem();
                     return true;
@@ -891,23 +891,23 @@ namespace pier::api_impl
                     p->mEnchantmentSeed = static_cast<int>(a);
                     return true;
                 case PIER_PACT_REGISTER_TRACKED_BOSS:
-                {
-                    auto* boss = bridge::resolveActor(static_cast<PierActorId>(a));
-                    if (!boss) return false;
-                    // registerTrackedBoss is compiled only on the client platform in
-                    // 26.32 and this TU is built for the server, so the boss bar cannot be
-                    // registered from here.
-                    (void)boss;
-                    return false;
-                }
+                    {
+                        auto* boss = bridge::resolveActor(static_cast<PierActorId>(a));
+                        if (!boss) return false;
+                        // registerTrackedBoss is compiled only on the client platform in
+                        // 26.32 and this TU is built for the server, so the boss bar cannot be
+                        // registered from here.
+                        (void)boss;
+                        return false;
+                    }
                 case PIER_PACT_UNREGISTER_TRACKED_BOSS:
-                {
-                    auto* boss = bridge::resolveActor(static_cast<PierActorId>(a));
-                    if (!boss) return false;
-                    // Client-platform only, the same as the register above.
-                    (void)boss;
-                    return false;
-                }
+                    {
+                        auto* boss = bridge::resolveActor(static_cast<PierActorId>(a));
+                        if (!boss) return false;
+                        // Client-platform only, the same as the register above.
+                        (void)boss;
+                        return false;
+                    }
                 case PIER_PACT_PLAY_EMOTE:
                     // playEmote(string const& pieceId, bool playChatMessage)
                     p->playEmote(toString(sarg), false);
@@ -921,219 +921,223 @@ namespace pier::api_impl
                     return true;
                 /*  Appended: sidebar  */
                 case PIER_PACT_SIDEBAR_SET:
-                {
-                    // sarg is "objective\ntitle\nline1\nline2...", affecting only this
-                    // player's sidebar. The server Scoreboard is global, so a per-player
-                    // board can only be packets the client never ties to real scoreboard
-                    // state. They are built here rather than passed across the FFI as
-                    // bytes: SetDisplayObjective and RemoveObjective are PayloadPackets
-                    // with reflection serialization, and no mod can assemble that wire
-                    // shape by hand and keep it valid across versions.
-                    // api_player_send_title exists for the same reason.
-                    auto const lines = splitLines(sv(sarg));
-                    if (lines.size() < 2)
                     {
-                        hostLogger().error("[api] sidebar payload has fewer than two lines, objective and title are required");
-                        return false;
-                    }
-                    std::string const& objective = lines[0];
-                    if (objective.empty())
-                    {
-                        hostLogger().error("[api] sidebar objective is empty");
-                        return false;
-                    }
-
-                    // The client keys rows by scoreboard id, so a row set of the same
-                    // size can be updated in place and only a changed size needs the
-                    // teardown, since stale ids are exactly where leftover rows come from.
-                    SidebarKey const skey{static_cast<int64_t>(p->getOrCreateUniqueID().rawID), objective};
-                    auto known = gSidebars.find(skey);
-                    bool const sameShape = known != gSidebars.end() && known->second.owner == p
-                        && known->second.rows.size() == lines.size() - 2;
-                    if (sameShape && known->second.title == lines[1]
-                        && std::equal(lines.begin() + 2, lines.end(), known->second.rows.begin()))
-                    {
-                        return true; // Nothing changed since the last send
-                    }
-
-                    if (!sameShape)
-                    {
-                        if (auto gone = MinecraftPackets::createPacket(MinecraftPacketIds::RemoveObjective))
+                        // sarg is "objective\ntitle\nline1\nline2...", affecting only this
+                        // player's sidebar. The server Scoreboard is global, so a per-player
+                        // board can only be packets the client never ties to real scoreboard
+                        // state. They are built here rather than passed across the FFI as
+                        // bytes: SetDisplayObjective and RemoveObjective are PayloadPackets
+                        // with reflection serialization, and no mod can assemble that wire
+                        // shape by hand and keep it valid across versions.
+                        // api_player_send_title exists for the same reason.
+                        auto const lines = splitLines(sv(sarg));
+                        if (lines.size() < 2)
                         {
-                            static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = objective;
-                            p->sendNetworkPacket(*gone);
-                        }
-                        else
-                        {
-                            hostLogger().error("[api] sidebar createPacket(RemoveObjective) returned null");
-                        }
-                    }
-
-                    if (!sameShape || known->second.title != lines[1])
-                    {
-                        auto shown = MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective);
-                        if (!shown)
-                        {
-                            hostLogger().error("[api] sidebar createPacket(SetDisplayObjective) returned null");
+                            hostLogger().error(
+                                "[api] sidebar payload has fewer than two lines, objective and title are required");
                             return false;
                         }
-                        auto* d = static_cast<SetDisplayObjectivePacket*>(shown.get());
-                        d->mDisplaySlotName = std::string{"sidebar"};
-                        d->mObjectiveName = objective;
-                        d->mObjectiveDisplayName = lines[1];
-                        d->mCriteriaName = std::string{"dummy"};
-                        d->mSortOrder = ObjectiveSortOrder::Descending;
-                        p->sendNetworkPacket(*shown);
-                    }
+                        std::string const& objective = lines[0];
+                        if (objective.empty())
+                        {
+                            hostLogger().error("[api] sidebar objective is empty");
+                            return false;
+                        }
 
-                    if (lines.size() == 2)
-                    {
+                        // The client keys rows by scoreboard id, so a row set of the same
+                        // size can be updated in place and only a changed size needs the
+                        // teardown, since stale ids are exactly where leftover rows come from.
+                        SidebarKey const skey{static_cast<int64_t>(p->getOrCreateUniqueID().rawID), objective};
+                        auto known = gSidebars.find(skey);
+                        bool const sameShape = known != gSidebars.end() && known->second.owner == p
+                            && known->second.rows.size() == lines.size() - 2;
+                        if (sameShape && known->second.title == lines[1]
+                            && std::equal(lines.begin() + 2, lines.end(), known->second.rows.begin()))
+                        {
+                            return true; // Nothing changed since the last send
+                        }
+
+                        if (!sameShape)
+                        {
+                            if (auto gone = MinecraftPackets::createPacket(MinecraftPacketIds::RemoveObjective))
+                            {
+                                static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = objective;
+                                p->sendNetworkPacket(*gone);
+                            }
+                            else
+                            {
+                                hostLogger().error("[api] sidebar createPacket(RemoveObjective) returned null");
+                            }
+                        }
+
+                        if (!sameShape || known->second.title != lines[1])
+                        {
+                            auto shown = MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective);
+                            if (!shown)
+                            {
+                                hostLogger().error("[api] sidebar createPacket(SetDisplayObjective) returned null");
+                                return false;
+                            }
+                            auto* d = static_cast<SetDisplayObjectivePacket*>(shown.get());
+                            d->mDisplaySlotName = std::string{"sidebar"};
+                            d->mObjectiveName = objective;
+                            d->mObjectiveDisplayName = lines[1];
+                            d->mCriteriaName = std::string{"dummy"};
+                            d->mSortOrder = ObjectiveSortOrder::Descending;
+                            p->sendNetworkPacket(*shown);
+                        }
+
+                        if (lines.size() == 2)
+                        {
+                            forgetOldSidebars();
+                            gSidebars[skey] = SidebarState{p, lines[1], {}};
+                            return true;
+                        }
+
+                        // ScoreboardId bands are separated by a hash of the objective name.
+                        // With one fixed base, row 1 of two plugins lands on the same entry
+                        // and the later sender overwrites the earlier, leaving interleaved
+                        // content and two sets of scores neither side can clear. The stride
+                        // of 4096 rows is far above MAX_ROWS, a collision has probability
+                        // 1/(2^30/4096) and affects only two sidebars open at once. The
+                        // high bits are fixed at 0x4 to avoid the low id band the vanilla
+                        // scoreboard uses.
+                        int64_t const kSidebarIdBase = INT64_C(0x40000000)
+                            + (static_cast<int64_t>(objectiveSlotHash(objective)) * INT64_C(4096));
+                        // From 26.40 the packet carries a variant per row instead of a
+                        // ScorePacketInfo with an identity type field: which alternative is
+                        // used is what says the row belongs to a fake player.
+                        using ScoreEntry =
+                            std::variant<::RemoveScore, ::ChangePlayerScore, ::ChangeEntityScore,
+                                         ::ChangeFakePlayerScore>;
+                        std::vector<ScoreEntry> infos;
+                        // A ChangeFakePlayerScore for an id the client already knows is a
+                        // score update, not a rename, so the row keeps its old text. The id
+                        // is released first, in its own packet ahead of the changes: nothing
+                        // here can verify a client applies one packet's entries in order,
+                        // and a remove applied after the re-add blanks the row.
+                        std::vector<ScoreEntry> stale;
+                        infos.reserve(lines.size() - 2);
+                        int score = static_cast<int>(lines.size()) - 2;
+                        for (size_t i = 2; i < lines.size(); ++i, --score)
+                        {
+                            // Same shape: only the rows whose text changed go out.
+                            bool const reused = sameShape;
+                            if (reused && known->second.rows[i - 2] == lines[i]) continue;
+                            int64_t const rawId = kSidebarIdBase + static_cast<int64_t>(i - 1);
+                            if (reused)
+                            {
+                                // This id is already on the client carrying the old text.
+                                ::RemoveScore drop{};
+                                drop.mScoreboardId->mRawID = rawId;
+                                drop.mObjectiveName = objective;
+                                stale.emplace_back(std::move(drop));
+                            }
+                            ::ChangeFakePlayerScore info{};
+                            info.mScoreboardId->mRawID = rawId;
+                            info.mObjectiveName = objective;
+                            info.mScoreValue = score;
+                            info.mFakePlayerName = lines[i].empty() ? std::string{" "} : lines[i];
+                            infos.emplace_back(std::move(info));
+                        }
+
+                        auto const rows = infos.size();
+                        // Send order matters: release the ids, then re-add them.
+                        if (!stale.empty())
+                        {
+                            auto drops = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
+                            if (!drops)
+                            {
+                                hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                                return false;
+                            }
+                            static_cast<SetScorePacket*>(drops.get())->mScoreInfo = std::move(stale);
+                            p->sendNetworkPacket(*drops);
+                        }
+                        if (!infos.empty())
+                        {
+                            auto scores = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
+                            if (!scores)
+                            {
+                                // The removes already went out, so the rows they covered are
+                                // gone from the client. The cached state must not be updated
+                                // below or the next call will see "same shape, same text" and
+                                // send nothing, leaving those rows blank until the row count
+                                // changes. Dropping the entry forces a full rebuild instead.
+                                hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                                gSidebars.erase(skey);
+                                return false;
+                            }
+                            auto* sp = static_cast<SetScorePacket*>(scores.get());
+                            sp->mScoreInfo = std::move(infos);
+                            p->sendNetworkPacket(*scores);
+                        }
                         forgetOldSidebars();
-                        gSidebars[skey] = SidebarState{p, lines[1], {}};
+                        gSidebars[skey] = SidebarState{
+                            p, lines[1], std::vector<std::string>(lines.begin() + 2, lines.end())
+                        };
+
+                        // Proof of delivery, logged once per objective rather than once
+                        // globally. When two sidebars overwrite each other, the only thing
+                        // worth knowing is whether each was sent and which id band it used.
+                        static std::set<std::string> announcedObjectives;
+                        if (announcedObjectives.insert(objective).second)
+                        {
+                            hostLogger().debug(
+                                "[api] sidebar '{}' sent {} row(s) as FakePlayer entries, id band 0x{:x}..0x{:x}",
+                                objective, rows,
+                                static_cast<uint64_t>(kSidebarIdBase + 1),
+                                static_cast<uint64_t>(kSidebarIdBase + static_cast<int64_t>(rows)));
+                        }
                         return true;
                     }
-
-                    // ScoreboardId bands are separated by a hash of the objective name.
-                    // With one fixed base, row 1 of two plugins lands on the same entry
-                    // and the later sender overwrites the earlier, leaving interleaved
-                    // content and two sets of scores neither side can clear. The stride
-                    // of 4096 rows is far above MAX_ROWS, a collision has probability
-                    // 1/(2^30/4096) and affects only two sidebars open at once. The
-                    // high bits are fixed at 0x4 to avoid the low id band the vanilla
-                    // scoreboard uses.
-                    int64_t const kSidebarIdBase = INT64_C(0x40000000)
-                        + (static_cast<int64_t>(objectiveSlotHash(objective)) * INT64_C(4096));
-                    // From 26.40 the packet carries a variant per row instead of a
-                    // ScorePacketInfo with an identity type field: which alternative is
-                    // used is what says the row belongs to a fake player.
-                    using ScoreEntry =
-                        std::variant<::RemoveScore, ::ChangePlayerScore, ::ChangeEntityScore, ::ChangeFakePlayerScore>;
-                    std::vector<ScoreEntry> infos;
-                    // A ChangeFakePlayerScore for an id the client already knows is a
-                    // score update, not a rename, so the row keeps its old text. The id
-                    // is released first, in its own packet ahead of the changes: nothing
-                    // here can verify a client applies one packet's entries in order,
-                    // and a remove applied after the re-add blanks the row.
-                    std::vector<ScoreEntry> stale;
-                    infos.reserve(lines.size() - 2);
-                    int score = static_cast<int>(lines.size()) - 2;
-                    for (size_t i = 2; i < lines.size(); ++i, --score)
-                    {
-                        // Same shape: only the rows whose text changed go out.
-                        bool const reused = sameShape;
-                        if (reused && known->second.rows[i - 2] == lines[i]) continue;
-                        int64_t const rawId = kSidebarIdBase + static_cast<int64_t>(i - 1);
-                        if (reused)
-                        {
-                            // This id is already on the client carrying the old text.
-                            ::RemoveScore drop{};
-                            drop.mScoreboardId->mRawID = rawId;
-                            drop.mObjectiveName = objective;
-                            stale.emplace_back(std::move(drop));
-                        }
-                        ::ChangeFakePlayerScore info{};
-                        info.mScoreboardId->mRawID = rawId;
-                        info.mObjectiveName = objective;
-                        info.mScoreValue = score;
-                        info.mFakePlayerName = lines[i].empty() ? std::string{" "} : lines[i];
-                        infos.emplace_back(std::move(info));
-                    }
-
-                    auto const rows = infos.size();
-                    // Send order matters: release the ids, then re-add them.
-                    if (!stale.empty())
-                    {
-                        auto drops = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
-                        if (!drops)
-                        {
-                            hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
-                            return false;
-                        }
-                        static_cast<SetScorePacket*>(drops.get())->mScoreInfo = std::move(stale);
-                        p->sendNetworkPacket(*drops);
-                    }
-                    if (!infos.empty())
-                    {
-                        auto scores = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
-                        if (!scores)
-                        {
-                            // The removes already went out, so the rows they covered are
-                            // gone from the client. The cached state must not be updated
-                            // below or the next call will see "same shape, same text" and
-                            // send nothing, leaving those rows blank until the row count
-                            // changes. Dropping the entry forces a full rebuild instead.
-                            hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
-                            gSidebars.erase(skey);
-                            return false;
-                        }
-                        auto* sp = static_cast<SetScorePacket*>(scores.get());
-                        sp->mScoreInfo = std::move(infos);
-                        p->sendNetworkPacket(*scores);
-                    }
-                    forgetOldSidebars();
-                    gSidebars[skey] = SidebarState{
-                        p, lines[1], std::vector<std::string>(lines.begin() + 2, lines.end())};
-
-                    // Proof of delivery, logged once per objective rather than once
-                    // globally. When two sidebars overwrite each other, the only thing
-                    // worth knowing is whether each was sent and which id band it used.
-                    static std::set<std::string> announcedObjectives;
-                    if (announcedObjectives.insert(objective).second)
-                    {
-                        hostLogger().debug(
-                            "[api] sidebar '{}' sent {} row(s) as FakePlayer entries, id band 0x{:x}..0x{:x}",
-                            objective, rows,
-                            static_cast<uint64_t>(kSidebarIdBase + 1),
-                            static_cast<uint64_t>(kSidebarIdBase + static_cast<int64_t>(rows)));
-                    }
-                    return true;
-                }
                 case PIER_PACT_SIDEBAR_CLEAR:
-                {
-                    if (sarg.len == 0) return false;
+                    {
+                        if (sarg.len == 0) return false;
 
-                    // The display slot is unbound before the objective is removed. The
-                    // reverse order clears nothing: the client drops the score entries
-                    // while the slot stays bound to that name, so the old content
-                    // remains and the slot stays occupied. Another plugin calling
-                    // SIDEBAR_SET then sends a RemoveObjective for its own name only,
-                    // cannot touch the stale binding, and its sidebar never appears. A
-                    // SetDisplayObjective with an empty mObjectiveName means the slot
-                    // displays nothing.
-                    if (auto blank =
+                        // The display slot is unbound before the objective is removed. The
+                        // reverse order clears nothing: the client drops the score entries
+                        // while the slot stays bound to that name, so the old content
+                        // remains and the slot stays occupied. Another plugin calling
+                        // SIDEBAR_SET then sends a RemoveObjective for its own name only,
+                        // cannot touch the stale binding, and its sidebar never appears. A
+                        // SetDisplayObjective with an empty mObjectiveName means the slot
+                        // displays nothing.
+                        if (auto blank =
                             MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective))
-                    {
-                        auto* d = static_cast<SetDisplayObjectivePacket*>(blank.get());
-                        d->mDisplaySlotName = std::string{"sidebar"};
-                        d->mObjectiveName = std::string{};
-                        d->mObjectiveDisplayName = std::string{};
-                        d->mCriteriaName = std::string{"dummy"};
-                        d->mSortOrder = ObjectiveSortOrder::Descending;
-                        p->sendNetworkPacket(*d);
+                        {
+                            auto* d = static_cast<SetDisplayObjectivePacket*>(blank.get());
+                            d->mDisplaySlotName = std::string{"sidebar"};
+                            d->mObjectiveName = std::string{};
+                            d->mObjectiveDisplayName = std::string{};
+                            d->mCriteriaName = std::string{"dummy"};
+                            d->mSortOrder = ObjectiveSortOrder::Descending;
+                            p->sendNetworkPacket(*d);
+                        }
+
+                        auto gone = MinecraftPackets::createPacket(MinecraftPacketIds::RemoveObjective);
+                        if (!gone) return false;
+                        static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = toString(sarg);
+                        p->sendNetworkPacket(*gone);
+                        gSidebars.erase(
+                            SidebarKey{static_cast<int64_t>(p->getOrCreateUniqueID().rawID), toString(sarg)});
+
+                        hostLogger().debug("[api] sidebar '{}' cleared, slot unbound and objective removed", sv(sarg));
+                        return true;
                     }
-
-                    auto gone = MinecraftPackets::createPacket(MinecraftPacketIds::RemoveObjective);
-                    if (!gone) return false;
-                    static_cast<RemoveObjectivePacket*>(gone.get())->mObjectiveName = toString(sarg);
-                    p->sendNetworkPacket(*gone);
-                    gSidebars.erase(SidebarKey{static_cast<int64_t>(p->getOrCreateUniqueID().rawID), toString(sarg)});
-
-                    hostLogger().debug("[api] sidebar '{}' cleared, slot unbound and objective removed", sv(sarg));
-                    return true;
-                }
                 case PIER_PACT_SET_PERMISSION_LEVEL:
-                {
-                    // The level travels in the same UpdateAbilitiesPacket as the ability
-                    // layers, and desynchronizes the same way when written too early.
-                    if (!abilitiesWritable(*p, "setting the permission level")) return false;
-                    int lvl = static_cast<int>(a);
-                    if (lvl < static_cast<int>(PlayerPermissionLevel::Visitor)
-                        || lvl > static_cast<int>(PlayerPermissionLevel::Custom))
                     {
-                        return false;
+                        // The level travels in the same UpdateAbilitiesPacket as the ability
+                        // layers, and desynchronizes the same way when written too early.
+                        if (!abilitiesWritable(*p, "setting the permission level")) return false;
+                        int lvl = static_cast<int>(a);
+                        if (lvl < static_cast<int>(PlayerPermissionLevel::Visitor)
+                            || lvl > static_cast<int>(PlayerPermissionLevel::Custom))
+                        {
+                            return false;
+                        }
+                        return setPlayerPermissionLevel(*p, static_cast<PlayerPermissionLevel>(lvl));
                     }
-                    return setPlayerPermissionLevel(*p, static_cast<PlayerPermissionLevel>(lvl));
-                }
 
                 default:
                     return false;

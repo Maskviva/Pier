@@ -261,7 +261,8 @@ namespace pier::api_impl
                 {
                 case PIER_SRV_BDS_VERSION:
                     {
-                        // 26.51 dropped Common::getGameVersionString; its string lives in StringConstants.
+                        // 26.51 dropped Common::getGameVersionString; its string lives in
+                        // StringConstants.
                         static std::string const version = *Common::_buildStringConstants().mGameVersionString;
                         sink(ctx, ps(version));
                         return true;

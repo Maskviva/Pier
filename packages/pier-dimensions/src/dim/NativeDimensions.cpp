@@ -635,19 +635,22 @@ namespace pier::dimensions
             {
                 suggested = preferred;
             }
-            // The height the definition will carry. Written into the definition below,
-            // because the registration call takes only a name and an id.
+            // The height the definition carries, which is the one the client is told about.
             auto const advertised = advertisedRange(minY, maxY);
 
             try
             {
-                // 26.51: the definition is passed whole, so height and generator go in at registration.
+                // 26.51 takes the whole definition at registration, so its height and
+                // generator agree with the dimension from the start. mPackId is provenance,
+                // the resource pack a definition came from, and nothing selects a dimension
+                // by it; this one comes from no pack, and a zero UUID is what the engine's
+                // own emptiness check reads as none.
                 ::DimensionDefinitionGroup::DimensionDefinition def{
-                    .mMinY          = advertised.first,
-                    .mHeightRange   = advertised.second - advertised.first,
+                    .mMinY          = t,
+                    .mHeightRange   = advertised.second - t,
                     .mGeneratorType = gen,
                     .mDimensionType = ::DimensionType{suggested},
-                    .mPackId        = ::mce::UUID{},   // no source pack, as before
+                    .mPackId        = ::mce::UUID{},
                     .mDefaultBiome  = std::string{},
                 };
 
@@ -673,7 +676,7 @@ namespace pier::dimensions
                 bindFactory();
                 // Before the instance is built: the Dimension takes its height from the
                 // spec and the engine takes it from here, and they have to be one shape.
-                alignDefinitionShape(mgr, name, suggested, advertised.first, advertised.second, gen);
+                alignDefinitionShape(mgr, name, suggested, t, advertised.second, gen);
             }
             catch (std::exception const& e)
             {
