@@ -42,6 +42,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/str.h"
 
 namespace pier::api_impl
@@ -392,13 +393,8 @@ namespace pier::api_impl
                 if (!warned.exchange(true))
                 {
                     hostLogger().error(
-                        "[packet] header decode disagrees with Packet::getId(), decoded "
-                        "{} but the packet reports {}; the header layout of this BDS "
-                        "version changed, interception has degraded to passing every "
-                        "packet through, report this line to the host maintainers",
-                        header.packetId,
-                        expectedId
-                    );
+                        "[packet] {}", pier::trf("api.packet_hooks.1", header.packetId,
+                        expectedId));
                 }
                 return Verdict::Pass;
             }
@@ -467,10 +463,7 @@ namespace pier::api_impl
                         if (!warned.exchange(true))
                         {
                             hostLogger().warn(
-                                "[packet] a mod callback threw, its verdict was forced to "
-                                "PASS; this warning prints once, the exception above prints "
-                                "every time"
-                            );
+                                "[packet] {}", pier::trf("api.packet_hooks.2"));
                         }
                     }
 
@@ -742,8 +735,7 @@ namespace pier::api_impl
                     if (ids[i] < 0 || ids[i] >= 1024)
                     {
                         hostLogger().warn(
-                            "[packet] packet_hook_register_ids: id {} is outside the ten-bit "
-                            "range of the wire header and is ignored", ids[i]);
+                            "[packet] {}", pier::trf("api.packet_hooks.3", ids[i]));
                         continue;
                     }
                     set.set(ids[i]);

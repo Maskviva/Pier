@@ -101,7 +101,7 @@ namespace pier::dimensions
         bool createEndCityFeature(StructureFeatureRegistry* self, Dimension& dimension, uint& seed)
         {
             auto* addr = endcityAddress();
-            if (!addr) { hostLogger().warn("[dim] StructureFeatureRegistry::addStructureFeature<EndCityFeature> not found; custom end dimensions generate no end cities"); return false; }
+            if (!addr) { hostLogger().warn("[dim] {}", pier::trf("dim.spec_dimension.1")); return false; }
             ll::memory::addressCall<EndCityFeature&, StructureFeatureRegistry*, Dimension&, uint&>(addr, self, dimension, seed);
             return true;
         }
@@ -191,12 +191,12 @@ namespace pier::dimensions
         spec::DimensionSpec specOf(std::string const& name, CompoundTag const& stored)
         {
             auto [s, problems] = spec::DimensionSpec::fromNbt(stored);
-            for (auto const& p : problems) hostLogger().warn("[dim] '{}': {}", name, p);
+            for (auto const& p : problems) hostLogger().warn("[dim] {}", pier::trf("dim.spec_dimension.2", name, p));
             if (!s)
             {
                 // Refusing here would fastfail on a chunk thread. The dimension is already
                 // registered by id; the least harmful shape is a void with the stored seed.
-                hostLogger().error("[dim] '{}': the stored spec could not be read, generating a void. The terrain differs from what was chosen at creation; fix dimension_config.json and restart", name);
+                hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.3", name));
                 spec::DimensionSpec v;
                 v.terrain = spec::Native{GeneratorType::Void};
                 return v;
@@ -278,12 +278,7 @@ namespace pier::dimensions
             if (!biome && (n->generator == GeneratorType::TheEnd || n->generator == GeneratorType::Nether))
             {
                 hostLogger().error(
-                    "[dim] '{}': the {} generator needs its own biome and neither the level's "
-                    "override nor the vanilla name is in the biome registry; generating a void "
-                    "instead, because that generator keeps the biome it is handed and has no "
-                    "other source for one",
-                    mName.get(), magic_enum::enum_name(n->generator)
-                );
+                    "[dim] {}", pier::trf("dim.spec_dimension.4", mName.get(), magic_enum::enum_name(n->generator)));
                 gen = voidWith(*this, n->biome);
                 setStructureState(*this, *gen, seed, structureSetRegistry, false);
                 return gen;
@@ -296,12 +291,7 @@ namespace pier::dimensions
                 // The sky is a separate setting and is already applied, so what this costs
                 // is the blocks and nothing else. See Native::engineTerrain.
                 hostLogger().warn(
-                    "[dim] '{}': engine_terrain is 0b in its terrain, so the engine's {} "
-                    "generator is not used and this dimension is a void under the sky it asked "
-                    "for. Set that field to 1b in dimension_config.json, or drop it, for the "
-                    "terrain the template chose",
-                    mName.get(), magic_enum::enum_name(n->generator)
-                );
+                    "[dim] {}", pier::trf("dim.spec_dimension.5", mName.get(), magic_enum::enum_name(n->generator)));
                 gen = voidWith(*this, n->biome);
                 setStructureState(*this, *gen, seed, structureSetRegistry, false);
                 return gen;
@@ -346,7 +336,7 @@ namespace pier::dimensions
             default:
             {
                 if (n->generator != GeneratorType::Void)
-                    hostLogger().error("[dim] '{}' has a native generator {} with no branch; this is a bug", mName.get(), magic_enum::enum_name(n->generator));
+                    hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.6", mName.get(), magic_enum::enum_name(n->generator)));
                 gen = voidWith(*this, n->biome);
                 gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
             }
@@ -371,11 +361,7 @@ namespace pier::dimensions
                 return gen;
             }
             hostLogger().error(
-                "[dim] '{}' has no terrain this session: its spec says the terrain comes from a mod and no mod "
-                "registered it. The chunks already generated stay where they are; the world is void until that "
-                "mod is loaded again",
-                mName.get()
-            );
+                "[dim] {}", pier::trf("dim.spec_dimension.7", mName.get()));
             // Returned here and not left to fall through. Below this point the terrain
             // is read as a Pack, and a supplied spec reaching that line throws
             // bad_variant_access on a chunk thread -- the shape of failure this file
@@ -412,8 +398,8 @@ namespace pier::dimensions
             // Refusing here would fastfail on a chunk thread; the dimension is already
             // registered by id. A void with the reasons is the least harmful shape, and
             // the stored spec stays, so the terrain returns once the recipe is fixed.
-            for (auto const& msg : problems) hostLogger().error("[dim] '{}': {}", mName.get(), msg);
-            hostLogger().error("[dim] '{}': the layered terrain could not be built; generating a void for this session", mName.get());
+            for (auto const& msg : problems) hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.8", mName.get(), msg));
+            hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.9", mName.get()));
             gen = voidWith(*this, l->biome);
             gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
             return gen;
@@ -425,7 +411,7 @@ namespace pier::dimensions
             // Every alternative above returns, so this is unreachable today. It is a
             // get_if and not a get because the next alternative added to the variant
             // would otherwise land here as an exception thrown on a chunk thread.
-            hostLogger().error("[dim] '{}': the stored terrain is of a kind this generator does not build; generating a void", mName.get());
+            hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.10", mName.get()));
             gen = voidWith(*this, "minecraft:plains");
             gen->mStructureFeatureRegistry->mGeneratorState =
                 br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
@@ -465,8 +451,8 @@ namespace pier::dimensions
         // Refusing here would fastfail on a chunk thread. The dimension is already
         // registered by id; a void with an error line is the least harmful shape, and
         // the stored spec stays so the terrain returns once the pack is back in place.
-        for (auto const& msg : problems) hostLogger().error("[dim] '{}': pack '{}': {}", mName.get(), p.path, msg);
-        hostLogger().error("[dim] '{}': the terrain pack cannot be mounted (status {}); generating a void for this session", mName.get(), static_cast<int>(status));
+        for (auto const& msg : problems) hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.11", mName.get(), p.path, msg));
+        hostLogger().error("[dim] {}", pier::trf("dim.spec_dimension.12", mName.get(), static_cast<int>(status)));
         gen = voidWith(*this, "minecraft:plains");
         gen->mStructureFeatureRegistry->mGeneratorState = br::worldgen::ChunkGeneratorStructureState::createFlat(seed, gen->getBiomeSource(), {});
         return gen;

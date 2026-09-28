@@ -78,10 +78,7 @@ namespace pier::hooks
                 if (!warned.exchange(true))
                 {
                     hostLogger().warn(
-                        "[hooks] a mod callback for a synthetic event threw and was "
-                        "contained; this warning prints once, the exception above prints "
-                        "every time"
-                    );
+                        "[hooks] {}", pier::trf("hooks.hook_events.1"));
                 }
             }
         }
@@ -139,9 +136,8 @@ namespace pier::hooks
                 // the most dangerous direction: a protection decision reporting a block
                 // while it actually lets the action through.
                 hostLogger().error(
-                    "[hooks] write-back SNBT for synthetic event '{}' failed to parse, treated as not cancelled: {}", eventId,
-                    tag.error().message()
-                );
+                    "[hooks] {}", pier::trf("hooks.hook_events.2", eventId,
+                    tag.error().message()));
                 return false;
             }
             if (!tag->contains("cancelled")) return false;
@@ -302,8 +298,7 @@ namespace pier::hooks
                 // and not something to resolve silently. The first one keeps winning so
                 // the behavior stays deterministic while it is being fixed.
                 hostLogger().warn(
-                    "[hooks] two subscribers of '{}' asked for different redirects; keeping the first", def.idText
-                );
+                    "[hooks] {}", pier::trf("hooks.hook_events.3", def.idText));
             }
         }
         // A cancel means nothing happens at all, so a redirect alongside it is void.
@@ -351,11 +346,7 @@ namespace pier::hooks
                 if (!def->install())
                 {
                     hostLogger().error(
-                        "[hooks] synthetic event '{}': the native detour failed to install, so "
-                        "the subscription is refused rather than letting a mod assume it is "
-                        "active",
-                        def->name
-                    );
+                        "[hooks] {}", pier::trf("hooks.hook_events.4", def->name));
                     return nullptr;
                 }
                 def->installed = true;

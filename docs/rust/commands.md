@@ -46,6 +46,25 @@ At least one overload is required. A builder with none is refused with a message
 to use `command::register` instead, rather than leaving a bare registration failure to be
 guessed at.
 
+## Sibling words are one enum
+
+Words that take the same arguments go into one enum parameter, not one `text` literal
+each. The client lists every overload as its own line, so three literals read as three
+unrelated commands where one enum reads as one command with a choice:
+
+```rust
+command::register_enum("plot_simple", &[("menu", 0), ("help", 1), ("status", 2)])?;
+command::builder("plot", "Plots", CommandPermission::Any)
+    .overload(|o| o.required_enum("simple", ParamType::Enum, "plot_simple"))
+    // A word followed by arguments of its own stays a literal.
+    .overload(|o| o.text("verb", "rate").required("score", ParamType::Int))
+    .register(handler)?;
+```
+
+The handler reads the word from whichever parameter carries it. Register each word once,
+and let the console through every permission gate: what it cannot do is what needs a
+player, and such a command says that instead. The rule is CONTRACT.md 6.1.
+
 ## Success and error are different channels
 
 ```rust

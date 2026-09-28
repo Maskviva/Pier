@@ -44,6 +44,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -119,7 +120,7 @@ namespace pier::api_impl
          */
         void completeTicket(std::weak_ptr<HostedMod> weakMod, uint64_t ticket, std::string const& resultSnbt)
         {
-            if (formTrace()) hostLogger().info("[form] ticket={} -> {}", ticket, resultSnbt);
+            if (formTrace()) hostLogger().info("[form] {}", pier::trf("api.forms.1", ticket, resultSnbt));
             PendingForm pending;
             {
                 std::lock_guard lock(gFormMutex);
@@ -277,11 +278,11 @@ namespace pier::api_impl
                 // A SimpleForm without buttons cannot be clicked and can only be
                 // closed. The caller most likely assembled an empty list, which is a
                 // logic error worth one line.
-                hostLogger().warn("[form] SimpleForm \"{}\" has no buttons", strField(spec, "title"));
+                hostLogger().warn("[form] {}", pier::trf("api.forms.2", strField(spec, "title")));
             }
             if (formTrace())
             {
-                hostLogger().info("[form] simple ticket={} with {} button(s)", ticket, buttons);
+                hostLogger().info("[form] {}", pier::trf("api.forms.3", ticket, buttons));
             }
             form->sendTo(p, [form, weakMod, ticket, buttons](Player& who, int button, ll::form::FormCancelReason reason)
             {
@@ -297,8 +298,7 @@ namespace pier::api_impl
                     // Rust panic and abort or an out-of-bounds read in C. It is
                     // treated as a cancel and the player's name is recorded.
                     hostLogger().warn(
-                        "[form] player {} returned button index {} out of range of {}, treated as a cancel",
-                        who.getRealName(), button, buttons);
+                        "[form] {}", pier::trf("api.forms.4", who.getRealName(), button, buttons));
                     completeTicket(weakMod, ticket, "{cancelled:1b,reason:-2,invalid:1b}");
                 }
                 else
@@ -352,8 +352,7 @@ namespace pier::api_impl
             if (std::abs(before - def) > 1e-9)
             {
                 hostLogger().warn(
-                    "[form] slider \"{}\" default {} is not on the step grid of [{}, {}], adjusted to {}",
-                    name, before, mn, mx, def);
+                    "[form] {}", pier::trf("api.forms.5", name, before, mn, mx, def));
             }
         }
 
@@ -384,11 +383,11 @@ namespace pier::api_impl
                     {
                         if (name.empty())
                         {
-                            hostLogger().warn("[form] a {} control has no name and cannot be read from the result", kind);
+                            hostLogger().warn("[form] {}", pier::trf("api.forms.6", kind));
                         }
                         else if (!seenNames.insert(name).second)
                         {
-                            hostLogger().warn("[form] name \"{}\" is duplicated, the later control overwrites the earlier", name);
+                            hostLogger().warn("[form] {}", pier::trf("api.forms.7", name));
                         }
                     }
 
@@ -436,7 +435,7 @@ namespace pier::api_impl
                         {
                             // An empty dropdown makes the client fail to render the
                             // whole form, so dropping one control is the better trade
-                            hostLogger().warn("[form] {} \"{}\" has no options and was skipped", kind, name);
+                            hostLogger().warn("[form] {}", pier::trf("api.forms.8", kind, name));
                             continue;
                         }
 
@@ -446,8 +445,7 @@ namespace pier::api_impl
                         if (defIdx >= options.size())
                         {
                             hostLogger().warn(
-                                "[form] {} \"{}\" default index {} is out of range of {}, reset to 0",
-                                kind, name, defIdx, options.size());
+                                "[form] {}", pier::trf("api.forms.9", kind, name, defIdx, options.size()));
                             defIdx = 0;
                         }
 
@@ -486,8 +484,8 @@ namespace pier::api_impl
                     if (!names.empty()) names += ", ";
                     names += k + "(" + snbtNum(v.size()) + ")";
                 }
-                hostLogger().info("[form] custom ticket={} choice controls: [{}]", ticket,
-                                  names.empty() ? std::string{"none"} : names);
+                hostLogger().info("[form] {}", pier::trf("api.forms.10", ticket,
+                                  names.empty() ? std::string{"none"} : names));
             }
 
             form->sendTo(
@@ -508,8 +506,8 @@ namespace pier::api_impl
                     {
                         if (formTrace())
                         {
-                            hostLogger().info("[form]   {} = <{}> {}", key, variantKind(value),
-                                              variantText(value));
+                            hostLogger().info("[form] {}", pier::trf("api.forms.11", key, variantKind(value),
+                                              variantText(value)));
                         }
 
                         auto choiceIt = choices->find(key);
@@ -537,8 +535,7 @@ namespace pier::api_impl
                                 if (!idx)
                                 {
                                     hostLogger().warn(
-                                        "[form] \"{}\" returned text \"{}\" that is not among the options, the index is left to the caller",
-                                        key, text);
+                                        "[form] {}", pier::trf("api.forms.12", key, text));
                                 }
                             }
 
@@ -548,8 +545,7 @@ namespace pier::api_impl
                             }
                             else if (idx)
                             {
-                                hostLogger().warn("[form] \"{}\" returned index {} out of range of {}",
-                                                  key, *idx, options.size());
+                                hostLogger().warn("[form] {}", pier::trf("api.forms.13", key, *idx, options.size()));
                                 idx.reset();
                             }
 
@@ -572,9 +568,8 @@ namespace pier::api_impl
                                 if (clampSliderValue(sl->second, d))
                                 {
                                     hostLogger().warn(
-                                        "[form] player {} returned slider \"{}\" value {} outside [{}, {}] step {}, clamped to {}",
-                                        who.getRealName(), key, std::get<double>(value),
-                                        sl->second.min, sl->second.max, sl->second.step, d);
+                                        "[form] {}", pier::trf("api.forms.14", who.getRealName(), key, std::get<double>(value),
+                                        sl->second.min, sl->second.max, sl->second.step, d));
                                 }
                             }
                             values.put(key, snbtNum(d) + "d");
@@ -671,12 +666,12 @@ namespace pier::api_impl
                 }
                 catch (std::exception const& e)
                 {
-                    hostLogger().error("[form] form_send: building the form threw: {}", e.what());
+                    hostLogger().error("[form] {}", pier::trf("api.forms.15", e.what()));
                     ok = false;
                 }
                 catch (...)
                 {
-                    hostLogger().error("[form] form_send: building the form threw an unknown exception");
+                    hostLogger().error("[form] {}", pier::trf("api.forms.16"));
                     ok = false;
                 }
                 if (!ok)

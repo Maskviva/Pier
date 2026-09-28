@@ -21,6 +21,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 
 namespace pier::hooks
@@ -63,9 +64,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[hooks/ArmorStandEvent] the ArmorStand::_trySwapItem detour failed to "
-                        "install with code={}, so equipment on an armor stand is "
-                        "unprotected", r);
+                        "{}", pier::trf("hooks.armor_stand_event.1", r));
                 }
                 return r == 0;
             }

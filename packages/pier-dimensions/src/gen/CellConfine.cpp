@@ -31,6 +31,7 @@
 
 #include "pier/dimensions/dim/dimension_rules.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions
 {
@@ -243,13 +244,7 @@ namespace pier::dimensions
                         // group rewalks the same unfinishable graph.
                         for (uint64_t m : seen) g.oversized.insert(m);
                         hostLogger().warn(
-                            "[cell] the merge group exceeds {} cells, walked from {};{}, so "
-                            "the crossing decision refuses everything in this group; this is "
-                            "not a configuration problem, since at that size the question of "
-                            "one area has no affordable answer and a protection decision "
-                            "must refuse when it does not know",
-                            kGroupScanLimit, id.x, id.z
-                        );
+                            "[cell] {}", pier::trf("dim.cell_confine.1", kGroupScanLimit, id.x, id.z));
                         return false;
                     }
                     members.push_back(nk);
@@ -371,11 +366,7 @@ namespace pier::dimensions
             // is empty, ownership always answers not in a cell, and the symptom is that
             // cells are merged and a piston still cannot push through.
             hostLogger().warn(
-                "[cell] dimension {} received a merge table of {} entries before a cell "
-                "grid was registered and it was ignored; the order is the grid first, "
-                "then the merge table",
-                dimension, count
-            );
+                "[cell] {}", pier::trf("dim.cell_confine.2", dimension, count));
             return;
         }
         auto& g = it->second;
@@ -578,13 +569,7 @@ namespace pier::dimensions
             else
             {
                 hostLogger().error(
-                    "[cell] installing the Actor::move detour failed with status {}; the "
-                    "usual cause is a mismatch between the BDS or LeviLamina version this "
-                    "loader was linked against and the one the server runs, so a symbol "
-                    "address resolved wrongly. Actor crossing is now entirely unconfined; "
-                    "the piston path is unaffected, since it hooks a different symbol",
-                    r
-                );
+                    "[cell] {}", pier::trf("dim.cell_confine.3", r));
             }
         }
     } // namespace

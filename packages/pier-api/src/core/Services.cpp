@@ -28,6 +28,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -96,11 +97,7 @@ namespace pier::api_impl
             if (seen[name]) return;
             seen[name] = true;
             hostLogger().error(
-                "[service] '{}' exceeded call depth {}, innermost call refused; this is "
-                "a call cycle, where the provider of this service calls it again, either "
-                "directly or through another service that loops back",
-                name, kMaxDepth
-            );
+                "[service] {}", pier::trf("api.services.1", name, kMaxDepth));
         }
 
         uint64_t api_service_register(
@@ -228,7 +225,7 @@ namespace pier::api_impl
                     // A provider throwing across the FFI boundary is already undefined
                     // behavior on its own side. Catching it here at least keeps the
                     // caller alive and gives it a status code it can act on.
-                    hostLogger().error("[service] '{}' threw an exception across the FFI boundary", name);
+                    hostLogger().error("[service] {}", pier::trf("api.services.2", name));
                     return PIER_SERVICE_ERROR;
                 }
                 return ok ? PIER_SERVICE_OK : PIER_SERVICE_ERROR;

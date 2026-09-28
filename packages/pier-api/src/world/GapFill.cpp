@@ -47,6 +47,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -739,9 +740,7 @@ namespace pier::api_impl
                 if (!looksLikeChunkKey(sv(key)))
                 {
                     hostLogger().error(
-                        "[api] level_delete_key refused, key length {} does not match the "
-                        "chunk key layout of 9, 10, 13 or 14 bytes",
-                        key.len);
+                        "[api] {}", pier::trf("api.gap_fill.1", key.len));
                     return false;
                 }
                 // `deleteData` takes a `std::string const&`. The temporary lives to the

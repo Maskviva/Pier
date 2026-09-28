@@ -41,6 +41,7 @@
 
 #include "pier/dimensions/gen/cell_confine.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions
 {
@@ -155,11 +156,7 @@ namespace pier::dimensions
             // newer than the host. Ignoring it silently turns "I did set it" into a
             // report with no findable cause.
             hostLogger().error(
-                "[dim] set_dimension_rule(dim={}, rule={}): the rule number is outside the "
-                "range [0,{}) this host supports and is ignored; if the rule is new, the mod "
-                "was built against a newer ABI and the pier host needs upgrading",
-                dimension, rule, kDimRuleCount
-            );
+                "[dim] {}", pier::trf("dim.dimension_rules.1", dimension, rule, kDimRuleCount));
             return;
         }
         std::lock_guard lock{rulesMutex()};
@@ -302,7 +299,7 @@ namespace pier::dimensions
                     }
                     catch (...)
                     {
-                        hostLogger().warn("[dim] removing a spawned mob for a dimension rule threw, dim {}", dim);
+                        hostLogger().warn("[dim] {}", pier::trf("dim.dimension_rules.2", dim));
                     }
                     return nullptr;
                 }

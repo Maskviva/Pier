@@ -62,6 +62,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -86,11 +87,7 @@ namespace pier::api_impl
         {
             if (ll::service::getCommandRegistry()) return true;
             hostLogger().error(
-                "[cmd] {} '{}' was refused: the engine has no command registry yet. Register "
-                "from on_enable rather than on_load, and if that is already the case, wait for "
-                "the server to reach Running before calling",
-                what, name
-            );
+                "[cmd] {}", pier::trf("api.commands.1", what, name));
             return false;
         }
 
@@ -535,8 +532,7 @@ namespace pier::api_impl
                 // serialization branch. It is reported rather than dropping the field
                 // silently (§5.1).
                 hostLogger().warn(
-                    "[api] command parameter '{}': Bedrock parsed kind {} but it has no serialization branch",
-                    decl.name, static_cast<int>(decl.kind));
+                    "[api] {}", pier::trf("api.commands.2", decl.name, static_cast<int>(decl.kind)));
                 break;
             }
         }

@@ -28,6 +28,7 @@
 #include "mc/world/level/dimension/Dimension.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions
 {
@@ -61,7 +62,7 @@ namespace pier::dimensions
             {
                 // The names were checked at registration; the registry changed under a
                 // saved dimension. Said once per biome, then plains stands in.
-                hostLogger().error("[volume] biome '{}' is not in the registry any more; using minecraft:plains for this session", name);
+                hostLogger().error("[volume] {}", pier::trf("dim.volume_generator.1", name));
                 b = fallback;
             }
             mBiomes.push_back(b);
@@ -101,7 +102,7 @@ namespace pier::dimensions
         lc.recomputeHeightMap(false);
         if (!lc.tryChangeState(ChunkState::Generating, ChunkState::Generated))
         {
-            hostLogger().error("[volume] chunk ({}, {}) failed the Generating to Generated transition; it will not be sent", chunkPos.x, chunkPos.z);
+            hostLogger().error("[volume] {}", pier::trf("dim.volume_generator.2", chunkPos.x, chunkPos.z));
         }
     }
 } // namespace pier::dimensions

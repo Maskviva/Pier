@@ -37,6 +37,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/str.h"
 
 namespace pier::api_impl
@@ -166,11 +167,7 @@ namespace pier::api_impl
                     if (warned.insert(dimension).second)
                     {
                         hostLogger().warn(
-                            "[packet] spawn_particle_for: dimension {} does not fit the "
-                            "single-byte dimension id of SpawnParticleEffectPacket and is "
-                            "truncated to {}; a targeted particle in a custom dimension may "
-                            "not appear, use spawn_particle instead",
-                            dimension, static_cast<int>(static_cast<uchar>(dimension)));
+                            "[packet] {}", pier::trf("api.packets.1", dimension, static_cast<int>(static_cast<uchar>(dimension))));
                     }
                 }
                 // Same as the title packets above: the payload's default constructor is

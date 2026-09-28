@@ -30,6 +30,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/module.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
@@ -216,9 +217,7 @@ namespace pier::api_impl
             if (!base)
             {
                 hostLogger().warn(
-                    "[money] money_listen_* callback {:p} belongs to no loaded pier mod, "
-                    "so it cannot be cleaned up on unload and lives until the process "
-                    "exits", reinterpret_cast<void const*>(cb));
+                    "[money] {}", pier::trf("api.money.1", reinterpret_cast<void const*>(cb)));
             }
             std::lock_guard lock(gMoneyMutex);
             for (auto const& l : list)

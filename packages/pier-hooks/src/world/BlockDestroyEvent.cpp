@@ -28,6 +28,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 
 namespace pier::hooks
@@ -89,10 +90,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[hooks/BlockDestroyEvent] the Level::$destroyBlock detour failed to "
-                        "install with code={}, so destruction from non-player sources such as "
-                        "endermen, withers, explosions and commands is entirely "
-                        "unprotected", r);
+                        "{}", pier::trf("hooks.block_destroy_event.1", r));
                 }
                 return r == 0;
             }

@@ -25,6 +25,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/module.h"
 
 namespace pier::api_impl
@@ -273,12 +274,8 @@ namespace pier::api_impl
             if (dropped > 0)
             {
                 hostLogger().warn(
-                    "[scheduler] '{}' was unloaded with {} pending task(s), all dropped; "
-                    "a mod is expected to cancel its own timers through schedule_cancel "
-                    "in on_disable or on_unload",
-                    mod ? mod->getName() : std::string{"?"},
-                    dropped
-                );
+                    "[scheduler] {}", pier::trf("api.scheduler.1", mod ? mod->getName() : std::string{"?"},
+                    dropped));
             }
         }
 

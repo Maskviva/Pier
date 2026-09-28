@@ -187,11 +187,9 @@ namespace pier
             // the field can be checked at a glance. The mod runs on a strict superset
             // of the table it was built against.
             hostLogger().info(
-                "[host] loading '{}': built against ABI v{}, host provides v{} (additive superset)",
-                mod->getName(),
+                "[host] {}", pier::trf("host.mod_host.1", mod->getName(),
                 vt.abi_version,
-                PIER_ABI_VERSION
-            );
+                PIER_ABI_VERSION));
         }
 
         // Wire the Mod lifecycle callbacks onto the mod's vtable. The default

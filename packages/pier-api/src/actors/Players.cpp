@@ -62,6 +62,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -648,12 +649,8 @@ namespace pier::api_impl
                 return true;
             }
             hostLogger().warn(
-                "[api] {} for player {} refused: the player has not finished joining. "
-                "Writing abilities before the client is initialized desynchronizes them "
-                "until the player rejoins; write after the player has fully joined",
-                what,
-                p.getRealName()
-            );
+                "[api] {}", pier::trf("api.players.1", what,
+                p.getRealName()));
             return false;
         }
 
@@ -693,14 +690,8 @@ namespace pier::api_impl
                         p.sendNetworkPacket(resync);
 
                         hostLogger().error(
-                            "[api] setPlayerAbility read back a different value after writing "
-                            "idx={} want={}, so the bit did not take effect; the usual cause is "
-                            "writing an ability bit from PlayerJoinEvent, before the player's "
-                            "ability layers exist. Write it a second or two after join, or not "
-                            "at all. A current state has been resent to the client",
-                            idx,
-                            want
-                        );
+                            "[api] {}", pier::trf("api.players.2", idx,
+                            want));
 
                         if (idx <= static_cast<int>(AbilitiesIndex::AttackMobs))
                         {
@@ -714,13 +705,9 @@ namespace pier::api_impl
             if (p.getPlayerPermissionLevel() != before)
             {
                 hostLogger().warn(
-                    "[api] setPlayerAbility on idx={} pushed the permission level from {} "
-                    "to {} and it has been restored; this indicates the engine behavior "
-                    "changed",
-                    idx,
+                    "[api] {}", pier::trf("api.players.3", idx,
                     static_cast<int>(before),
-                    static_cast<int>(p.getPlayerPermissionLevel())
-                );
+                    static_cast<int>(p.getPlayerPermissionLevel())));
                 setPlayerPermissionLevel(p, before);
             }
             return true;
@@ -934,13 +921,13 @@ namespace pier::api_impl
                         if (lines.size() < 2)
                         {
                             hostLogger().error(
-                                "[api] sidebar payload has fewer than two lines, objective and title are required");
+                                "[api] {}", pier::trf("api.players.4"));
                             return false;
                         }
                         std::string const& objective = lines[0];
                         if (objective.empty())
                         {
-                            hostLogger().error("[api] sidebar objective is empty");
+                            hostLogger().error("[api] {}", pier::trf("api.players.5"));
                             return false;
                         }
 
@@ -966,7 +953,7 @@ namespace pier::api_impl
                             }
                             else
                             {
-                                hostLogger().error("[api] sidebar createPacket(RemoveObjective) returned null");
+                                hostLogger().error("[api] {}", pier::trf("api.players.6"));
                             }
                         }
 
@@ -975,7 +962,7 @@ namespace pier::api_impl
                             auto shown = MinecraftPackets::createPacket(MinecraftPacketIds::SetDisplayObjective);
                             if (!shown)
                             {
-                                hostLogger().error("[api] sidebar createPacket(SetDisplayObjective) returned null");
+                                hostLogger().error("[api] {}", pier::trf("api.players.7"));
                                 return false;
                             }
                             auto* d = static_cast<SetDisplayObjectivePacket*>(shown.get());
@@ -1048,7 +1035,7 @@ namespace pier::api_impl
                             auto drops = MinecraftPackets::createPacket(MinecraftPacketIds::SetScore);
                             if (!drops)
                             {
-                                hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                                hostLogger().error("[api] {}", pier::trf("api.players.8"));
                                 return false;
                             }
                             static_cast<SetScorePacket*>(drops.get())->mScoreInfo = std::move(stale);
@@ -1064,7 +1051,7 @@ namespace pier::api_impl
                                 // below or the next call will see "same shape, same text" and
                                 // send nothing, leaving those rows blank until the row count
                                 // changes. Dropping the entry forces a full rebuild instead.
-                                hostLogger().error("[api] sidebar createPacket(SetScore) returned null");
+                                hostLogger().error("[api] {}", pier::trf("api.players.9"));
                                 gSidebars.erase(skey);
                                 return false;
                             }

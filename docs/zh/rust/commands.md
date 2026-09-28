@@ -44,6 +44,25 @@ command::builder("plot", "Plot management", CommandPermission::Any)
 至少要有一个 overload。一个都没有的 builder 会被拒绝，并提示改用 `command::register`，
 而不是丢下一个光秃秃的注册失败让人猜。
 
+## 同一层的词用一个枚举
+
+参数相同的并列子命令放进同一个枚举参数，而不是每个词一个 `text` 字面量。客户端把每个
+overload 列成单独的一行：三个字面量看起来是三条互不相干的命令，一个枚举看起来是一条
+带选项的命令，也就是 `/plot <menu|help|status>`：
+
+```rust
+command::register_enum("plot_simple", &[("menu", 0), ("help", 1), ("status", 2)])?;
+command::builder("plot", "Plots", CommandPermission::Any)
+    .overload(|o| o.required_enum("simple", ParamType::Enum, "plot_simple"))
+    // 后面跟着自己参数的词才用字面量。
+    .overload(|o| o.text("verb", "rate").required("score", ParamType::Int))
+    .register(handler)?;
+```
+
+处理函数从承载它的那个参数里读这个词。每个词只注册一次；控制台通过所有权限检查，
+它做不到的只是必须有玩家的事，这种命令要直接说明，而不是当成控制台没有权限来拒绝。
+规则见 CONTRACT.md 6.1。
+
 ## 成功和失败是两条通道
 
 ```rust

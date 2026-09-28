@@ -32,6 +32,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -221,11 +222,7 @@ namespace pier::lane
                     if (steady_clock::now() >= deadline)
                     {
                         hostLogger().error(
-                            "[lane] '{}' still has {} call(s) inside it after 5s; unloading "
-                            "anyway. A consumer is wedged in a lane call, and the dylib is "
-                            "about to be unmapped beneath it",
-                            name, cell->busy.load(std::memory_order_acquire)
-                        );
+                            "[lane] {}", pier::trf("lane.lane.1", name, cell->busy.load(std::memory_order_acquire)));
                         break;
                     }
                     std::this_thread::yield();
@@ -245,11 +242,7 @@ namespace pier::lane
             if (outstanding > 0)
             {
                 hostLogger().warn(
-                    "[lane] '{}' retired with {} lease(s) still outstanding, released on "
-                    "behalf of the consumers; a consumer mod is expected to drop its lane "
-                    "handles before unload and at least one did not",
-                    name, outstanding
-                );
+                    "[lane] {}", pier::trf("lane.lane.2", name, outstanding));
             }
         }
 
@@ -263,20 +256,13 @@ namespace pier::lane
                 if (desc->struct_size < sizeof(PierLaneDesc))
                 {
                     hostLogger().error(
-                        "[lane] publish refused, PierLaneDesc is smaller than the host "
-                        "expects ({} < {}); the mod was built against an older ABI",
-                        desc->struct_size, static_cast<uint32_t>(sizeof(PierLaneDesc))
-                    );
+                        "[lane] {}", pier::trf("lane.lane.3", desc->struct_size, static_cast<uint32_t>(sizeof(PierLaneDesc))));
                     return 0;
                 }
                 if (desc->protocol != PIER_LANE_PROTOCOL)
                 {
                     hostLogger().error(
-                        "[lane] publish refused, protocol {} does not match the host's {}; "
-                        "only this lane is affected, the mod still loads and consumers fall "
-                        "back to the service channel",
-                        desc->protocol, PIER_LANE_PROTOCOL
-                    );
+                        "[lane] {}", pier::trf("lane.lane.4", desc->protocol, PIER_LANE_PROTOCOL));
                     return 0;
                 }
                 if (!desc->vtable) return 0;
@@ -285,7 +271,7 @@ namespace pier::lane
                     // On the acquire side 0 used to mean "do not verify". A provider
                     // reporting 0 would dismantle the gate itself, and the result of
                     // dismantling it is silent memory corruption rather than a crash.
-                    hostLogger().error("[lane] publish refused, fingerprint 0 is reserved");
+                    hostLogger().error("[lane] {}", pier::trf("lane.lane.5"));
                     return 0;
                 }
 
@@ -319,9 +305,7 @@ namespace pier::lane
                                              ? std::string(held->second.mod->getName())
                                              : std::string("<unknown>");
                     hostLogger().error(
-                        "[lane] '{}' is already published by mod '{}', second publisher refused",
-                        name, holder
-                    );
+                        "[lane] {}", pier::trf("lane.lane.6", name, holder));
                     return 0;
                 }
 

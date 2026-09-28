@@ -40,6 +40,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -60,7 +61,7 @@ namespace pier::dimensions::rt
             auto level = ll::service::getLevel();
             if (!level) return true;
             if (level->getBiomeRegistry().lookupByName(biome)) return true;
-            hostLogger().error("[dim] '{}' refused: biome '{}' is not in the registry. Custom biomes come from a behavior pack loaded before mods; check the pack and the spelling", dimName, biome);
+            hostLogger().error("[dim] {}", pier::trf("dim.slots.1", dimName, biome));
             return false;
         }
 
@@ -70,15 +71,15 @@ namespace pier::dimensions::rt
                 std::string const dimName = toString(name);
                 std::string const raw = toString(specSnbt);
                 auto [s, problems] = DimensionSpec::fromSnbt(raw);
-                for (auto const& p : problems) hostLogger().warn("[dim] add_dimension('{}'): {}", dimName, p);
+                for (auto const& p : problems) hostLogger().warn("[dim] {}", pier::trf("dim.slots.2", dimName, p));
                 if (!s)
                 {
-                    hostLogger().error("[dim] add_dimension('{}') refused: the spec could not be read (see the lines above). The dimension was not created; a wrong spec persists with the dimension and terrain generated from it cannot be regenerated", dimName);
+                    hostLogger().error("[dim] {}", pier::trf("dim.slots.3", dimName));
                     return -1;
                 }
                 if (s->isPack())
                 {
-                    hostLogger().error("[dim] add_dimension('{}') refused: a {} terrain is registered through md_add_dimension_pack, which verifies the pack before the spec is stored", dimName, std::get<spec::Pack>(s->terrain).kind);
+                    hostLogger().error("[dim] {}", pier::trf("dim.slots.4", dimName, std::get<spec::Pack>(s->terrain).kind));
                     return -1;
                 }
                 if (s->isSupplied())
@@ -86,7 +87,7 @@ namespace pier::dimensions::rt
                     // A payload with no terrain section belongs to the other slot. Taking
                     // it here would register a dimension nothing fills, and the world
                     // would come up void with the registration having reported success.
-                    hostLogger().error("[dim] add_dimension('{}') refused: the payload has no terrain section, which means the terrain comes from the calling mod; use md_add_dimension_generated", dimName);
+                    hostLogger().error("[dim] {}", pier::trf("dim.slots.5", dimName));
                     return -1;
                 }
                 // get_if and not get: the terrain has three alternatives and this slot
@@ -116,7 +117,7 @@ namespace pier::dimensions::rt
                 }
                 catch (std::exception const& e)
                 {
-                    hostLogger().error("[dim] add_dimension('{}') threw: {}. The spec was: {}", dimName, e.what(), raw);
+                    hostLogger().error("[dim] {}", pier::trf("dim.slots.6", dimName, e.what(), raw));
                     return -1;
                 }
             PIER_API_GUARD_END_VAL(-1)
@@ -161,12 +162,12 @@ namespace pier::dimensions::rt
                 std::vector<std::string> problems;
                 auto fail = [&](int32_t rc)
                 {
-                    for (auto const& p : problems) hostLogger().error("[dim] add_dimension_pack('{}', '{}'): {}", dimName, configRel, p);
-                    hostLogger().error("[dim] add_dimension_pack('{}') refused with {}; nothing was stored", dimName, rc);
+                    for (auto const& p : problems) hostLogger().error("[dim] {}", pier::trf("dim.slots.7", dimName, configRel, p));
+                    hostLogger().error("[dim] {}", pier::trf("dim.slots.8", dimName, rc));
                     return rc;
                 };
                 auto [s, specProblems] = DimensionSpec::fromSnbt(toString(specSnbt));
-                for (auto const& p : specProblems) hostLogger().warn("[dim] add_dimension_pack('{}'): {}", dimName, p);
+                for (auto const& p : specProblems) hostLogger().warn("[dim] {}", pier::trf("dim.slots.9", dimName, p));
                 if (!s)
                 {
                     problems.push_back("the spec could not be read");
@@ -179,7 +180,7 @@ namespace pier::dimensions::rt
                 }
                 auto given = std::get<spec::Pack>(s->terrain);
                 if (given.path != configRel && !given.path.empty())
-                    hostLogger().warn("[dim] add_dimension_pack('{}'): the spec names pack '{}' and the call names '{}'; the call wins", dimName, given.path, configRel);
+                    hostLogger().warn("[dim] {}", pier::trf("dim.slots.10", dimName, given.path, configRel));
 
                 pk::PackStatus status = pk::PackStatus::Ok;
                 auto loc = pk::locatePack(configRel, "", status, problems);
@@ -208,7 +209,7 @@ namespace pier::dimensions::rt
                         return fail(code(pk::PackStatus::StoredMismatch));
                     }
                     if (given.params != effective.params || given.roles != effective.roles)
-                        hostLogger().warn("[dim] add_dimension_pack('{}'): parameters or roles differ from the stored ones; the stored ones apply", dimName);
+                        hostLogger().warn("[dim] {}", pier::trf("dim.slots.11", dimName));
                     s->minY = stored->minY;
                     s->maxY = stored->maxY;
                 }
@@ -242,13 +243,13 @@ namespace pier::dimensions::rt
                     for (auto const& b : vol->biomeNames) allPresent &= biomeExists(dimName, b);
                     if (!allPresent) return fail(code(pk::PackStatus::Host));
                     if (!effective.params.empty() || !effective.roles.empty())
-                        hostLogger().warn("[dim] add_dimension_pack('{}'): a volume pack takes no parameters or roles; the given ones are dropped", dimName);
+                        hostLogger().warn("[dim] {}", pier::trf("dim.slots.12", dimName));
                     effective.params.clear();
                     effective.roles.clear();
                     // A volume pack fixes its height; the spec's is replaced, not clamped
                     // against, since the pack was built for exactly this range.
                     if (!stored && (s->minY != vol->minY() || s->maxY != vol->maxY()))
-                        hostLogger().warn("[dim] add_dimension_pack('{}'): the height is taken from the pack, [{}, {})", dimName, vol->minY(), vol->maxY());
+                        hostLogger().warn("[dim] {}", pier::trf("dim.slots.13", dimName, vol->minY(), vol->maxY()));
                     s->minY = vol->minY();
                     s->maxY = vol->maxY();
                 }
@@ -407,22 +408,18 @@ namespace pier::dimensions::rt
                 auto const dimName = toString(name);
                 std::string const raw = toString(specSnbt);
                 auto [s, problems] = DimensionSpec::fromSnbt(raw);
-                for (auto const& p : problems) hostLogger().warn("[dim] add_dimension_generated('{}'): {}", dimName, p);
+                for (auto const& p : problems) hostLogger().warn("[dim] {}", pier::trf("dim.slots.14", dimName, p));
                 if (!s) return -1;
                 if (!s->isSupplied())
                 {
                     hostLogger().error(
-                        "[dim] add_dimension_generated('{}') refused: the spec carries a terrain section, and this "
-                        "slot does not read one. Accepting a field that is ignored is how a spec comes to describe "
-                        "a world nobody generates",
-                        dimName
-                    );
+                        "[dim] {}", pier::trf("dim.slots.15", dimName));
                     return -1;
                 }
                 std::vector<std::string> palette;
                 auto terrain = resolveSuppliedTerrain(dimName, toString(materialPalette), toString(biomePalette),
                                                       fn, user, dimName, palette);
-                for (auto const& p : palette) hostLogger().error("[dim] add_dimension_generated('{}'): {}", dimName, p);
+                for (auto const& p : palette) hostLogger().error("[dim] {}", pier::trf("dim.slots.16", dimName, p));
                 if (!terrain) return -1;
 
                 // Remembered before the registration and dropped if it fails: a
@@ -437,7 +434,7 @@ namespace pier::dimensions::rt
                 catch (std::exception const& e)
                 {
                     forgetSuppliedTerrain(dimName);
-                    hostLogger().error("[dim] add_dimension_generated('{}') threw: {}. The spec was: {}", dimName, e.what(), raw);
+                    hostLogger().error("[dim] {}", pier::trf("dim.slots.17", dimName, e.what(), raw));
                     return -1;
                 }
             PIER_API_GUARD_END_VAL(-1)

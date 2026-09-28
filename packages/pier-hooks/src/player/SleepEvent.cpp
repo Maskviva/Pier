@@ -19,6 +19,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 
 namespace pier::hooks
@@ -62,7 +63,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[hooks/SleepEvent] the Player::$startSleepInBed detour failed to install with code={}", r);
+                        "{}", pier::trf("hooks.sleep_event.1", r));
                 }
                 return r == 0;
             }

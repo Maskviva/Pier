@@ -37,6 +37,7 @@
 #include "pier/api/bridge.h"
 #include "pier/host/spi.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -92,11 +93,7 @@ namespace pier::bridge
             if (firstComplaintFor(dimId))
             {
                 hostLogger().warn(
-                    "[api] dimension {} is a custom dimension id, but the dimensions "
-                    "package is not compiled into this host; only the three vanilla "
-                    "dimensions are recognized",
-                    dimId
-                );
+                    "[api] {}", pier::trf("api.bridge.1", dimId));
             }
             return nullptr;
         }
@@ -307,10 +304,7 @@ namespace pier::bridge
         if (firstComplaintFor(dim))
         {
             hostLogger().warn(
-                "[api] dimension {} is a custom dimension id, but the dimensions "
-                "package is not compiled into this host; the name cannot be resolved",
-                dim
-            );
+                "[api] {}", pier::trf("api.bridge.2", dim));
         }
         return {};
     }

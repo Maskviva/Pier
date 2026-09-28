@@ -37,6 +37,7 @@
 #include "mc/world/item/ItemStack.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 
 namespace pier::hooks
@@ -81,11 +82,7 @@ namespace pier::hooks
             if (warned) return;
             warned = true;
             hostLogger().warn(
-                "[hooks/DropItemEvent] {} fired with no subscriber at all, def.live() is "
-                "false, so the native detour is installed while the other side never "
-                "subscribed to 'PlayerDropItemEvent'; check the startup log for a failed "
-                "subscription to that event",
-                which);
+                "{}", pier::trf("hooks.drop_item_event.1", which));
         }
 
         /** The actions a transaction carries for one source, empty when it carries none.

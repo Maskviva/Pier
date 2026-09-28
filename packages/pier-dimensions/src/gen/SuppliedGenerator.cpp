@@ -39,6 +39,7 @@
 #include "mc/world/level/dimension/Dimension.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions
 {
@@ -221,10 +222,7 @@ namespace pier::dimensions
             if (!said.exchange(true))
             {
                 hostLogger().error(
-                    "[supplied] '{}' did not fill chunk ({}, {}) and this dimension is generating air. "
-                    "Said once; the mod that owns it is '{}'",
-                    mDimName, chunkPos.x, chunkPos.z, mTerrain ? mTerrain->owner : "(none)"
-                );
+                    "[supplied] {}", pier::trf("dim.supplied_generator.1", mDimName, chunkPos.x, chunkPos.z, mTerrain ? mTerrain->owner : "(none)"));
             }
         }
 
@@ -257,7 +255,7 @@ namespace pier::dimensions
         lc.recomputeHeightMap(false);
         if (!lc.tryChangeState(ChunkState::Generating, ChunkState::Generated))
         {
-            hostLogger().error("[supplied] chunk ({}, {}) failed the Generating to Generated transition; it will not be sent", chunkPos.x, chunkPos.z);
+            hostLogger().error("[supplied] {}", pier::trf("dim.supplied_generator.2", chunkPos.x, chunkPos.z));
         }
     }
 } // namespace pier::dimensions

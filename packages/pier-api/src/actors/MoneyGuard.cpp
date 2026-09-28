@@ -10,6 +10,7 @@
 #include "ll/api/mod/ModManagerRegistry.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::api_impl
 {
@@ -67,12 +68,8 @@ namespace pier::api_impl
                 return; // Already warned
             }
             hostLogger().warn(
-                "[money] no usable LLMoney backend ({}); every money::* entry point is "
-                "inert for this session, reads return 0 and writes fail; check that "
-                "LegacyMoney is installed and enabled, under mod name \"{}\"",
-                reason,
-                kMoneyModName
-            );
+                "[money] {}", pier::trf("api.money_guard.1", reason,
+                kMoneyModName));
         }
     } // namespace
 

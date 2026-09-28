@@ -5,6 +5,7 @@
 #include "mc/world/level/dimension/Dimension.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions::utils
 {
@@ -37,14 +38,9 @@ namespace pier::dimensions
         }
 
         pier::hostLogger().error(
-            "[dim] {} has mHeightRange {}..{} ({} subchunks) while the definition sent to "
-            "the client says {}..{} ({} subchunks); the two disagree, subchunk requests are "
-            "judged out of range and no block data reaches the client. Corrected in place "
-            "to {}..{}",
-            who, actualMin, actualMax, (actualMax - actualMin) / 16,
+            "[dim] {}", pier::trf("dim.utils.1", who, actualMin, actualMax, (actualMax - actualMin) / 16,
             expectedMin, expectedMax, (expectedMax - expectedMin) / 16,
-            expectedMin, expectedMax
-        );
+            expectedMin, expectedMax));
 
         range.mMin = static_cast<short>(expectedMin);
         range.mMax = static_cast<short>(expectedMax);

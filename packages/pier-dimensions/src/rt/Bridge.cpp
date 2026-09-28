@@ -33,6 +33,7 @@
 
 #include "pier/host/spi.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions::rt
 {
@@ -81,11 +82,7 @@ namespace pier::dimensions::rt
             if (it == list.end()) return -1;
 
             pier::hostLogger().warn(
-                "[dim] '{}' resolved to id {} from the config mirror rather than the engine "
-                "dimension table; the two have drifted apart, so teleports and block writes "
-                "may land in the wrong place, check the dimension registrations in the save",
-                wanted, it->second.dimId
-            );
+                "[dim] {}", pier::trf("dim.bridge.1", wanted, it->second.dimId));
             return it->second.dimId;
         }
 
@@ -131,10 +128,7 @@ namespace pier::dimensions::rt
             if (name.empty() && firstComplaintFor(dim))
             {
                 pier::hostLogger().warn(
-                    "[dim] no name for dimension {}: the registration ledger, the engine "
-                    "dimension table and the config mirror all lack it; registered are: {}",
-                    dim, describeRegisteredDimensions()
-                );
+                    "[dim] {}", pier::trf("dim.bridge.2", dim, describeRegisteredDimensions()));
             }
             return name;
         }
@@ -147,9 +141,7 @@ namespace pier::dimensions::rt
                 if (firstComplaintFor(dim))
                 {
                     pier::hostLogger().error(
-                        "[dim] dimension {} has no resolvable name, so no instance can be built; registered are: {}",
-                        dim, describeRegisteredDimensions()
-                    );
+                        "[dim] {}", pier::trf("dim.bridge.3", dim, describeRegisteredDimensions()));
                 }
                 return nullptr;
             }
@@ -171,13 +163,7 @@ namespace pier::dimensions::rt
             if (realId != dim)
             {
                 pier::hostLogger().error(
-                    "[dim] refusing to provide a BlockSource for dimension {}: the ledger "
-                    "calls it '{}', but the instance the engine built under that name reports "
-                    "id {}. The ledger and the engine have drifted apart, and continuing "
-                    "would either write blocks into the wrong dimension or abort on a chunk "
-                    "thread during a teleport",
-                    dim, name, realId
-                );
+                    "[dim] {}", pier::trf("dim.bridge.4", dim, name, realId));
                 return nullptr;
             }
 

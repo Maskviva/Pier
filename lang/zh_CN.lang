@@ -38,3 +38,193 @@ conf.bad_entry=「{}」里有一条不是文本，只有那一条被忽略
 conf.clamped=「{}」写的是 {}，落在 {}..{} 之外；实际用的是 {}
 mod.disabled=「{}」在 config.json 的 mods.disabled 里被点名，这个宿主不会装载它
 hooks.disabled=合成事件「{}」在 hooks.disabled 里被点名，所以「{}」的订阅被拒绝，而不是发给它一个永远不触发的句柄
+
+# 各个包的宿主日志，每一行运维会读到的日志一个键。
+api.forms.1=表单票据 {} -> {}
+api.forms.2=SimpleForm「{}」没有任何按钮
+api.forms.3=简单表单票据 {}，{} 个按钮
+api.forms.4=玩家 {} 返回的按钮序号 {} 超出了 {} 个按钮的范围，按取消处理
+api.forms.5=滑块「{}」的默认值 {} 不在 [{}, {}] 的步进格上，已调整为 {}
+api.forms.6=一个 {} 控件没有名字，结果里读不到它
+api.forms.7=名字「{}」重复，后面的控件覆盖了前面的
+api.forms.8={}「{}」没有选项，已跳过
+api.forms.9={}「{}」的默认序号 {} 超出了 {} 个选项的范围，已重置为 0
+api.forms.10=自定义表单票据 {} 的选择类控件：[{}]
+api.forms.11=  {} = <{}> {}
+api.forms.12=「{}」返回的文字「{}」不在选项里，序号交给调用方处理
+api.forms.13=「{}」返回的序号 {} 超出了 {} 个选项的范围
+api.forms.14=玩家 {} 返回的滑块「{}」值 {} 不在 [{}, {}] 步进 {} 之内，已夹到 {}
+api.forms.15=form_send：构建表单时抛出异常：{}
+api.forms.16=form_send：构建表单时抛出了未知异常
+api.money.1=money_listen_* 回调 {:p} 不属于任何已加载的 pier 模组，卸载时清理不掉，会一直留到进程退出
+api.money_guard.1=没有可用的 LLMoney 后端（{}）；这一局所有 money::* 接口都不起作用，读取返回 0、写入失败。请确认 LegacyMoney 已安装并启用，模组名为「{}」
+api.players.1={}（玩家 {}）被拒绝：玩家还没有完全进入。客户端初始化完成前写能力会造成两边不同步，直到玩家重进；请在玩家完全进入之后再写
+api.players.2=setPlayerAbility 写入 idx={} 目标={} 后读回的值不同，这一位没有生效；常见原因是在 PlayerJoinEvent 里写能力位，那时玩家的能力层还不存在。请在进入一两秒后再写，或者不写。已把当前状态重新发给客户端
+api.players.3=setPlayerAbility 写 idx={} 时把权限等级从 {} 改成了 {}，已经改回；说明引擎行为变了
+api.players.4=侧边栏载荷不足两行，目标名和标题都是必需的
+api.players.5=侧边栏的目标名为空
+api.players.6=侧边栏 createPacket(RemoveObjective) 返回空
+api.players.7=侧边栏 createPacket(SetDisplayObjective) 返回空
+api.players.8=侧边栏 createPacket(SetScore) 返回空
+api.players.9=侧边栏 createPacket(SetScore) 返回空
+api.bridge.1=维度 {} 是自定义维度号，但这个宿主没有编进维度包；只认得三个原版维度
+api.bridge.2=维度 {} 是自定义维度号，但这个宿主没有编进维度包；名字解析不出来
+api.bus.1=话题「{}」超过了嵌套深度 {}，最里层的发布被丢弃；这是发布环：这个话题的订阅者又发布了它，直接的或经由另一个绕回来的话题
+api.scheduler.1=「{}」卸载时还有 {} 个待执行任务，全部丢弃；模组应该在 on_disable 或 on_unload 里用 schedule_cancel 自己取消定时任务
+api.services.1=「{}」超过了调用深度 {}，最里层的调用被拒绝；这是调用环：这个服务的提供方又调用了它，直接的或经由另一个绕回来的服务
+api.services.2=「{}」在 FFI 边界上抛出了异常
+api.packet_hooks.1=包头解码和 Packet::getId() 不一致，解出的是 {}，包自己报的是 {}；这个 BDS 版本的包头布局变了，拦截已降级为全部放行，请把这一行报给宿主维护者
+api.packet_hooks.2=一个模组回调抛出了异常，它的结果已按放行处理；这条警告只打印一次，上面的异常每次都会打印
+api.packet_hooks.3=packet_hook_register_ids：包 id {} 超出包头十位的范围，已忽略
+api.packets.1=spawn_particle_for：维度 {} 放不进 SpawnParticleEffectPacket 的单字节维度号，已截成 {}；自定义维度里的定向粒子可能看不到，请改用 spawn_particle
+api.commands.1={}「{}」被拒绝：引擎还没有命令注册表。请在 on_enable 而不是 on_load 里注册；如果已经是这样，请等服务器进入 Running 之后再调用
+api.commands.2=命令参数「{}」：基岩版解析出的类型 {} 没有对应的序列化分支
+api.extras.1=level_set_biome 被拒绝：{} 列的范围超过上限 {}；请分几次调用
+api.edit.1=edit_fill_region 被拒绝：{} 格的区域超过上限 {}；请分片填充
+api.gap_fill.1=level_delete_key 被拒绝：键长度 {} 不符合区块键 9、10、13、14 字节的布局
+api.world.1=scan_region_indexed 被拒绝：{} 格的区域超过上限 {}；请分块扫描
+api.world.2=scan_region 被拒绝：{} 格的区域超过上限 {}；请分块扫描
+dim.utils.1={} 的 mHeightRange 是 {}..{}（{} 个子区块），而发给客户端的定义是 {}..{}（{} 个子区块）；两边不一致，子区块请求会被判为越界，客户端收不到方块数据。已就地改为 {}..{}
+dim.custom_dimension_manager.1=玩家存档里的维度 {} 不可用，重置出生点
+dim.custom_dimension_manager.2=「{}」本来要用键 {} 注册，而它的维度是 {}；改用 {}，因为给它的那个键属于另一个维度，存进去会毁掉那一个
+dim.custom_dimension_manager.3={} 没有被送进「{}」（号 {}）：这个维度是在他进服之后才注册的，他的客户端没有这个维度的定义，送进去也加载不了
+dim.custom_dimension_manager.4=dimension_config：「{}」的号 {} 小于第一个可用的自定义维度号 {}；数据保留，注册时重新分配。在旧号下建的东西留在存档里，新维度里看不到
+dim.custom_dimension_manager.5=dimension_config：号 {} 同时被「{}」和 {} 声明。「{}」失去这个号，注册时重新分配；它存在号 {} 下的东西现在归另一个维度，再也找不回来。运行任何一个之前先在 dimension_config.json 里理清
+dim.custom_dimension_manager.6=dimension_config：「{}」（号 {}）的数据读不出来；号保留，注册时重新生成数据
+dim.custom_dimension_manager.7=「{}」不是这个宿主认识的维度，没有可停用的
+dim.custom_dimension_manager.8=写入 dimension_config.json 失败；「{}」只在内存里停用了，下次启动会回来
+dim.custom_dimension_manager.9=「{}」已停用：从 dimension_config.json 删除，不再注册；它的区块留在存档里，号不会再用
+dim.custom_dimension_manager.10=「{}」的数据丢了，重新生成并保留号 {}
+dim.custom_dimension_manager.11=「{}」的工厂在号确定之前就被调用了，引擎也不认识它；拒绝构建这个维度，而不是用一个多半会是主世界 0 的默认值
+dim.custom_dimension_manager.12=「{}」的工厂被调用去构建号 {}，而那里已经有一个实例；把正在用的那个交回去，而不是再建第二个
+dim.custom_dimension_manager.13=「{}」无法通过引擎的 DimensionManager 原生注册，注册失败，也不会退回假维度；请看上面 registerCustomDimension 那几行，Level 是否就绪、DimensionDefinitionGroup 是否接受了这份定义
+dim.custom_dimension_manager.14=「{}」：配置里记的号是 {}，引擎分配的是 {}；以引擎为准
+dim.custom_dimension_manager.15=写入 dimension_config.json 失败；「{}」下次启动可能会拿到新号
+dim.custom_dimension_manager.16=「{}」的命令枚举注册失败；维度本身能用，但 /execute in 里不能用它的名字
+dim.custom_dimension_manager.17=「{}」（号 {}）不在引擎的 DimensionManager 里，传送会失败；引擎读回的是：{}
+dim.custom_dimension_manager.18=「{}」的自检抛出了异常；自检失败不影响维度本身
+dim.custom_dimension_manager.19=「{}」注册了但建不出实例，注册失败
+dim.custom_dimension_manager.20=「{}」在登记簿里的号是 {}，而引擎建出的实例报的是 {}；把玩家传进 {} 会让引擎在区块线程上抛出并崩溃，所以注册失败
+dim.dimension_rules.1=set_dimension_rule(dim={}, rule={})：规则号超出这个宿主支持的 [0,{}) 范围，已忽略；如果是新规则，说明模组按更新的 ABI 编译，需要升级 pier 宿主
+dim.dimension_rules.2=按维度规则移除一个刚生成的生物时抛出了异常，维度 {}
+dim.native_dimensions.1=诊断覆盖生效中：告诉客户端的高度是 {}..{}，而服务器仍用 {}..{}；这只用来定位子区块序号不一致，查完请把两个变量都取消
+dim.native_dimensions.2=「{}」：读到的定义号是 {}，而注册的是 {}，定义的字段不在预期的位置，一个也不会写；维度保持引擎给它的高度
+dim.native_dimensions.3=「{}」：刚注册完，引擎里却没有这个名字的定义，它的高度和生成器没法和维度对上
+dim.native_dimensions.4=「{}」：定义没有接受高度 {}..{}；维度和引擎对它的形状看法不一，进去不安全
+dim.native_dimensions.5=读取维度定义组时抛出异常：{}
+dim.native_dimensions.6=读取维度定义组时抛出了未知异常
+dim.native_dimensions.7=「{}」：引擎给这个维度建的注册表号是 {}，而它的维度号是 {}。它的名字不在引擎的名字表里，而那是两者之间唯一的对应，所以构造函数无处可读。注册表按前一个号索引，放着不管会把这个维度放进 {} 号槽位、毁掉里面的东西；已改为 {}
+dim.native_dimensions.8=「{}」没有注册：Level 还没打开
+dim.native_dimensions.9=这个引擎上用不了自定义维度：读不到维度定义组，拿不到号，存档里已有的也找不回来。模组的其他能力不受影响
+dim.native_dimensions.10=「{}」没有注册；需要它的模组应该把 md_add_dimension 返回 -1 当作这个维度不存在
+dim.native_dimensions.11=「{}」在定义组里是号 {}，但建不出实例；使用定义里的号
+dim.native_dimensions.12=「{}」没有注册：DimensionDefinitionGroup 不接受这份定义
+dim.native_dimensions.13=「{}」没有注册：注册时抛出异常：{}
+dim.native_dimensions.14=「{}」没有注册：注册时抛出了未知异常
+dim.native_dimensions.15=「{}」：定义和工厂都放进去了，但建不出实例，号无法确认，注册按失败报告
+dim.native_dimensions.16=「{}」：建议的号是 {}，引擎分配的是 {}；以引擎为准
+dim.native_dimensions.17=询问引擎号 {} 是否已有实例时抛出异常：{}。不会为它建任何东西，因为在一个正在用的维度上重建会毁掉它
+dim.native_dimensions.18=询问引擎号 {} 是否已有实例时抛出了异常。不会为它建任何东西，因为在一个正在用的维度上重建会毁掉它
+dim.native_dimensions.19=buildAndRegister('{}', 号 {})：这个号下已经注册了实例，返回现有的，不再构建
+dim.native_dimensions.20=buildAndRegister('{}')：维度工厂为空
+dim.native_dimensions.21=buildAndRegister('{}')：DimensionFactory::create 返回空，mFactoryMap 里的闭包拒绝构建它
+dim.native_dimensions.22=buildAndRegister('{}')：建出的维度为空
+dim.native_dimensions.23=buildAndRegister('{}')：工厂建出的维度号是 {}，而注册用的号是 {}；拒绝用一个不是它自己号的键注册它，实例已释放
+dim.native_dimensions.24=「{}」：注册表号写不进 {}，读回来还是 {}；拒绝注册，因为它要进的槽位属于另一个维度
+dim.native_dimensions.25=注册「{}」为号 {} 之后，主世界从 level 里消失了。现在里面是：{}。请停服，别让任何人进入
+dim.native_dimensions.26=buildAndRegister('{}')：registerDimension(号 {}) 返回了空引用，但 level 里已经有这个维度，说明注册成功了，不可靠的是返回值
+dim.native_dimensions.27=buildAndRegister('{}')：registerDimension(号 {}) 返回了空引用，但实例在那里；以实例为准
+dim.native_dimensions.28=buildAndRegister('{}')：registerDimension(号 {}) 什么也没存，这个维度不可用。level 里现在是：{}。实例保留而不释放，因为初始化期间已经告诉过引擎，释放后引擎会顺着那些引用读到已释放的内存
+dim.native_dimensions.29=buildAndRegister('{}') 抛出异常：{}
+dim.native_dimensions.30=buildAndRegister('{}') 抛出了未知异常
+dim.native_dimensions.31=getOrCreateByName('{}')：Level 还没打开
+dim.native_dimensions.32=getOrCreateByName('{}')：定义组里它是号 {}，两个 getOrCreateDimension 重载和通过 DimensionFactory 构建都没成功；上面几行说明是哪一步失败的
+dim.native_dimensions.33=getOrCreateByName('{}')：定义组里没有这个名字，没有东西注册过它，也就没有号可以用来构建
+dim.cell_confine.1=合并组超过了 {} 格（从 {};{} 开始遍历），所以跨格判定拒绝这一组里的一切；这不是配置问题：那么大的组，「是不是同一块地」这个问题没有负担得起的答案，而保护判定不知道时就必须拒绝
+dim.cell_confine.2=维度 {} 在注册格子网格之前收到了 {} 条的合并表，已忽略；顺序是先网格，后合并表
+dim.cell_confine.3=安装 Actor::move 绕道失败，状态 {}；常见原因是加载器链接的 BDS 或 LeviLamina 版本和服务器实际运行的不一致，符号地址解析错了。实体跨格现在完全不受限；活塞那条路不受影响，它挂的是另一个符号
+dim.supplied_generator.1=「{}」没有填充区块 ({}, {})，这个维度正在生成空气。只说这一次；负责它的模组是「{}」
+dim.supplied_generator.2=区块 ({}, {}) 从 Generating 到 Generated 的转换失败；它不会被发送
+dim.template_generator.1=群系「{}」已不在注册表里；这一局改用 minecraft:plains
+dim.template_generator.2=区块 ({}, {}) 从 Generating 到 Generated 的转换失败；它不会被发送
+dim.volume_generator.1=群系「{}」已不在注册表里；这一局改用 minecraft:plains
+dim.volume_generator.2=区块 ({}, {}) 从 Generating 到 Generated 的转换失败；它不会被发送
+dim.bridge.1=「{}」的号 {} 是从配置镜像而不是引擎维度表解析出来的；两者已经对不上，传送和写方块可能落到错误的地方，请检查存档里的维度注册
+dim.bridge.2=维度 {} 没有名字：登记簿、引擎维度表和配置镜像里都没有它；已注册的是：{}
+dim.bridge.3=维度 {} 解析不出名字，建不出实例；已注册的是：{}
+dim.bridge.4=拒绝给维度 {} 提供 BlockSource：登记簿叫它「{}」，但引擎用这个名字建的实例报的号是 {}。登记簿和引擎已经对不上，继续下去要么把方块写进错误的维度，要么在传送时于区块线程上崩溃
+dim.chunk_trace.1=PIER_TRACE_CHUNK_DIM='{}' 不是整数，使用默认值：只追踪自定义维度，号 3 及以上
+dim.chunk_trace.2=维度={} 区块=({}, {}) 只读={} 总计={}
+dim.chunk_trace.3=[尝试  ] 维度={} 区块=({}, {}) {} -> {} 成功
+dim.chunk_trace.4=发送区域 中心=({}, {}, {}) 半径={} 格（约 {} 个区块） 本次会话已发送={}
+dim.chunk_trace.5=[发送  ] 维度={} 区块=({}, {}) 已发给客户端，总计={}
+dim.chunk_trace.6=[发送 -] 维度={} 区块=({}, {}) 这次没发，仍在队列中，总计={}
+dim.chunk_trace.7=正在把维度定义表发给客户端，共 {} 条：
+dim.chunk_trace.8=  '{}' 号={} 高度={}..{} 生成器={}
+dim.chunk_trace.9=定义表是空的，客户端不知道任何自定义维度，这些维度的区块到达时会被丢弃
+dim.chunk_trace.10=读取维度定义表失败；包本身不受影响
+dim.chunk_trace.11=维度={} 区块=({}, {}) 子区块={} 客户端需请求={} 请求上限={} 载荷字节={} 缓存={} 缓存条目={}
+dim.chunk_trace.12=读取区块包失败；包本身不受影响
+dim.chunk_trace.13=维度={} 中心=({}, {}, {}) 条目={} | 成功={} 全空气={} 无此区块={} 维度不对={} 无此玩家={} 越界={} 未定义={}
+dim.chunk_trace.14=维度={} 有子区块请求被拒绝，那些方块数据到不了客户端，玩家看到的是空的；上一行说明是哪一种
+dim.chunk_trace.15=读取子区块回复失败；包本身不受影响
+dim.chunk_trace.16=区块追踪已开启（PIER_TRACE_CHUNK=1，维度过滤 {}）；日志量很大，查完请关掉
+dim.chunk_trace.17=包统计：{} 个 LevelChunkPacket，{} 个 SubChunkPacket
+dim.chunk_trace.18=发出了 {} 个 LevelChunkPacket，一个 SubChunkPacket 都没有；要么客户端从没请求过子区块，要么请求被别处消耗了。没有任何方块数据离开服务器
+dim.chunk_trace.19=追踪结束：{} 次创建，{} 次状态转换，{} 个到达 Loaded，{} 个发给了客户端，{} 个留在队列里没发
+dim.chunk_trace.20=服务器上有 {} 个区块到达了 Loaded，却没有一个经 NetworkChunkPublisher 发出，问题在发送一侧而不是生成一侧；请看上面的 [region] 行，中心和半径是否合理、维度号是否就是这个维度
+dim.slots.1=「{}」被拒绝：群系「{}」不在注册表里。自定义群系来自在模组之前加载的行为包；请检查行为包和拼写
+dim.slots.2=add_dimension('{}')：{}
+dim.slots.3=add_dimension('{}') 被拒绝：读不懂这份配方（见上面几行）。维度没有创建；错误的配方会随维度一起保存，按它生成的地形没法重新生成
+dim.slots.4=add_dimension('{}') 被拒绝：{} 地形要走 md_add_dimension_pack，那个接口会在保存配方之前校验地形包
+dim.slots.5=add_dimension('{}') 被拒绝：载荷里没有 terrain 段，意思是地形由调用方的模组供给；请用 md_add_dimension_generated
+dim.slots.6=add_dimension('{}') 抛出异常：{}。配方是：{}
+dim.slots.7=add_dimension_pack('{}', '{}')：{}
+dim.slots.8=add_dimension_pack('{}') 以 {} 拒绝；什么都没有保存
+dim.slots.9=add_dimension_pack('{}')：{}
+dim.slots.10=add_dimension_pack('{}')：配方里写的包是「{}」，调用传的是「{}」；以调用为准
+dim.slots.11=add_dimension_pack('{}')：参数或角色和已保存的不一样；以已保存的为准
+dim.slots.12=add_dimension_pack('{}')：体积包不接受参数和角色；传进来的已丢弃
+dim.slots.13=add_dimension_pack('{}')：高度取自地形包，[{}, {})
+dim.slots.14=add_dimension_generated('{}')：{}
+dim.slots.15=add_dimension_generated('{}') 被拒绝：配方里带着 terrain 段，而这个接口不读它。接受一个会被忽略的字段，就是配方描述出一个没人生成的世界的起因
+dim.slots.16=add_dimension_generated('{}')：{}
+dim.slots.17=add_dimension_generated('{}') 抛出异常：{}。配方是：{}
+dim.spec_dimension.1=找不到 StructureFeatureRegistry::addStructureFeature<EndCityFeature>；自定义末地维度不生成末地城
+dim.spec_dimension.2=「{}」：{}
+dim.spec_dimension.3=「{}」：已保存的配方读不出来，改为生成虚空。地形和创建时选的不一样；请修正 dimension_config.json 后重启
+dim.spec_dimension.4=「{}」：{} 生成器需要它自己的群系，而 level 的覆盖和原版名字都不在群系注册表里；改为生成虚空，因为那个生成器只用交给它的群系，没有别的来源
+dim.spec_dimension.5=「{}」：它的 terrain 里 engine_terrain 是 0b，所以不使用引擎的 {} 生成器，这个维度是它要求的天空下的一片虚空。要模板选的地形，请在 dimension_config.json 里把这一项设成 1b，或者删掉
+dim.spec_dimension.6=「{}」的原生生成器 {} 没有对应分支；这是 bug
+dim.spec_dimension.7=「{}」这一局没有地形：它的配方说地形由某个模组供给，而没有模组注册它。已经生成的区块原样保留；在那个模组再次加载之前，这个世界是虚空
+dim.spec_dimension.8=「{}」：{}
+dim.spec_dimension.9=「{}」：分层地形建不起来；这一局改为生成虚空
+dim.spec_dimension.10=「{}」：已保存的地形类型不是这个生成器能建的；改为生成虚空
+dim.spec_dimension.11=「{}」：地形包「{}」：{}
+dim.spec_dimension.12=「{}」：地形包挂不上（状态 {}）；这一局改为生成虚空
+hooks.hook_events.1=一个合成事件的模组回调抛出了异常，已被截住；这条警告只打印一次，上面的异常每次都会打印
+hooks.hook_events.2=合成事件「{}」回写的 SNBT 解析失败，按未取消处理：{}
+hooks.hook_events.3=「{}」的两个订阅者要求了不同的重定向；保留第一个
+hooks.hook_events.4=合成事件「{}」：原生绕道装不上，订阅被拒绝，而不是让模组以为它已经生效
+hooks.eat_event.1=[hooks/EatEvent] Player::completeUsingItem 绕道安装失败，code={}
+hooks.sleep_event.1=[hooks/SleepEvent] Player::$startSleepInBed 绕道安装失败，code={}
+hooks.slot_change_event.1=[hooks/SlotChangeEvent] Player::setSelectedSlot 绕道安装失败，code={}
+hooks.armor_stand_event.1=[hooks/ArmorStandEvent] ArmorStand::_trySwapItem 绕道安装失败，code={}，盔甲架上的装备不受保护
+hooks.drop_item_event.1=[hooks/DropItemEvent] {} 触发时一个订阅者都没有，def.live() 为 false：原生绕道装上了，另一侧却从没订阅「PlayerDropItemEvent」；请在启动日志里找对这个事件的订阅失败
+hooks.item_frame_event.1=[hooks/ItemFrameEvent] ItemFrameBlock::$attack 绕道安装失败，code={}，展示框里的物品不受保护
+hooks.pressure_plate_event.1=[hooks/PressurePlateEvent] 有绕道安装失败（code：{} {} {} {}），订阅被拒绝
+hooks.block_destroy_event.1=[hooks/BlockDestroyEvent] Level::$destroyBlock 绕道安装失败，code={}，末影人、凋灵、爆炸、命令这些非玩家来源的破坏完全不受保护
+hooks.chest_pair_event.1=[hooks/ChestPairEvent] ChestBlockActor::_tryToPairWith 绕道安装失败，code={}
+hooks.explosion_event.1=[hooks/ExplosionEvent] Level::$explode 绕道安装失败，code={}，爆炸保护不生效
+hooks.farmland_decay_event.1=[hooks/FarmlandDecayEvent] FarmBlock::$transformOnFall 绕道安装失败，code={}
+hooks.liquid_flow_event.1=[hooks/LiquidFlowEvent] LiquidBlock::_trySpreadTo 绕道安装失败，code={}
+hooks.piston_push_event.1=[hooks/PistonPushEvent] PistonBlockActor::_checkAttachedBlocks 绕道安装失败，code={}，跨地皮的活塞推拉不受保护
+hooks.spawn_item_actor_event.1=[hooks/SpawnItemActorEvent] Spawner::$spawnItem 绕道安装失败，code={}
+hooks.weather_change_event.1=[hooks/WeatherChangeEvent] Level::$updateWeather 绕道安装失败，code={}
+host.mod_host.1=正在加载「{}」：按 ABI v{} 编译，宿主提供 v{}（向下兼容的超集）
+lane.lane.1=「{}」过了 5 秒仍有 {} 个调用在里面；照样卸载。有消费方卡在一次快车道调用里，而动态库马上要从它脚下卸掉
+lane.lane.2=「{}」停用时还有 {} 个租约没还，已代消费方释放；消费方模组应在卸载前放掉自己的快车道句柄，至少有一个没有
+lane.lane.3=发布被拒绝：PierLaneDesc 比宿主期望的小（{} < {}）；这个模组是按更旧的 ABI 编译的
+lane.lane.4=发布被拒绝：协议 {} 和宿主的 {} 不一致；只影响这一条快车道，模组照常加载，消费方退回服务通道
+lane.lane.5=发布被拒绝：指纹 0 是保留值
+lane.lane.6=「{}」已由模组「{}」发布，第二个发布方被拒绝

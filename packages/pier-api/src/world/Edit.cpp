@@ -49,6 +49,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -230,8 +231,7 @@ namespace pier::api_impl
                 if (volume > kMaxVolume)
                 {
                     hostLogger().error(
-                        "[api] edit_fill_region refused, a box of {} cells exceeds the limit of {}; fill in slices",
-                        volume, kMaxVolume);
+                        "[api] {}", pier::trf("api.edit.1", volume, kMaxVolume));
                     return -1;
                 }
                 auto const context = bridge::blockEditContext();

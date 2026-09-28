@@ -232,6 +232,25 @@ visible. Why no substring: the `find(name)` of v1 means that once LeviLamina ups
 an event containing the same stem, a subscriber is silently hijacked onto a synthetic event
 with an entirely different payload shape and cannot reach the real one.
 
+### 6.1 Command shape
+
+**Rule: sibling subcommands that take the same arguments are one enum parameter, not one
+literal each.** `/plot <menu|help|status>` is one overload whose first parameter is an enum
+of the three words; three `text` literals are three overloads, and the client lists them as
+three unrelated lines, `/plot menu`, `/plot help`, `/plot status`, with nothing to say they
+are alternatives of one slot. A player scanning the list reads a wall of commands instead
+of one command with a choice.
+
+- Words that take nothing further share one enum; words that take the same argument (a
+  player, a world) share another. The handler reads the word from that parameter.
+- A literal (`OverloadBuilder::text`) is for a word followed by arguments of its own, where
+  the word is what tells the overloads apart and the client narrowing on it helps.
+- One word is registered in one place. Two overloads that parse the same input make the
+  engine pick one of them, and which one is not something the handler can rely on.
+- The console passes every permission gate. What it cannot do is what needs a player: a
+  form, a position, an inventory. Such a command says so rather than refusing as if the
+  console lacked a permission.
+
 ---
 
 ## 7. Comments and naming

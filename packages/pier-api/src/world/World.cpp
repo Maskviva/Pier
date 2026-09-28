@@ -36,6 +36,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 #include "pier/support/str.h"
 
@@ -142,8 +143,7 @@ namespace pier::api_impl
                 if (volume > kMaxVolume)
                 {
                     hostLogger().error(
-                        "[api] scan_region_indexed refused, a region of {} cells exceeds the limit of {}; scan in blocks",
-                        volume, kMaxVolume);
+                        "[api] {}", pier::trf("api.world.1", volume, kMaxVolume));
                     return false;
                 }
                 std::unordered_map<Block const*, uint32_t> indexOf;
@@ -195,7 +195,7 @@ namespace pier::api_impl
                 if (blocksSink && volume > kMaxVolume)
                 {
                     hostLogger().error(
-                        "[api] scan_region refused, a region of {} cells exceeds the limit of {}; scan in blocks", volume, kMaxVolume);
+                        "[api] {}", pier::trf("api.world.2", volume, kMaxVolume));
                     return false;
                 }
 

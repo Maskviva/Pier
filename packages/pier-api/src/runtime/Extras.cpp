@@ -34,6 +34,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/str.h"
 
 namespace pier::api_impl
@@ -72,7 +73,7 @@ namespace pier::api_impl
                 if (area > kMaxColumns)
                 {
                     hostLogger().error(
-                        "[api] level_set_biome refused, area of {} columns exceeds the limit of {}; split the call", area, kMaxColumns);
+                        "[api] {}", pier::trf("api.extras.1", area, kMaxColumns));
                     return -1;
                 }
 

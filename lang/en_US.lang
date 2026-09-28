@@ -40,3 +40,193 @@ conf.bad_entry='{}' holds an entry that is not text, and that entry alone is ign
 conf.clamped='{}' was {}, which is outside {}..{}; {} is used
 mod.disabled='{}' is named in mods.disabled in config.json, so this host will not load it
 hooks.disabled=synthetic event '{}' is named in hooks.disabled, so the subscription from '{}' is refused rather than answered with a handle that never fires
+
+# Host log lines of the packages, one key per line the operator reads.
+api.forms.1=ticket={} -> {}
+api.forms.2=SimpleForm "{}" has no buttons
+api.forms.3=simple ticket={} with {} button(s)
+api.forms.4=player {} returned button index {} out of range of {}, treated as a cancel
+api.forms.5=slider "{}" default {} is not on the step grid of [{}, {}], adjusted to {}
+api.forms.6=a {} control has no name and cannot be read from the result
+api.forms.7=name "{}" is duplicated, the later control overwrites the earlier
+api.forms.8={} "{}" has no options and was skipped
+api.forms.9={} "{}" default index {} is out of range of {}, reset to 0
+api.forms.10=custom ticket={} choice controls: [{}]
+api.forms.11=  {} = <{}> {}
+api.forms.12="{}" returned text "{}" that is not among the options, the index is left to the caller
+api.forms.13="{}" returned index {} out of range of {}
+api.forms.14=player {} returned slider "{}" value {} outside [{}, {}] step {}, clamped to {}
+api.forms.15=form_send: building the form threw: {}
+api.forms.16=form_send: building the form threw an unknown exception
+api.money.1=money_listen_* callback {:p} belongs to no loaded pier mod, so it cannot be cleaned up on unload and lives until the process exits
+api.money_guard.1=no usable LLMoney backend ({}); every money::* entry point is inert for this session, reads return 0 and writes fail; check that LegacyMoney is installed and enabled, under mod name "{}"
+api.players.1={} for player {} refused: the player has not finished joining. Writing abilities before the client is initialized desynchronizes them until the player rejoins; write after the player has fully joined
+api.players.2=setPlayerAbility read back a different value after writing idx={} want={}, so the bit did not take effect; the usual cause is writing an ability bit from PlayerJoinEvent, before the player's ability layers exist. Write it a second or two after join, or not at all. A current state has been resent to the client
+api.players.3=setPlayerAbility on idx={} pushed the permission level from {} to {} and it has been restored; this indicates the engine behavior changed
+api.players.4=sidebar payload has fewer than two lines, objective and title are required
+api.players.5=sidebar objective is empty
+api.players.6=sidebar createPacket(RemoveObjective) returned null
+api.players.7=sidebar createPacket(SetDisplayObjective) returned null
+api.players.8=sidebar createPacket(SetScore) returned null
+api.players.9=sidebar createPacket(SetScore) returned null
+api.bridge.1=dimension {} is a custom dimension id, but the dimensions package is not compiled into this host; only the three vanilla dimensions are recognized
+api.bridge.2=dimension {} is a custom dimension id, but the dimensions package is not compiled into this host; the name cannot be resolved
+api.bus.1=topic '{}' exceeded nesting depth {}, innermost publish dropped; this is a publish cycle, where a subscriber of this topic publishes it again, either directly or through another topic that loops back
+api.scheduler.1='{}' was unloaded with {} pending task(s), all dropped; a mod is expected to cancel its own timers through schedule_cancel in on_disable or on_unload
+api.services.1='{}' exceeded call depth {}, innermost call refused; this is a call cycle, where the provider of this service calls it again, either directly or through another service that loops back
+api.services.2='{}' threw an exception across the FFI boundary
+api.packet_hooks.1=header decode disagrees with Packet::getId(), decoded {} but the packet reports {}; the header layout of this BDS version changed, interception has degraded to passing every packet through, report this line to the host maintainers
+api.packet_hooks.2=a mod callback threw, its verdict was forced to PASS; this warning prints once, the exception above prints every time
+api.packet_hooks.3=packet_hook_register_ids: id {} is outside the ten-bit range of the wire header and is ignored
+api.packets.1=spawn_particle_for: dimension {} does not fit the single-byte dimension id of SpawnParticleEffectPacket and is truncated to {}; a targeted particle in a custom dimension may not appear, use spawn_particle instead
+api.commands.1={} '{}' was refused: the engine has no command registry yet. Register from on_enable rather than on_load, and if that is already the case, wait for the server to reach Running before calling
+api.commands.2=command parameter '{}': Bedrock parsed kind {} but it has no serialization branch
+api.extras.1=level_set_biome refused, area of {} columns exceeds the limit of {}; split the call
+api.edit.1=edit_fill_region refused, a box of {} cells exceeds the limit of {}; fill in slices
+api.gap_fill.1=level_delete_key refused, key length {} does not match the chunk key layout of 9, 10, 13 or 14 bytes
+api.world.1=scan_region_indexed refused, a region of {} cells exceeds the limit of {}; scan in blocks
+api.world.2=scan_region refused, a region of {} cells exceeds the limit of {}; scan in blocks
+dim.utils.1={} has mHeightRange {}..{} ({} subchunks) while the definition sent to the client says {}..{} ({} subchunks); the two disagree, subchunk requests are judged out of range and no block data reaches the client. Corrected in place to {}..{}
+dim.custom_dimension_manager.1=dimension {} in a player save is unavailable, resetting the spawn point
+dim.custom_dimension_manager.2='{}' was about to be registered under key {} while it is dimension {}; using {}, because the key it was given belongs to another dimension and storing it there would destroy that one
+dim.custom_dimension_manager.3={} was not sent into '{}' (id {}): it was registered after they joined, so their client has no definition for it and would not have loaded it
+dim.custom_dimension_manager.4=dimension_config: '{}' has id {}, below the first usable custom dimension id {}; the entry keeps its data and is reallocated on registration. Anything built in it under the old id stays in the save and will not appear in the new dimension
+dim.custom_dimension_manager.5=dimension_config: id {} is declared by '{}' and by {}. '{}' loses the number and is reallocated on registration; anything it saved under id {} belongs to the other dimension now and will not be reachable. Sort this out in dimension_config.json before running either of them
+dim.custom_dimension_manager.6=dimension_config: the data of '{}' (id {}) could not be read; the id is kept and the data is regenerated at registration
+dim.custom_dimension_manager.7='{}' is not a dimension this host knows, so there is nothing to retire
+dim.custom_dimension_manager.8=writing dimension_config.json failed; '{}' is retired in memory and will come back on the next boot
+dim.custom_dimension_manager.9='{}' retired: removed from dimension_config.json and not registered again; its chunks stay in the save and the id is not reused
+dim.custom_dimension_manager.10='{}' lost its data, regenerating it and keeping id {}
+dim.custom_dimension_manager.11=the factory for '{}' was called before its id was fixed and the engine does not know it either; refusing to build the dimension rather than using a default that would most likely be the overworld, 0
+dim.custom_dimension_manager.12=the factory for '{}' was called for id {} while an instance is already there; handing back the one in use rather than building a second
+dim.custom_dimension_manager.13='{}' could not be registered natively through the engine DimensionManager, so registration failed and no fake-dimension fallback is attempted; check the registerCustomDimension lines above for whether Level was ready and whether DimensionDefinitionGroup accepted the definition
+dim.custom_dimension_manager.14='{}': the config records id {} while the engine allocated {}; the engine wins
+dim.custom_dimension_manager.15=writing dimension_config.json failed; '{}' may receive a new id on the next boot
+dim.custom_dimension_manager.16='{}' failed to register its command enum; the dimension works, but /execute in cannot use its name
+dim.custom_dimension_manager.17='{}' (id {}) is not present in the engine DimensionManager, so teleporting will fail; the engine read back: {}
+dim.custom_dimension_manager.18=the self-check for '{}' threw; a failed self-check does not affect the dimension itself
+dim.custom_dimension_manager.19='{}' registered but no instance could be built, registration failed
+dim.custom_dimension_manager.20=the ledger id of '{}' is {} while the instance the engine built reports {}; teleporting a player into {} would make the engine throw on a chunk thread and abort, so registration failed
+dim.dimension_rules.1=set_dimension_rule(dim={}, rule={}): the rule number is outside the range [0,{}) this host supports and is ignored; if the rule is new, the mod was built against a newer ABI and the pier host needs upgrading
+dim.dimension_rules.2=removing a spawned mob for a dimension rule threw, dim {}
+dim.native_dimensions.1=diagnostic override active: the height advertised to the client is {}..{} while the server still uses {}..{}; this exists only to locate a subchunk index mismatch, unset both variables once done
+dim.native_dimensions.2='{}': the definition reads as id {} where {} was registered, so the definition fields are not where they are expected and none of them will be written; the dimension keeps whatever height the engine gave it
+dim.native_dimensions.3='{}': the engine has no definition for this name right after registering one, so its height and generator cannot be made to agree with the dimension
+dim.native_dimensions.4='{}': the definition did not take the height {}..{}; the dimension and the engine disagree about its shape and entering it is not safe
+dim.native_dimensions.5=reading the dimension definition group threw: {}
+dim.native_dimensions.6=reading the dimension definition group threw an unknown exception
+dim.native_dimensions.7='{}': the engine built this dimension with registry id {} while its dimension id is {}. Its name is not in the engine's name table, which is the only thing that maps between the two, so the constructor had nothing to read. The registry is keyed by the first number, so leaving it would put this dimension in slot {} and destroy whatever is in it; it is set to {} instead
+dim.native_dimensions.8='{}' was not registered: Level is not open
+dim.native_dimensions.9=custom dimensions are unavailable on this engine: the dimension definition group cannot be read, so no id can be obtained and the ones a save already holds cannot be found again. Every other capability of the mod is unaffected
+dim.native_dimensions.10='{}' was not registered; a mod that needs it has to treat md_add_dimension returning -1 as the dimension not existing
+dim.native_dimensions.11='{}' is in the definition group as id {} but the instance could not be built; using the definition's id
+dim.native_dimensions.12='{}' was not registered: DimensionDefinitionGroup did not accept the definition
+dim.native_dimensions.13='{}' was not registered: registration threw: {}
+dim.native_dimensions.14='{}' was not registered: registration threw an unknown exception
+dim.native_dimensions.15='{}': the definition and the factory went in but the instance could not be built, so no id can be confirmed and the registration is reported as failed
+dim.native_dimensions.16='{}': suggested id {} but the engine assigned {}; going with the engine
+dim.native_dimensions.17=asking the engine whether id {} already has an instance threw: {}. Nothing will be built for it, because building over a live dimension destroys the one in use
+dim.native_dimensions.18=asking the engine whether id {} already has an instance threw. Nothing will be built for it, because building over a live dimension destroys the one in use
+dim.native_dimensions.19=buildAndRegister('{}', id {}): an instance is already registered under this id, so the existing one is returned and nothing is built
+dim.native_dimensions.20=buildAndRegister('{}'): the dimension factory is null
+dim.native_dimensions.21=buildAndRegister('{}'): DimensionFactory::create returned empty, so the closure in mFactoryMap refused to build it
+dim.native_dimensions.22=buildAndRegister('{}'): the built dimension is null
+dim.native_dimensions.23=buildAndRegister('{}'): the factory built the dimension as id {} while it is being registered as id {}; refusing to register it under a key that is not its own id. The instance is released
+dim.native_dimensions.24='{}': the registry id would not take the value {} and still reads {}; refusing to register, because the slot it would go into belongs to another dimension
+dim.native_dimensions.25=the overworld is gone from the level after registering '{}' as id {}. It holds: {}. Stop the server rather than let anyone join
+dim.native_dimensions.26=buildAndRegister('{}'): registerDimension(id {}) returned an empty reference while the level is holding this dimension, so the registration took and the return value is what is unreliable
+dim.native_dimensions.27=buildAndRegister('{}'): registerDimension(id {}) returned an empty reference while an instance is there; going by the instance
+dim.native_dimensions.28=buildAndRegister('{}'): registerDimension(id {}) stored nothing, so this dimension is not available. The level holds: {}. The instance is kept rather than released, because the engine was told about it while it was being initialized and would follow those references into freed memory
+dim.native_dimensions.29=buildAndRegister('{}') threw: {}
+dim.native_dimensions.30=buildAndRegister('{}') threw an unknown exception
+dim.native_dimensions.31=getOrCreateByName('{}'): Level is not open
+dim.native_dimensions.32=getOrCreateByName('{}'): the definition group has it as id {}, and neither the two getOrCreateDimension overloads nor building it through DimensionFactory worked; the lines above say which step gave out
+dim.native_dimensions.33=getOrCreateByName('{}'): the definition group does not have this name, so nothing registered it and there is no id to build it with
+dim.cell_confine.1=the merge group exceeds {} cells, walked from {};{}, so the crossing decision refuses everything in this group; this is not a configuration problem, since at that size the question of one area has no affordable answer and a protection decision must refuse when it does not know
+dim.cell_confine.2=dimension {} received a merge table of {} entries before a cell grid was registered and it was ignored; the order is the grid first, then the merge table
+dim.cell_confine.3=installing the Actor::move detour failed with status {}; the usual cause is a mismatch between the BDS or LeviLamina version this loader was linked against and the one the server runs, so a symbol address resolved wrongly. Actor crossing is now entirely unconfined; the piston path is unaffected, since it hooks a different symbol
+dim.supplied_generator.1='{}' did not fill chunk ({}, {}) and this dimension is generating air. Said once; the mod that owns it is '{}'
+dim.supplied_generator.2=chunk ({}, {}) failed the Generating to Generated transition; it will not be sent
+dim.template_generator.1=biome '{}' is not in the registry any more; using minecraft:plains for this session
+dim.template_generator.2=chunk ({}, {}) failed the Generating to Generated transition; it will not be sent
+dim.volume_generator.1=biome '{}' is not in the registry any more; using minecraft:plains for this session
+dim.volume_generator.2=chunk ({}, {}) failed the Generating to Generated transition; it will not be sent
+dim.bridge.1='{}' resolved to id {} from the config mirror rather than the engine dimension table; the two have drifted apart, so teleports and block writes may land in the wrong place, check the dimension registrations in the save
+dim.bridge.2=no name for dimension {}: the registration ledger, the engine dimension table and the config mirror all lack it; registered are: {}
+dim.bridge.3=dimension {} has no resolvable name, so no instance can be built; registered are: {}
+dim.bridge.4=refusing to provide a BlockSource for dimension {}: the ledger calls it '{}', but the instance the engine built under that name reports id {}. The ledger and the engine have drifted apart, and continuing would either write blocks into the wrong dimension or abort on a chunk thread during a teleport
+dim.chunk_trace.1=PIER_TRACE_CHUNK_DIM='{}' is not an integer, using the default of custom dimensions only, id 3 and above
+dim.chunk_trace.2=dim={} chunk=({}, {}) readOnly={} total={}
+dim.chunk_trace.3=[try   ] dim={} chunk=({}, {}) {} -> {} succeeded
+dim.chunk_trace.4=send region center=({}, {}, {}) radius={} blocks (about {} chunks) sent this session={}
+dim.chunk_trace.5=[send  ] dim={} chunk=({}, {}) sent to the client, total={}
+dim.chunk_trace.6=[send -] dim={} chunk=({}, {}) not sent this time, still queued, total={}
+dim.chunk_trace.7=sending the dimension definition table to the client, {} entries:
+dim.chunk_trace.8=  '{}' id={} height={}..{} generator={}
+dim.chunk_trace.9=the definition table is empty, so the client learns of no custom dimension and the chunks of those dimensions are dropped on arrival
+dim.chunk_trace.10=reading the dimension definition table failed; the packet itself is unaffected
+dim.chunk_trace.11=dim={} chunk=({}, {}) subchunks={} clientMustRequest={} requestLimit={} payloadBytes={} cache={} cacheEntries={}
+dim.chunk_trace.12=reading the chunk packet failed; the packet itself is unaffected
+dim.chunk_trace.13=dim={} center=({}, {}, {}) entries={} | success={} allAir={} noSuchChunk={} wrongDimension={} noSuchPlayer={} outOfRange={} undefined={}
+dim.chunk_trace.14=dim={} had subchunk requests refused, so that block data never reaches the client and the player sees empty space; the line above says which kind
+dim.chunk_trace.15=reading the subchunk reply failed; the packet itself is unaffected
+dim.chunk_trace.16=chunk tracing is on (PIER_TRACE_CHUNK=1, dimension filter {}); the log volume is large, turn it off once the investigation is done
+dim.chunk_trace.17=packet totals: {} LevelChunkPacket, {} SubChunkPacket
+dim.chunk_trace.18={} LevelChunkPacket were sent and not a single SubChunkPacket; either the client never requested subchunks or the requests were consumed elsewhere. No block data ever left the server
+dim.chunk_trace.19=tracing finished: {} creations, {} state transitions, {} reached Loaded, {} sent to clients, {} left queued and unsent
+dim.chunk_trace.20={} chunks reached Loaded on the server and none was sent through NetworkChunkPublisher, so the fault is on the send side and not the generation side; check the [region] lines above for a sensible center and radius and for the dimension id being this dimension
+dim.slots.1='{}' refused: biome '{}' is not in the registry. Custom biomes come from a behavior pack loaded before mods; check the pack and the spelling
+dim.slots.2=add_dimension('{}'): {}
+dim.slots.3=add_dimension('{}') refused: the spec could not be read (see the lines above). The dimension was not created; a wrong spec persists with the dimension and terrain generated from it cannot be regenerated
+dim.slots.4=add_dimension('{}') refused: a {} terrain is registered through md_add_dimension_pack, which verifies the pack before the spec is stored
+dim.slots.5=add_dimension('{}') refused: the payload has no terrain section, which means the terrain comes from the calling mod; use md_add_dimension_generated
+dim.slots.6=add_dimension('{}') threw: {}. The spec was: {}
+dim.slots.7=add_dimension_pack('{}', '{}'): {}
+dim.slots.8=add_dimension_pack('{}') refused with {}; nothing was stored
+dim.slots.9=add_dimension_pack('{}'): {}
+dim.slots.10=add_dimension_pack('{}'): the spec names pack '{}' and the call names '{}'; the call wins
+dim.slots.11=add_dimension_pack('{}'): parameters or roles differ from the stored ones; the stored ones apply
+dim.slots.12=add_dimension_pack('{}'): a volume pack takes no parameters or roles; the given ones are dropped
+dim.slots.13=add_dimension_pack('{}'): the height is taken from the pack, [{}, {})
+dim.slots.14=add_dimension_generated('{}'): {}
+dim.slots.15=add_dimension_generated('{}') refused: the spec carries a terrain section, and this slot does not read one. Accepting a field that is ignored is how a spec comes to describe a world nobody generates
+dim.slots.16=add_dimension_generated('{}'): {}
+dim.slots.17=add_dimension_generated('{}') threw: {}. The spec was: {}
+dim.spec_dimension.1=StructureFeatureRegistry::addStructureFeature<EndCityFeature> not found; custom end dimensions generate no end cities
+dim.spec_dimension.2='{}': {}
+dim.spec_dimension.3='{}': the stored spec could not be read, generating a void. The terrain differs from what was chosen at creation; fix dimension_config.json and restart
+dim.spec_dimension.4='{}': the {} generator needs its own biome and neither the level's override nor the vanilla name is in the biome registry; generating a void instead, because that generator keeps the biome it is handed and has no other source for one
+dim.spec_dimension.5='{}': engine_terrain is 0b in its terrain, so the engine's {} generator is not used and this dimension is a void under the sky it asked for. Set that field to 1b in dimension_config.json, or drop it, for the terrain the template chose
+dim.spec_dimension.6='{}' has a native generator {} with no branch; this is a bug
+dim.spec_dimension.7='{}' has no terrain this session: its spec says the terrain comes from a mod and no mod registered it. The chunks already generated stay where they are; the world is void until that mod is loaded again
+dim.spec_dimension.8='{}': {}
+dim.spec_dimension.9='{}': the layered terrain could not be built; generating a void for this session
+dim.spec_dimension.10='{}': the stored terrain is of a kind this generator does not build; generating a void
+dim.spec_dimension.11='{}': pack '{}': {}
+dim.spec_dimension.12='{}': the terrain pack cannot be mounted (status {}); generating a void for this session
+hooks.hook_events.1=a mod callback for a synthetic event threw and was contained; this warning prints once, the exception above prints every time
+hooks.hook_events.2=write-back SNBT for synthetic event '{}' failed to parse, treated as not cancelled: {}
+hooks.hook_events.3=two subscribers of '{}' asked for different redirects; keeping the first
+hooks.hook_events.4=synthetic event '{}': the native detour failed to install, so the subscription is refused rather than letting a mod assume it is active
+hooks.eat_event.1=[hooks/EatEvent] the Player::completeUsingItem detour failed to install with code={}
+hooks.sleep_event.1=[hooks/SleepEvent] the Player::$startSleepInBed detour failed to install with code={}
+hooks.slot_change_event.1=[hooks/SlotChangeEvent] the Player::setSelectedSlot detour failed to install with code={}
+hooks.armor_stand_event.1=[hooks/ArmorStandEvent] the ArmorStand::_trySwapItem detour failed to install with code={}, so equipment on an armor stand is unprotected
+hooks.drop_item_event.1=[hooks/DropItemEvent] {} fired with no subscriber at all, def.live() is false, so the native detour is installed while the other side never subscribed to 'PlayerDropItemEvent'; check the startup log for a failed subscription to that event
+hooks.item_frame_event.1=[hooks/ItemFrameEvent] the ItemFrameBlock::$attack detour failed to install with code={}, so items in an item frame are unprotected
+hooks.pressure_plate_event.1=[hooks/PressurePlateEvent] a detour failed to install (codes: {} {} {} {}), so the subscription is refused
+hooks.block_destroy_event.1=[hooks/BlockDestroyEvent] the Level::$destroyBlock detour failed to install with code={}, so destruction from non-player sources such as endermen, withers, explosions and commands is entirely unprotected
+hooks.chest_pair_event.1=[hooks/ChestPairEvent] the ChestBlockActor::_tryToPairWith detour failed to install with code={}
+hooks.explosion_event.1=[hooks/ExplosionEvent] the Level::$explode detour failed to install with code={}, so explosion protection is inactive
+hooks.farmland_decay_event.1=[hooks/FarmlandDecayEvent] the FarmBlock::$transformOnFall detour failed to install with code={}
+hooks.liquid_flow_event.1=[hooks/LiquidFlowEvent] the LiquidBlock::_trySpreadTo detour failed to install with code={}
+hooks.piston_push_event.1=[hooks/PistonPushEvent] the PistonBlockActor::_checkAttachedBlocks detour failed to install with code={}, so cross-plot piston pushes and pulls are unprotected
+hooks.spawn_item_actor_event.1=[hooks/SpawnItemActorEvent] the Spawner::$spawnItem detour failed to install with code={}
+hooks.weather_change_event.1=[hooks/WeatherChangeEvent] the Level::$updateWeather detour failed to install with code={}
+host.mod_host.1=loading '{}': built against ABI v{}, host provides v{} (additive superset)
+lane.lane.1='{}' still has {} call(s) inside it after 5s; unloading anyway. A consumer is wedged in a lane call, and the dylib is about to be unmapped beneath it
+lane.lane.2='{}' retired with {} lease(s) still outstanding, released on behalf of the consumers; a consumer mod is expected to drop its lane handles before unload and at least one did not
+lane.lane.3=publish refused, PierLaneDesc is smaller than the host expects ({} < {}); the mod was built against an older ABI
+lane.lane.4=publish refused, protocol {} does not match the host's {}; only this lane is affected, the mod still loads and consumers fall back to the service channel
+lane.lane.5=publish refused, fingerprint 0 is reserved
+lane.lane.6='{}' is already published by mod '{}', second publisher refused

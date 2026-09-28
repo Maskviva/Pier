@@ -23,6 +23,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 
 namespace pier::hooks
@@ -106,8 +107,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[hooks/ExplosionEvent] the Level::$explode detour failed to install "
-                        "with code={}, so explosion protection is inactive", r);
+                        "{}", pier::trf("hooks.explosion_event.1", r));
                 }
                 return r == 0;
             }

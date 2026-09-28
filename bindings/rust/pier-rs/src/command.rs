@@ -294,6 +294,8 @@ impl OverloadBuilder {
     /// The word comes back in the arguments under `name`, so the handler reads it the
     /// same way as any other parameter, rather than keying on an overload index that
     /// moves when an overload is inserted above it.
+    ///
+    /// Sibling words that take the same arguments are one enum instead (CONTRACT.md 6.1).
     pub fn text(self, name: &str, literal: &str) -> OverloadBuilder {
         let mut params = self.params;
         params.push(NbtValue::obj([

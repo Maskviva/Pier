@@ -205,7 +205,7 @@ namespace pier::dimensions
                 || VanillaDimensions::DimensionMap().mLeft.contains(DimensionType{savedDim});
             if (!known)
             {
-                hostLogger().warn("[dim] dimension {} in a player save is unavailable, resetting the spawn point", savedDim);
+                hostLogger().warn("[dim] {}", pier::trf("dim.custom_dimension_manager.1", savedDim));
                 result->at("Pos")[1] = FloatTag{0x7fff};
             }
             return result;
@@ -335,11 +335,7 @@ namespace pier::dimensions
                     if (id.mValue != wanted.mValue)
                     {
                         hostLogger().warn(
-                            "[dim] '{}' was about to be registered under key {} while it is "
-                            "dimension {}; using {}, because the key it was given belongs to "
-                            "another dimension and storing it there would destroy that one",
-                            d->mName.get(), id.mValue, *key, *key
-                        );
+                            "[dim] {}", pier::trf("dim.custom_dimension_manager.2", d->mName.get(), id.mValue, *key, *key));
                         id = wanted;
                     }
                 }
@@ -485,10 +481,7 @@ namespace pier::dimensions
                     "\u65b0\u8fdb\u5165\u540e\u518d\u8bd5\u3002"
                 );
                 hostLogger().info(
-                    "[dim] {} was not sent into '{}' (id {}): it was registered after they joined, "
-                    "so their client has no definition for it and would not have loaded it",
-                    player.getRealName(), dimensionNameOf(to), to
-                );
+                    "[dim] {}", pier::trf("dim.custom_dimension_manager.3", player.getRealName(), dimensionNameOf(to), to));
                 return;
             }
             origin(player, std::move(request));
@@ -584,12 +577,7 @@ namespace pier::dimensions
                 // reachable from the new one: they were written into a dimension the
                 // engine never really had.
                 hostLogger().warn(
-                    "[dim] dimension_config: '{}' has id {}, below the first usable custom "
-                    "dimension id {}; the entry keeps its data and is reallocated on "
-                    "registration. Anything built in it under the old id stays in the save "
-                    "and will not appear in the new dimension",
-                    name, info.dimId, native::firstCustomDimensionId
-                );
+                    "[dim] {}", pier::trf("dim.custom_dimension_manager.4", name, info.dimId, native::firstCustomDimensionId));
                 continue;
             }
             if (!impl->usedIds.insert(info.dimId).second)
@@ -608,12 +596,7 @@ namespace pier::dimensions
                     }
                 }
                 hostLogger().error(
-                    "[dim] dimension_config: id {} is declared by '{}' and by {}. '{}' loses the "
-                    "number and is reallocated on registration; anything it saved under id {} "
-                    "belongs to the other dimension now and will not be reachable. Sort this out "
-                    "in dimension_config.json before running either of them",
-                    info.dimId, name, other.empty() ? std::string{"another entry"} : other, name, info.dimId
-                );
+                    "[dim] {}", pier::trf("dim.custom_dimension_manager.5", info.dimId, name, other.empty() ? std::string{"another entry"} : other, name, info.dimId));
                 continue;
             }
 
@@ -621,10 +604,7 @@ namespace pier::dimensions
             if (!nbtTag)
             {
                 hostLogger().error(
-                    "[dim] dimension_config: the data of '{}' (id {}) could not be read; the id "
-                    "is kept and the data is regenerated at registration",
-                    name, info.dimId
-                );
+                    "[dim] {}", pier::trf("dim.custom_dimension_manager.6", name, info.dimId));
                 impl->salvagedIds.emplace(name, info.dimId);
                 continue;
             }
@@ -692,7 +672,7 @@ namespace pier::dimensions
 
         if (!knownHere && !salvaged && !inConfig)
         {
-            hostLogger().warn("[dim] '{}' is not a dimension this host knows, so there is nothing to retire", dimName);
+            hostLogger().warn("[dim] {}", pier::trf("dim.custom_dimension_manager.7", dimName));
             return std::nullopt;
         }
 
@@ -711,10 +691,7 @@ namespace pier::dimensions
         if (inConfig && !CustomDimensionConfig::saveConfigFile())
         {
             hostLogger().error(
-                "[dim] writing dimension_config.json failed; '{}' is retired in memory and will "
-                "come back on the next boot",
-                dimName
-            );
+                "[dim] {}", pier::trf("dim.custom_dimension_manager.8", dimName));
             return std::nullopt;
         }
 
@@ -722,10 +699,7 @@ namespace pier::dimensions
         // is a destructive edit to a file the operator did not open, so it stays at info
         // as the only record of who removed the dimension and when.
         hostLogger().info(
-            "[dim] '{}' retired: removed from dimension_config.json and not registered "
-            "again; its chunks stay in the save and the id is not reused",
-            dimName
-        );
+            "[dim] {}", pier::trf("dim.custom_dimension_manager.9", dimName));
         return id;
     }
 
@@ -762,7 +736,7 @@ namespace pier::dimensions
             info.id = DimensionType{salvaged->second};
             info.nbt = data();
             impl->salvagedIds.erase(salvaged);
-            hostLogger().warn("[dim] '{}' lost its data, regenerating it and keeping id {}", dimName, info.id.mValue);
+            hostLogger().warn("[dim] {}", pier::trf("dim.custom_dimension_manager.10", dimName, info.id.mValue));
         }
         else
         {
@@ -804,12 +778,7 @@ namespace pier::dimensions
                 if (id.mValue < native::firstCustomDimensionId)
                 {
                     hostLogger().error(
-                        "[dim] the factory for '{}' was called before its id was fixed and "
-                        "the engine does not know it either; refusing to build the "
-                        "dimension rather than using a default that would most likely be "
-                        "the overworld, 0",
-                        dimName
-                    );
+                        "[dim] {}", pier::trf("dim.custom_dimension_manager.11", dimName));
                     return {};
                 }
 
@@ -821,10 +790,7 @@ namespace pier::dimensions
                 if (::std::shared_ptr<::Dimension> existing = native::rememberedInstanceRef(id.mValue).lock())
                 {
                     hostLogger().info(
-                        "[dim] the factory for '{}' was called for id {} while an instance is "
-                        "already there; handing back the one in use rather than building a second",
-                        dimName, id.mValue
-                    );
+                        "[dim] {}", pier::trf("dim.custom_dimension_manager.12", dimName, id.mValue));
                     return OwnerPtr<Dimension>{std::move(existing)};
                 }
                             // debug, not info. Seven lines per dimension on every boot say the same
@@ -875,12 +841,7 @@ namespace pier::dimensions
         if (!nativeId)
         {
             hostLogger().error(
-                "[dim] '{}' could not be registered natively through the engine "
-                "DimensionManager, so registration failed and no fake-dimension fallback is "
-                "attempted; check the registerCustomDimension lines above for whether Level "
-                "was ready and whether DimensionDefinitionGroup accepted the definition",
-                dimName
-            );
+                "[dim] {}", pier::trf("dim.custom_dimension_manager.13", dimName));
             throw std::runtime_error("native registration of dimension '" + dimName + "' failed");
         }
 
@@ -891,9 +852,7 @@ namespace pier::dimensions
             // written by locally-allocating logic, and those ids were never in effect on
             // the engine side, so there is no save compatibility concern.
             hostLogger().warn(
-                "[dim] '{}': the config records id {} while the engine allocated {}; the engine wins",
-                dimName, info.id.mValue, *nativeId
-            );
+                "[dim] {}", pier::trf("dim.custom_dimension_manager.14", dimName, info.id.mValue, *nativeId));
         }
         info.id = DimensionType{*nativeId};
         impl->usedIds.insert(*nativeId);
@@ -939,8 +898,7 @@ namespace pier::dimensions
                 if (!CustomDimensionConfig::saveConfigFile())
                 {
                     hostLogger().error(
-                        "[dim] writing dimension_config.json failed; '{}' may receive a new id on the next boot", dimName
-                    );
+                        "[dim] {}", pier::trf("dim.custom_dimension_manager.15", dimName));
                 }
             }
         }
@@ -958,7 +916,7 @@ namespace pier::dimensions
             // degrades rather than fails, but it must say so, otherwise a working
             // dimension whose name cannot be typed in a command becomes a report with no
             // findable cause.
-            hostLogger().warn("[dim] '{}' failed to register its command enum; the dimension works, but /execute in cannot use its name", dimName);
+            hostLogger().warn("[dim] {}", pier::trf("dim.custom_dimension_manager.16", dimName));
         }
 
         try
@@ -970,11 +928,8 @@ namespace pier::dimensions
             if (auto const engineId = native::engineDimensionId(dimName); !engineId || *engineId != info.id.mValue)
             {
                 hostLogger().error(
-                    "[dim] '{}' (id {}) is not present in the engine DimensionManager, so "
-                    "teleporting will fail; the engine read back: {}",
-                    dimName, info.id.mValue,
-                    engineId ? std::to_string(*engineId) : std::string{"(not registered)"}
-                );
+                    "[dim] {}", pier::trf("dim.custom_dimension_manager.17", dimName, info.id.mValue,
+                    engineId ? std::to_string(*engineId) : std::string{"(not registered)"}));
             }
             else
             {
@@ -986,7 +941,7 @@ namespace pier::dimensions
         }
         catch (...)
         {
-            hostLogger().warn("[dim] the self-check for '{}' threw; a failed self-check does not affect the dimension itself", dimName);
+            hostLogger().warn("[dim] {}", pier::trf("dim.custom_dimension_manager.18", dimName));
         }
 
         // The only authoritative test: the id reported by the Dimension the engine
@@ -996,7 +951,7 @@ namespace pier::dimensions
         auto* probe = native::getOrCreateByName(dimName);
         if (!probe)
         {
-            hostLogger().error("[dim] '{}' registered but no instance could be built, registration failed", dimName);
+            hostLogger().error("[dim] {}", pier::trf("dim.custom_dimension_manager.19", dimName));
             throw std::runtime_error("dimension '" + dimName + "' could not be instantiated");
         }
 
@@ -1004,11 +959,7 @@ namespace pier::dimensions
         if (realId != info.id.mValue)
         {
             hostLogger().error(
-                "[dim] the ledger id of '{}' is {} while the instance the engine built "
-                "reports {}; teleporting a player into {} would make the engine throw on a "
-                "chunk thread and abort, so registration failed",
-                dimName, info.id.mValue, realId, info.id.mValue
-            );
+                "[dim] {}", pier::trf("dim.custom_dimension_manager.20", dimName, info.id.mValue, realId, info.id.mValue));
             // The ledger is already dirty and is rolled back, so dimensionSelector can
             // no longer find it.
             rememberDimension(dimName, -1);

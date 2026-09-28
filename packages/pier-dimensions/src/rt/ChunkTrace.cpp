@@ -39,6 +39,7 @@
 
 #include "pier/dimensions/base/native_dimensions.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions
 {
@@ -144,9 +145,7 @@ namespace pier::dimensions
                 // otherwise setting the filter to dim 5 and seeing every other dimension
                 // in the log gives no clue why.
                 hostLogger().warn(
-                    "[chunk] PIER_TRACE_CHUNK_DIM='{}' is not an integer, using the default of custom dimensions only, id 3 and above",
-                    v
-                );
+                    "[chunk] {}", pier::trf("dim.chunk_trace.1", v));
                 return -2;
             }
         }();
@@ -205,9 +204,7 @@ namespace pier::dimensions
         {
             auto const n = gCreated.fetch_add(1) + 1;
             hostLogger().info(
-                "[create] dim={} chunk=({}, {}) readOnly={} total={}",
-                dimLabel(dimId), cp.x, cp.z, readOnly ? 1 : 0, n
-            );
+                "[create] {}", pier::trf("dim.chunk_trace.2", dimLabel(dimId), cp.x, cp.z, readOnly ? 1 : 0, n));
         }
         return ret;
     }
@@ -248,9 +245,7 @@ namespace pier::dimensions
             if (ok)
             {
                 hostLogger().info(
-                    "[try   ] dim={} chunk=({}, {}) {} -> {} succeeded",
-                    dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to)
-                );
+                    "{}", pier::trf("dim.chunk_trace.3", dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to)));
             }
             else if (traceFailures())
             {
@@ -309,9 +304,7 @@ namespace pier::dimensions
             if (movedX || movedZ || resized)
             {
                 hostLogger().info(
-                    "[region] send region center=({}, {}, {}) radius={} blocks (about {} chunks) sent this session={}",
-                    center.x, center.y, center.z, radius, radius / 16, gSendOk.load()
-                );
+                    "[region] {}", pier::trf("dim.chunk_trace.4", center.x, center.y, center.z, radius, radius / 16, gSendOk.load()));
             }
         }
 
@@ -323,8 +316,7 @@ namespace pier::dimensions
             {
                 auto const n = gSendOk.fetch_add(1) + 1;
                 hostLogger().info(
-                    "[send  ] dim={} chunk=({}, {}) sent to the client, total={}", dimLabel(dimId), cp.x, cp.z, n
-                );
+                    "{}", pier::trf("dim.chunk_trace.5", dimLabel(dimId), cp.x, cp.z, n));
             }
             else
             {
@@ -334,9 +326,7 @@ namespace pier::dimensions
                 // sent.
                 auto const n = gSendFail.fetch_add(1) + 1;
                 hostLogger().info(
-                    "[send -] dim={} chunk=({}, {}) not sent this time, still queued, total={}",
-                    dimLabel(dimId), cp.x, cp.z, n
-                );
+                    "{}", pier::trf("dim.chunk_trace.6", dimLabel(dimId), cp.x, cp.z, n));
             }
         }
         return ok;
@@ -367,8 +357,7 @@ namespace pier::dimensions
         try
         {
             auto const& defs = *mDimensionDefinitionGroup->mDimensionDefinitions;
-            hostLogger().info("[dimdata] sending the dimension definition table to the client, {} entries:",
-                              defs.size());
+            hostLogger().info("[dimdata] {}", pier::trf("dim.chunk_trace.7", defs.size()));
             for (auto const& entry : defs)
             {
                 // A scalar member, an int or an enum, is used directly with no .get().
@@ -376,27 +365,22 @@ namespace pier::dimensions
                 // it holds a class type; holding a scalar it is that scalar itself.
                 // mDimensionType is a struct, so -> stays.
                 hostLogger().info(
-                    "[dimdata]   '{}' id={} height={}..{} generator={}",
-                    entry.first,
+                    "[dimdata] {}", pier::trf("dim.chunk_trace.8", entry.first,
                     entry.second.mDimensionType->mValue,
                     entry.second.mMinY,
                     entry.second.mMinY + entry.second.mHeightRange,
-                    static_cast<int>(entry.second.mGeneratorType)
-                );
+                    static_cast<int>(entry.second.mGeneratorType)));
             }
             if (defs.empty())
             {
                 hostLogger().error(
-                    "[dimdata] the definition table is empty, so the client learns of no "
-                    "custom dimension and the chunks of those dimensions are dropped on "
-                    "arrival"
-                );
+                    "[dimdata] {}", pier::trf("dim.chunk_trace.9"));
             }
         }
         catch (...)
         {
             hostLogger().warn(
-                "[dimdata] reading the dimension definition table failed; the packet itself is unaffected");
+                "[dimdata] {}", pier::trf("dim.chunk_trace.10"));
         }
         origin(stream);
     }
@@ -432,21 +416,18 @@ namespace pier::dimensions
             // No dimension filter here either: the overworld is the control.
             auto const& cp = mPos.get();
             hostLogger().info(
-                "[levelchunk] dim={} chunk=({}, {}) subchunks={} clientMustRequest={} "
-                "requestLimit={} payloadBytes={} cache={} cacheEntries={}",
-                dimLabel(dimId), cp.x, cp.z,
+                "[levelchunk] {}", pier::trf("dim.chunk_trace.11", dimLabel(dimId), cp.x, cp.z,
                 mSubChunksCount,
                 // The separate flag is gone in 26.40: a limit that is set is the request.
                 mClientRequestSubChunkLimit->has_value() ? 1 : 0,
                 mClientRequestSubChunkLimit->value_or(0),
                 mSerializedChunk.get().size(),
                 mCacheEnabled ? 1 : 0,
-                mCacheMetadata.get().size()
-            );
+                mCacheMetadata.get().size()));
         }
         catch (...)
         {
-            hostLogger().warn("[levelchunk] reading the chunk packet failed; the packet itself is unaffected");
+            hostLogger().warn("[levelchunk] {}", pier::trf("dim.chunk_trace.12"));
         }
         origin(stream);
     }
@@ -490,25 +471,17 @@ namespace pier::dimensions
             }
             auto const& c = mCenterPos.get();
             hostLogger().info(
-                "[subchunk] dim={} center=({}, {}, {}) entries={} | "
-                "success={} allAir={} noSuchChunk={} wrongDimension={} noSuchPlayer={} "
-                "outOfRange={} undefined={}",
-                dimLabel(dimId), c.x, c.y, c.z, data.size(),
-                cnt[1], cnt[6], cnt[2], cnt[3], cnt[4], cnt[5], cnt[0]
-            );
+                "[subchunk] {}", pier::trf("dim.chunk_trace.13", dimLabel(dimId), c.x, c.y, c.z, data.size(),
+                cnt[1], cnt[6], cnt[2], cnt[3], cnt[4], cnt[5], cnt[0]));
             if (cnt[2] || cnt[3] || cnt[4] || cnt[5])
             {
                 hostLogger().error(
-                    "[subchunk] dim={} had subchunk requests refused, so that block data "
-                    "never reaches the client and the player sees empty space; the line "
-                    "above says which kind",
-                    dimLabel(dimId)
-                );
+                    "[subchunk] {}", pier::trf("dim.chunk_trace.14", dimLabel(dimId)));
             }
         }
         catch (...)
         {
-            hostLogger().warn("[subchunk] reading the subchunk reply failed; the packet itself is unaffected");
+            hostLogger().warn("[subchunk] {}", pier::trf("dim.chunk_trace.15"));
         }
         origin(stream);
     }
@@ -535,48 +508,31 @@ namespace pier::dimensions
         PacketTraceHookReg::hook();
         ChunkTraceHookReg::hook();
         hostLogger().warn(
-            "[chunk] chunk tracing is on (PIER_TRACE_CHUNK=1, dimension filter {}); the "
-            "log volume is large, turn it off once the investigation is done",
-            chunkTraceDimFilter() == -2
+            "[chunk] {}", pier::trf("dim.chunk_trace.16", chunkTraceDimFilter() == -2
                 ? std::string{"custom dimensions only (>=3)"}
                 : chunkTraceDimFilter() == -1
                 ? std::string{"all"}
-                : std::to_string(chunkTraceDimFilter())
-        );
+                : std::to_string(chunkTraceDimFilter())));
     }
 
     void unregisterChunkTraceHooks()
     {
         if (!chunkTraceEnabled()) return;
         hostLogger().info(
-            "[chunk] packet totals: {} LevelChunkPacket, {} SubChunkPacket",
-            gLevelChunkPkts.load(), gSubChunkPkts.load()
-        );
+            "[chunk] {}", pier::trf("dim.chunk_trace.17", gLevelChunkPkts.load(), gSubChunkPkts.load()));
         if (gLevelChunkPkts.load() > 0 && gSubChunkPkts.load() == 0)
         {
             hostLogger().error(
-                "[chunk] {} LevelChunkPacket were sent and not a single SubChunkPacket; "
-                "either the client never requested subchunks or the requests were consumed "
-                "elsewhere. No block data ever left the server",
-                gLevelChunkPkts.load()
-            );
+                "[chunk] {}", pier::trf("dim.chunk_trace.18", gLevelChunkPkts.load()));
         }
         PacketTraceHookReg::unhook();
         ChunkTraceHookReg::unhook();
         hostLogger().info(
-            "[chunk] tracing finished: {} creations, {} state transitions, {} reached "
-            "Loaded, {} sent to clients, {} left queued and unsent",
-            gCreated.load(), gTransitions.load(), gLoaded.load(), gSendOk.load(), gSendFail.load()
-        );
+            "[chunk] {}", pier::trf("dim.chunk_trace.19", gCreated.load(), gTransitions.load(), gLoaded.load(), gSendOk.load(), gSendFail.load()));
         if (gLoaded.load() > 0 && gSendOk.load() == 0)
         {
             hostLogger().error(
-                "[chunk] {} chunks reached Loaded on the server and none was sent through "
-                "NetworkChunkPublisher, so the fault is on the send side and not the "
-                "generation side; check the [region] lines above for a sensible center and "
-                "radius and for the dimension id being this dimension",
-                gLoaded.load()
-            );
+                "[chunk] {}", pier::trf("dim.chunk_trace.20", gLoaded.load()));
         }
     }
 } // namespace pier::dimensions

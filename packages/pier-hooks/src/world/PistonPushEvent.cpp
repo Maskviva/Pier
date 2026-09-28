@@ -22,6 +22,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/snbt.h"
 
 namespace pier::hooks
@@ -96,9 +97,7 @@ namespace pier::hooks
                 if (r != 0)
                 {
                     hostLogger().error(
-                        "[hooks/PistonPushEvent] the PistonBlockActor::_checkAttachedBlocks "
-                        "detour failed to install with code={}, so cross-plot piston pushes "
-                        "and pulls are unprotected", r);
+                        "{}", pier::trf("hooks.piston_push_event.1", r));
                 }
                 return r == 0;
             }

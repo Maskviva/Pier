@@ -67,11 +67,7 @@ namespace pier::dimensions
             if (!override_) return {minY, maxY};
 
             hostLogger().warn(
-                "[dim] diagnostic override active: the height advertised to the client is "
-                "{}..{} while the server still uses {}..{}; this exists only to locate a "
-                "subchunk index mismatch, unset both variables once done",
-                override_->first, override_->second, minY, maxY
-            );
+                "[dim] {}", pier::trf("dim.native_dimensions.1", override_->first, override_->second, minY, maxY));
             return *override_;
         }
 
@@ -102,11 +98,7 @@ namespace pier::dimensions
                 if (d.mDimensionType.get().mValue != id)
                 {
                     hostLogger().error(
-                        "[dim] '{}': the definition reads as id {} where {} was registered, so the "
-                        "definition fields are not where they are expected and none of them will be "
-                        "written; the dimension keeps whatever height the engine gave it",
-                        name, d.mDimensionType.get().mValue, id
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.2", name, d.mDimensionType.get().mValue, id));
                     return;
                 }
                 // debug: it fires for every custom dimension on every boot, because a
@@ -125,10 +117,7 @@ namespace pier::dimensions
             if (!found)
             {
                 hostLogger().error(
-                    "[dim] '{}': the engine has no definition for this name right after registering "
-                    "one, so its height and generator cannot be made to agree with the dimension",
-                    name
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.3", name));
                 return false;
             }
             if (!entry) return false;
@@ -146,10 +135,7 @@ namespace pier::dimensions
             if (!agrees)
             {
                 hostLogger().error(
-                    "[dim] '{}': the definition did not take the height {}..{}; the dimension and the "
-                    "engine disagree about its shape and entering it is not safe",
-                    name, minY, maxY
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.4", name, minY, maxY));
                 return false;
             }
             hostLogger().debug("[dim] {}", pier::trf("dim.height.set", name, minY, maxY));
@@ -422,12 +408,12 @@ namespace pier::dimensions
             }
             catch (std::exception const& e)
             {
-                hostLogger().error("[dim] reading the dimension definition group threw: {}", e.what());
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.5", e.what()));
                 return std::nullopt;
             }
             catch (...)
             {
-                hostLogger().error("[dim] reading the dimension definition group threw an unknown exception");
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.6"));
                 return std::nullopt;
             }
             return found;
@@ -515,14 +501,7 @@ namespace pier::dimensions
                 if (first)
                 {
                     hostLogger().warn(
-                        "[dim] '{}': the engine built this dimension with registry id {} while its "
-                        "dimension id is {}. Its name is not in the engine's name table, which is "
-                        "the only thing that maps between the two, so the constructor had nothing "
-                        "to read. The registry is keyed by the first number, so leaving it would "
-                        "put this dimension in slot {} and destroy whatever is in it; it is set to "
-                        "{} instead",
-                        d.mName.get(), reg, type, reg, type
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.7", d.mName.get(), reg, type, reg, type));
                 }
                 setRegistryId(d, type);
             }
@@ -570,7 +549,7 @@ namespace pier::dimensions
             auto* mgr = managerOrNull();
             if (!mgr)
             {
-                hostLogger().error("[dim] '{}' was not registered: Level is not open", name);
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.8", name));
                 return std::nullopt;
             }
             if (!definitionGroupReadable())
@@ -580,17 +559,10 @@ namespace pier::dimensions
                 {
                     said = true;
                     hostLogger().error(
-                        "[dim] custom dimensions are unavailable on this engine: the "
-                        "dimension definition group cannot be read, so no id can be "
-                        "obtained and the ones a save already holds cannot be found "
-                        "again. Every other capability of the mod is unaffected"
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.9"));
                 }
                 hostLogger().error(
-                    "[dim] '{}' was not registered; a mod that needs it has to treat "
-                    "md_add_dimension returning -1 as the dimension not existing",
-                    name
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.10", name));
                 return std::nullopt;
             }
 
@@ -612,10 +584,7 @@ namespace pier::dimensions
                     return static_cast<int>(d->getDimensionId());
                 }
                 hostLogger().warn(
-                    "[dim] '{}' is in the definition group as id {} but the instance could "
-                    "not be built; using the definition's id",
-                    name, *existing
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.11", name, *existing));
                 return existing;
             }
 
@@ -661,10 +630,7 @@ namespace pier::dimensions
                 if (!mgr->_registerDimensionWithDimensionDefinitionGroup(std::string_view{name}, def))
                 {
                     hostLogger().error(
-                        "[dim] '{}' was not registered: DimensionDefinitionGroup did not "
-                        "accept the definition",
-                        name
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.12", name));
                     return std::nullopt;
                 }
                 mgr->_registerCustomDimensionWithFactory(std::string_view{name}, ::DimensionType{suggested});
@@ -680,12 +646,12 @@ namespace pier::dimensions
             }
             catch (std::exception const& e)
             {
-                hostLogger().error("[dim] '{}' was not registered: registration threw: {}", name, e.what());
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.13", name, e.what()));
                 return std::nullopt;
             }
             catch (...)
             {
-                hostLogger().error("[dim] '{}' was not registered: registration threw an unknown exception", name);
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.14", name));
                 return std::nullopt;
             }
 
@@ -699,11 +665,7 @@ namespace pier::dimensions
             {
                 forgetDimension(rawName);
                 hostLogger().error(
-                    "[dim] '{}': the definition and the factory went in but the instance "
-                    "could not be built, so no id can be confirmed and the registration is "
-                    "reported as failed",
-                    name
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.15", name));
                 return std::nullopt;
             }
 
@@ -713,10 +675,7 @@ namespace pier::dimensions
                 // Not fatal, and not silent. The engine decides; this line is what makes a
                 // disagreement diagnosable instead of a dimension quietly changing number.
                 hostLogger().warn(
-                    "[dim] '{}': suggested id {} but the engine assigned {}; going with the "
-                    "engine",
-                    name, suggested, actual
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.16", name, suggested, actual));
             }
             return actual;
         }
@@ -824,21 +783,13 @@ namespace pier::dimensions
             catch (std::exception const& e)
             {
                 hostLogger().error(
-                    "[dim] asking the engine whether id {} already has an instance threw: "
-                    "{}. Nothing will be built for it, because building over a live "
-                    "dimension destroys the one in use",
-                    id, e.what()
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.17", id, e.what()));
                 return Registered::Unknown;
             }
             catch (...)
             {
                 hostLogger().error(
-                    "[dim] asking the engine whether id {} already has an instance threw. "
-                    "Nothing will be built for it, because building over a live dimension "
-                    "destroys the one in use",
-                    id
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.18", id));
                 return Registered::Unknown;
             }
 
@@ -866,10 +817,7 @@ namespace pier::dimensions
                 // running. Handing back the live one is correct and building a second
                 // is not survivable, so the request is refused rather than served.
                 hostLogger().warn(
-                    "[dim] buildAndRegister('{}', id {}): an instance is already registered "
-                    "under this id, so the existing one is returned and nothing is built",
-                    name, id
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.19", name, id));
                 return live;
             case Registered::Unknown:
                 return nullptr; // registeredInstance said why
@@ -890,7 +838,7 @@ namespace pier::dimensions
                 auto* facPtr = mgr->mDimensionFactory.get().get().get();
                 if (!facPtr)
                 {
-                    hostLogger().error("[dim] buildAndRegister('{}'): the dimension factory is null", name);
+                    hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.20", name));
                     return nullptr;
                 }
                 ::IDimensionFactory& factory = *facPtr;
@@ -901,17 +849,14 @@ namespace pier::dimensions
                     // mFactoryMap by name and calls it. Empty here means the closure
                     // returned empty, and the closure logs its own reason.
                     hostLogger().error(
-                        "[dim] buildAndRegister('{}'): DimensionFactory::create returned "
-                        "empty, so the closure in mFactoryMap refused to build it",
-                        name
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.21", name));
                     return nullptr;
                 }
 
                 auto ptr = owner.get();
                 if (!ptr)
                 {
-                    hostLogger().error("[dim] buildAndRegister('{}'): the built dimension is null", name);
+                    hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.22", name));
                     return nullptr;
                 }
                 // The object must carry the id it is about to be registered under. One
@@ -921,11 +866,7 @@ namespace pier::dimensions
                 if (auto const built = static_cast<int>(ptr->getDimensionId()); built != id)
                 {
                     hostLogger().error(
-                        "[dim] buildAndRegister('{}'): the factory built the dimension as id {} "
-                        "while it is being registered as id {}; refusing to register it under "
-                        "a key that is not its own id. The instance is released",
-                        name, built, id
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.23", name, built, id));
                     return nullptr;
                 }
                 int const builtRegistryId = registryIdOf(*ptr);
@@ -940,11 +881,7 @@ namespace pier::dimensions
                 if (int const after = registryIdOf(*ptr); after != id)
                 {
                     hostLogger().error(
-                        "[dim] '{}': the registry id would not take the value {} and still reads {}; "
-                        "refusing to register, because the slot it would go into belongs to another "
-                        "dimension",
-                        name, id, after
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.24", name, id, after));
                     return nullptr;
                 }
 
@@ -974,10 +911,7 @@ namespace pier::dimensions
                 if (!overworldPresent)
                 {
                     hostLogger().error(
-                        "[dim] the overworld is gone from the level after registering '{}' as id "
-                        "{}. It holds: {}. Stop the server rather than let anyone join",
-                        name, id, census
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.25", name, id, census));
                 }
 
                 if (locked.get() || stored)
@@ -985,11 +919,7 @@ namespace pier::dimensions
                     if (!locked.get())
                     {
                         hostLogger().warn(
-                            "[dim] buildAndRegister('{}'): registerDimension(id {}) returned an "
-                            "empty reference while the level is holding this dimension, so the "
-                            "registration took and the return value is what is unreliable",
-                            name, id
-                        );
+                            "[dim] {}", pier::trf("dim.native_dimensions.26", name, id));
                     }
                     // Remembered before anything else can ask: the next question about this
                     // id arrives on the chunk threads within the millisecond.
@@ -1005,10 +935,7 @@ namespace pier::dimensions
                 if (registeredInstance(mgr, id, &live) == Registered::Present && live)
                 {
                     hostLogger().warn(
-                        "[dim] buildAndRegister('{}'): registerDimension(id {}) returned an empty "
-                        "reference while an instance is there; going by the instance",
-                        name, id
-                    );
+                        "[dim] {}", pier::trf("dim.native_dimensions.27", name, id));
                     return live;
                 }
 
@@ -1016,22 +943,17 @@ namespace pier::dimensions
                 // either way, but a refused registration must not also end the process.
                 quarantine(std::move(keep));
                 hostLogger().error(
-                    "[dim] buildAndRegister('{}'): registerDimension(id {}) stored nothing, so this "
-                    "dimension is not available. The level holds: {}. The instance is kept rather "
-                    "than released, because the engine was told about it while it was being "
-                    "initialized and would follow those references into freed memory",
-                    name, id, census
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.28", name, id, census));
                 return nullptr;
             }
             catch (std::exception const& e)
             {
-                hostLogger().error("[dim] buildAndRegister('{}') threw: {}", name, e.what());
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.29", name, e.what()));
                 return nullptr;
             }
             catch (...)
             {
-                hostLogger().error("[dim] buildAndRegister('{}') threw an unknown exception", name);
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.30", name));
                 return nullptr;
             }
         }
@@ -1120,7 +1042,7 @@ namespace pier::dimensions
             auto* mgr = managerOrNull();
             if (!mgr)
             {
-                hostLogger().error("[dim] getOrCreateByName('{}'): Level is not open", name);
+                hostLogger().error("[dim] {}", pier::trf("dim.native_dimensions.31", name));
                 return nullptr;
             }
 
@@ -1216,19 +1138,12 @@ namespace pier::dimensions
             if (id)
             {
                 hostLogger().error(
-                    "[dim] getOrCreateByName('{}'): the definition group has it as id {}, and "
-                    "neither the two getOrCreateDimension overloads nor building it through "
-                    "DimensionFactory worked; the lines above say which step gave out",
-                    name, *id
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.32", name, *id));
             }
             else
             {
                 hostLogger().error(
-                    "[dim] getOrCreateByName('{}'): the definition group does not have this "
-                    "name, so nothing registered it and there is no id to build it with",
-                    name
-                );
+                    "[dim] {}", pier::trf("dim.native_dimensions.33", name));
             }
             return nullptr;
         }

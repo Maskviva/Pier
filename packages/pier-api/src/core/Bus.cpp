@@ -29,6 +29,7 @@
 #include "pier/host/spi.h"
 #include "pier/support/guard.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 #include "pier/support/str.h"
 
 namespace pier::api_impl
@@ -86,11 +87,7 @@ namespace pier::api_impl
             if (seen[topic]) return;
             seen[topic] = true;
             hostLogger().error(
-                "[bus] topic '{}' exceeded nesting depth {}, innermost publish dropped; "
-                "this is a publish cycle, where a subscriber of this topic publishes it "
-                "again, either directly or through another topic that loops back",
-                topic, kMaxDepth
-            );
+                "[bus] {}", pier::trf("api.bus.1", topic, kMaxDepth));
         }
 
         /** Snapshots the ids subscribed to `topic`, excluding the publisher's own. */

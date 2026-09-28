@@ -28,6 +28,7 @@
 #include "mc/world/level/dimension/Dimension.h"
 
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 namespace pier::dimensions
 {
@@ -59,7 +60,7 @@ namespace pier::dimensions
         {
             // The biome was checked at registration; reaching here means the registry
             // changed under a saved dimension. Say so, do not pretend it was plains.
-            hostLogger().error("[template] biome '{}' is not in the registry any more; using minecraft:plains for this session", mPack->biome);
+            hostLogger().error("[template] {}", pier::trf("dim.template_generator.1", mPack->biome));
             mBiome = level.getBiomeRegistry().lookupByName("minecraft:plains");
         }
         if (mBiome) mBiomeSource = std::make_unique<FixedBiomeSource>(*mBiome);
@@ -147,7 +148,7 @@ namespace pier::dimensions
         // the stamp a fresh chunk is written on the next save pass, which loses nothing.
         if (!lc.tryChangeState(ChunkState::Generating, ChunkState::Generated))
         {
-            hostLogger().error("[template] chunk ({}, {}) failed the Generating to Generated transition; it will not be sent", chunkPos.x, chunkPos.z);
+            hostLogger().error("[template] {}", pier::trf("dim.template_generator.2", chunkPos.x, chunkPos.z));
         }
     }
 } // namespace pier::dimensions

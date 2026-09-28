@@ -15,6 +15,7 @@
 #include "pier/hooks/decision_throttle.h"
 #include "pier/hooks/hook_events.h"
 #include "pier/support/log.h"
+#include "pier/support/i18n.h"
 
 #include <string>
 #include <unordered_map>
@@ -201,8 +202,7 @@ namespace pier::hooks
                 if (r1 != 0 || r2 != 0 || r3 != 0 || r4 != 0)
                 {
                     hostLogger().error(
-                        "[hooks/PressurePlateEvent] a detour failed to install (codes: {} {} {} {}), so the subscription is refused",
-                        r1, r2, r3, r4);
+                        "{}", pier::trf("hooks.pressure_plate_event.1", r1, r2, r3, r4));
                 }
                 return r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0;
             }
