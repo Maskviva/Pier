@@ -3,6 +3,7 @@
 #include <functional>
 #include <mutex>
 #include <string>
+#include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -245,10 +246,18 @@ namespace pier::bridge
             if (!be) return nullptr;
             // BlockActor lost getContainer in 26.32; the override survives on
             // VanillaBlockActor, which every container block entity derives from. A block
-            // entity that is not one has no container, which is the null the caller
-            // already handles.
-            auto* vba = dynamic_cast<VanillaBlockActor*>(be);
-            return vba ? vba->getContainer() : nullptr;
+            // entity that is not one has no container: the null the caller handles.
+            // Some block entities carry no RTTI, and the cast throws bad_typeid on one
+            // instead of yielding null; that is the same answer, not an API error.
+            try
+            {
+                auto* vba = dynamic_cast<VanillaBlockActor*>(be);
+                return vba ? vba->getContainer() : nullptr;
+            }
+            catch (std::bad_typeid const&)
+            {
+                return nullptr;
+            }
         }
         Player* p = resolvePlayer(ref.player);
         if (!p) return nullptr;

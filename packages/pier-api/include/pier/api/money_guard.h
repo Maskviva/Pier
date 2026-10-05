@@ -4,15 +4,14 @@
  * a delay-loaded LegacyMoney.dll. Without it installed the host still starts and the
  * symbols resolve on first use. Both halves are required (contract §2.1): the guard
  * here and /DELAYLOAD in xmake.
- * moneyBackendReady() runs both required checks before any economy call. First the
- * mod table, where ll::mod::ModManagerRegistry must hold a mod named "LegacyMoney" in
- * state Enabled, since an installed but disabled mod still exports the symbols and
- * calling into it is a logic error. Second the symbols, where
- * ll::memory::SymbolView::resolve() must find the LLMoney_Get export, covering a stale
- * or renamed DLL, a version with different exports, and a delay-load stub with no
- * target. The first failure warns once per process and every economy entry point then
- * returns a safe default. An exception is never thrown across the C ABI and a
- * delay-load failure never hard-crashes BDS.
+ * moneyBackendReady() runs both checks before any economy call. First the mod table,
+ * where ll::mod::ModManagerRegistry must hold an enabled mod named "LegacyMoney": a
+ * disabled mod still exports the symbols, and calling into it is a logic error. Second
+ * the exports: the loader's answer for LegacyMoney.dll, the module the delay-load
+ * helper binds to, must hold every LLMoney function Pier imports. That covers a stale
+ * DLL, different exports and a delay-load stub with no target. The first failure warns
+ * once, naming what is missing, and every entry point then returns a safe default.
+ * Nothing is thrown across the C ABI and a delay-load failure never crashes BDS.
  */
 #pragma once
 

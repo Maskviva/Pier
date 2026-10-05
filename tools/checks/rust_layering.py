@@ -70,6 +70,8 @@ ALLOWED = {
     "bus": {"rt"},
     "scoreboard": {"rt", "nbt"},
     "dimensions": {"rt"},
+    # The engine's block, item and entity registries, read through one slot.
+    "registry": {"rt"},
     "command": {"rt", "nbt"},
     "server": {"rt", "nbt"},
     "item": {"rt", "nbt"},

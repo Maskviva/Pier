@@ -70,6 +70,7 @@ the new repository right now.
 | `packages/pier-api/src/actors/Forms.cpp` | `same path` | ✔ done, rewritten: Teardown 60, with both the index and the text of a selection control gathered, slider clamping, and PIER_TRACE_FORM all kept |
 | `packages/pier-api/src/actors/Money.cpp` | `same path` | ✔ done, rewritten: Teardown 100, with the colliding LLMoneyEvent renamed to PierMoneyEvent and PierMoneyCb and the trampoline doing the PierStr conversion |
 | `packages/pier-api/src/actors/MoneyGuard.cpp` | `same path` | ✔ done, rewritten |
+| `(new)` | `packages/pier-api/include/pier/api/pe_exports.h` | ✔ done, reads the export names of a mapped module for the money guard's diagnostics |
 | `packages/pier-api/src/actors/Players.cpp` | `same path` | ✔ done, rewritten: the four ability-bit traps, permission restoration, and the comments on sidebar slot hashing and clearing order all kept; the md validation moved to the blockSourceOf gate of the dimension bridge |
 | `packages/pier-api/src/actors/SimPlayer.cpp` | `same path` | ✔ done, rewritten |
 | `packages/pier-api/src/core/ApiTable.cpp` | `packages/pier-host/src/{ApiTable,Spi}.cpp` | ✂ cut, retired: the old version was a hardcoded forwarding table calling into each package directly, while the new architecture has each capability package fill its own slots through spi::SlotPack (contract §1 rule 2). Filling the four header scalars moved to pier-host/ApiTable.cpp |
@@ -90,6 +91,7 @@ the new repository right now.
 | `packages/pier-api/src/runtime/data/KvDbApi.cpp` | `same path` | ✔ done, rewritten: Teardown 70, with the path confinement kept |
 | `packages/pier-api/src/runtime/data/NbtApi.cpp` | `same path` | ✔ done, rewritten |
 | `packages/pier-api/src/world/Containers.cpp` | `same path` | ✔ done, rewritten |
+| `(new)` | `packages/pier-api/src/world/Registry.cpp` | ✔ done, lists the block, item and entity registries through `registry_list` |
 | `packages/pier-api/src/world/Edit.cpp` | `world/{Edit,BlockResolve}.cpp` | ✔ done, rewritten: server-guarded, with the three helpers moved out |
 | `packages/pier-api/src/world/GapFill.cpp` | `same path` | ✔ done, rewritten: server-guarded, with the retired slot returning -1, the zero-buffer chunk_keys and the root cause of the cross-DLL crash, the radius shrunk by one, and the conn_id consistency contract all kept; the PierStr comments were corrected to the new {ptr,len} meaning |
 | `packages/pier-api/src/world/Items.cpp` | `same path` | ✔ done, rewritten with the ADD_ENCHANT stub kept as it was and noted |
@@ -170,6 +172,7 @@ the new repository right now.
 | `bindings/rust/pier-rs/src/comms/kvdb.rs` | `bindings/rust/pier-rs/src/kvdb.rs` | ✔ done, rewritten: the key-value store, where this family is thread safe and dropping closes it |
 | `bindings/rust/pier-rs/src/comms/mod.rs` | `—` | ✂ cut, the module declaration of the directory itself; flattening left no matching file (contract §8: one concern per TU) |
 | `bindings/rust/pier-rs/src/comms/more_dimensions.rs` | `bindings/rust/pier-rs/src/dimensions.rs` | ✔ done, rewritten: the facade over the optional md_* capability package, keeping a rule that was never registered apart from one registered as false |
+| `(new)` | `bindings/rust/pier-rs/src/registry.rs` | ✔ done, the typed facade over `registry_list`: block types, items and entities with the facts a rule picks by |
 | `bindings/rust/pier-rs/src/comms/packet.rs` | `bindings/rust/pier-rs/src/packet.rs` | ✔ done, rewritten, with a real consumer setting the priority: it was the first of the 85 outstanding rows genuinely needed. One HookDirection type split into Direction and Directions; the closure bound tightened from Send to Send plus Sync; a PacketHook deregisters on drop while forget() extends its life explicitly |
 | `bindings/rust/pier-rs/src/comms/service.rs` | `bindings/rust/pier-rs/src/service.rs` | ✔ done, rewritten and folded into the flat domain modules |
 | `bindings/rust/pier-rs/src/container/mod.rs` | `bindings/rust/pier-rs/src/container.rs` | ✔ done, rewritten: the five container kinds, with a refresh required after a write and a block container refusing explicitly |

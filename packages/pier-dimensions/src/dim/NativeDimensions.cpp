@@ -896,8 +896,13 @@ namespace pier::dimensions
                 // consumed would be the last one, and the object is initialized by now,
                 // which means the engine holds references to it that it does not own.
                 auto keep = owner;
-                auto ref = registry.registerDimension(
-                    ::DimensionIdType{static_cast<ushort>(id)}, std::move(owner));
+                // Called with the id as the unsigned short the engine passes by value; see
+                // DimensionRegistryRegisterHook for why the SDK's DimensionIdType cannot be
+                // used in this call.
+                using RegisterById =
+                    ::WeakRef<::Dimension> (::DimensionRegistry::*)(ushort, ::OwnerPtr<::Dimension>);
+                auto const registerById = reinterpret_cast<RegisterById>(&::DimensionRegistry::registerDimension);
+                auto ref = (registry.*registerById)(static_cast<ushort>(id), std::move(owner));
                 // Whether the registration took is a different question from what the
                 // call returned, and the level answers it. Nothing is ever put into the
                 // registry by hand when it declines: registerDimension does more than

@@ -461,6 +461,7 @@ pub struct PierApi {
         ) -> i32,
     >,
     pub md_set_dimension_cells: Option<unsafe extern "C" fn(i32, i32, i32) -> bool>,
+    pub registry_list: Option<unsafe extern "C" fn(i32, *mut c_void, PierStrSink) -> bool>,
 }
 
 impl PierApi {

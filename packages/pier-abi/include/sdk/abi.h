@@ -1127,6 +1127,11 @@ typedef enum PierMoneyEvent
  */
 typedef bool (*PierMoneyCb)(PierMoneyEvent type, PierStr from, PierStr to, int64_t value);
 
+/** registry_list kinds: which of the engine's registries to list. */
+#define PIER_REGISTRY_BLOCKS 0   /* every block type */
+#define PIER_REGISTRY_ITEMS 1    /* every item */
+#define PIER_REGISTRY_ENTITIES 2 /* every actor the level knows */
+
 typedef struct PierApi
 {
     /** sizeof(PierApi), filled in by the host from the table it compiled. This is
@@ -2584,6 +2589,30 @@ typedef struct PierApi
      *
      *  Returns false when the id is not a dimension this host registered. */
     bool (*md_set_dimension_cells)(int32_t dim_id, int32_t cell, int32_t gap);
+
+    /*  Registries  */
+
+    /** Lists one of the engine's registries through `sink`, one JSON object per entry, in
+     *  no particular order. `kind` is a PIER_REGISTRY_* value.
+     *
+     *  A block entry carries the type name, the creative category as the engine numbers
+     *  it, whether the type is solid, vanilla, a container, a signal source, a fence, a
+     *  rail, a slab, a wall or a crop, whether it holds a block entity, the bare-hand
+     *  destroy speed of its default state (negative for a block nothing breaks), its
+     *  explosion resistance, the light it emits and its description id.
+     *
+     *  An item entry carries the full name, the base rarity (0 common to 3 epic), the
+     *  maximum stack size, the creative category and whether commands hide it.
+     *
+     *  An entity entry carries the identifier, whether it has a spawn egg, whether it is
+     *  summonable, whether an experiment gates it, and the engine's actor type number,
+     *  whose bits say whether it is a mob, a monster, an animal or a water animal.
+     *
+     *  What a listing contains is the running game's own content, so a mod that picks
+     *  "a random block" or "a random rare item" decides by rules over it rather than by a
+     *  list it maintains. Returns false for an unknown kind, a null sink, or a registry
+     *  that does not exist yet; nothing is sunk then. */
+    bool (*registry_list)(int32_t kind, void* ctx, PierStrSink sink);
 } PierApi;
 
 /**

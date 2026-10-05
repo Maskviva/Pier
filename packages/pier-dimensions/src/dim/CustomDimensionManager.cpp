@@ -317,31 +317,67 @@ namespace pier::dimensions
          * that was added. Hooked here because the engine also builds and registers on
          * paths this host does not see.
          */
-        LL_TYPE_INSTANCE_HOOK(
-            DimensionRegistryRegisterHook,
-            HookPriority::Normal,
-            DimensionRegistry,
-            &DimensionRegistry::registerDimension,
-            ::WeakRef<::Dimension>,
-            ::DimensionIdType id,
-            ::OwnerPtr<::Dimension> dimension
-        )
+        /*
+         * The id is taken as the unsigned short it is on the wire of this call, not as
+         * DimensionIdType. The SDK declares NewType with a user-written copy constructor,
+         * which makes it non-trivially copyable, so code compiled against the SDK passes it
+         * through a pointer. The engine's NewType<ushort> is trivially copyable and the
+         * engine passes the value itself in the register. A detour declared with
+         * DimensionIdType read that value as an address and faulted the first time the
+         * engine built the nether or the end, that is, the first time anyone used a portal:
+         * address 0x1 for the nether, 0x2 for the end. The detour is therefore installed by
+         * hand rather than through LL_TYPE_INSTANCE_HOOK, whose detour has to have the SDK
+         * signature: here the detour's own signature says what the engine passes.
+         */
+        struct DimensionRegistryRegisterHook
         {
-            if (auto* d = dimension.get())
+            using Target = ::WeakRef<::Dimension> (::DimensionRegistry::*)(ushort, ::OwnerPtr<::Dimension>);
+
+            inline static std::atomic_uint _AutoHookCount{};
+            inline static ::ll::memory::FuncPtr target{};
+            inline static Target original{};
+
+            // The detour is a member of a class that is a DimensionRegistry, so `this` is the
+            // registry and calling `original` through it is a member call, the shape the
+            // engine's function has. It is never constructed.
+            struct Detour : ::DimensionRegistry
             {
-                if (auto const key = native::claimRegistryKey(*d))
+                ::WeakRef<::Dimension> detour(ushort id, ::OwnerPtr<::Dimension> dimension)
                 {
-                    auto const wanted = ::DimensionIdType{static_cast<ushort>(*key)};
-                    if (id.mValue != wanted.mValue)
+                    if (auto* d = dimension.get())
                     {
-                        hostLogger().warn(
-                            "[dim] {}", pier::trf("dim.custom_dimension_manager.2", d->mName.get(), id.mValue, *key, *key));
-                        id = wanted;
+                        if (auto const key = native::claimRegistryKey(*d))
+                        {
+                            auto const wanted = static_cast<ushort>(*key);
+                            if (id != wanted)
+                            {
+                                hostLogger().warn(
+                                    "[dim] {}",
+                                    pier::trf("dim.custom_dimension_manager.2", d->mName.get(), id, *key, *key));
+                                id = wanted;
+                            }
+                        }
                     }
+                    return (this->*original)(id, std::move(dimension));
                 }
+            };
+
+            static int hook(bool suspendThreads = true)
+            {
+                if (!target) target = ::ll::memory::toFuncPtr(&::DimensionRegistry::registerDimension);
+                return ::ll::memory::hook(
+                    target,
+                    ::ll::memory::toFuncPtr(&Detour::detour),
+                    reinterpret_cast<::ll::memory::FuncPtr*>(&original),
+                    HookPriority::Normal,
+                    suspendThreads);
             }
-            return origin(id, std::move(dimension));
-        }
+
+            static bool unhook(bool suspendThreads = true)
+            {
+                return ::ll::memory::unhook(target, ::ll::memory::toFuncPtr(&Detour::detour), suspendThreads);
+            }
+        };
 
         /*
          * getDimension is a plain lookup and every part of the engine uses it. It resolves

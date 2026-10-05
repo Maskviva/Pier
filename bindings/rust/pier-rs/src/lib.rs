@@ -34,6 +34,7 @@ pub mod money;
 pub mod nbt;
 pub mod packet;
 pub mod player;
+pub mod registry;
 mod rt;
 pub mod scoreboard;
 mod sel;

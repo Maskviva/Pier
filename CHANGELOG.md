@@ -6,6 +6,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pie
 versioned as `<BDS major>.<BDS minor>.<release>`, so `26.20.1` is the first release for
 BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more slowly.
 
+## [Unreleased]
+
+### Fixed
+
+- **A block container query no longer logs "Access violation - no RTTI data!"** for a block
+  entity that carries no RTTI. `resolveContainer` reached a block's container through
+  `dynamic_cast<VanillaBlockActor*>`, which throws `std::__non_rtti_object` on such an object
+  instead of yielding null; the API guard caught it and logged it on every call. The cast now
+  answers "no container" for it, as it does for any block entity that is not a container.
+- **The server no longer crashes the first time anyone uses a nether or end portal.** The
+  detour on `DimensionRegistry::registerDimension` declared its id as `DimensionIdType`. The
+  SDK gives `NewType` a hand-written copy constructor, so the detour expected the id behind a
+  pointer, while the engine passes its trivially copyable `NewType<ushort>` as the value
+  itself. Building the nether or the end on first use handed the detour 1 or 2, which it read
+  as an address. The detour now takes the `ushort` the engine passes and is installed by
+  address; the host's own call that registers a custom dimension passes the value the same way.
+
+### Added
+
+- **`registry_list`**: the engine's block, item and entity registries, one JSON object per
+  entry. A block carries its creative category, solidity, shape families, block entity,
+  destroy speed, resistance and light; an item its rarity, stack size, creative category and
+  whether commands hide it; an entity its spawn egg, summonability, experiment gate and actor
+  type bits. In Rust: `registry::blocks()`, `registry::items()`, `registry::entities()`. A mod
+  that hands out random content picks by rules over the game's own content instead of keeping
+  a list of names.
+
+### Fixed
+
+- **The money guard no longer asks LeviLamina's symbol resolver for `LLMoney_Get`.** With
+  LeviLamina 26.51 and LegacyMoney 0.22 installed and enabled, that lookup came back empty,
+  every `money::*` entry point stayed inert for the session and the log said the export
+  could not be resolved. The guard now asks the Windows loader about `LegacyMoney.dll`, the
+  module the delay-load helper binds to, and checks every `LLMoney` function Pier imports
+  by the name it imports it under. The answer is the one the first real call would get.
+  When something is missing the warning names it and lists the `LLMoney` exports the DLL
+  does have, so a version mismatch can be read off one line. The export table is read by
+  `pier/api/pe_exports.h`, which has a test in `tools/pe-exports/`.
+
 ## [26.51.1]
 
 Built for BDS 1.26.51 and LeviLamina 26.51.5. A release is built against the one BDS its
