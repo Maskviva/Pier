@@ -1,3 +1,4 @@
+/** Log.cpp: the single definition of the host logger. */
 #include "pier/support/log.h"
 
 #include "ll/api/mod/NativeMod.h"

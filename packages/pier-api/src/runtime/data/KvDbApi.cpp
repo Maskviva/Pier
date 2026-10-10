@@ -195,8 +195,11 @@ namespace pier::api_impl
         bool api_kvdb_is_empty(PierKvDbHandle h)
         {
             PIER_API_GUARD_BEGIN
+                // A handle that is not open is not "empty": answering yes would invite a
+                // caller to seed defaults into a database it cannot write. False, the
+                // answer every other kvdb_* slot gives for such a handle.
                 auto e = entryOf(h);
-                if (!e) return true;
+                if (!e) return false;
                 std::lock_guard lock(e->lock);
                 return e->db->empty();
             PIER_API_GUARD_END

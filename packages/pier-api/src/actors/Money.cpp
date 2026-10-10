@@ -9,6 +9,7 @@
  * delay-load structured exception and take BDS down. */
 #ifndef PIER_BUILD_CLIENT
 
+#include <atomic>
 #include <algorithm>
 #include <memory>
 #include <mutex>
@@ -17,6 +18,7 @@
 
 #include "LLMoney.h"
 
+#include "ll/api/utils/ErrorUtils.h"
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/Listener.h"
 #include "ll/api/event/server/ServerStartedEvent.h"
@@ -172,6 +174,35 @@ namespace pier::api_impl
             return out;
         }
 
+        /** Calls one mod listener with LegacyMoney's arguments. A type outside
+         *  PierMoneyEvent is never forwarded: the mirror of the enum on the other side may
+         *  be a language enum, and an unlisted value there is undefined behavior. Such an
+         *  event passes without asking anyone and is logged once. An exception out of a
+         *  listener counts as a veto for a before event. */
+        bool forward(PierMoneyCb cb, ::LLMoneyEvent t, std::string const& f, std::string const& to, long long v)
+        {
+            auto const raw = static_cast<int>(t);
+            if (raw < PIER_MONEY_SET || raw > PIER_MONEY_TRANS)
+            {
+                static std::atomic<bool> warned{false};
+                if (!warned.exchange(true))
+                {
+                    hostLogger().warn("[money] LegacyMoney sent event type {}, which Pier does not "
+                                      "know; such events reach no mod listener", raw);
+                }
+                return true;
+            }
+            try
+            {
+                return cb(static_cast<PierMoneyEvent>(raw), ps(f), ps(to), v);
+            }
+            catch (...)
+            {
+                ll::error_utils::printCurrentException(hostLogger());
+                return false;
+            }
+        }
+
         /** Installs both trampolines once the backend is ready. Idempotent, and called
          *  from every economy entry point. */
         void ensureTrampolines()
@@ -190,7 +221,7 @@ namespace pier::api_impl
                         bool allow = true;
                         for (auto cb : snapshotListeners(g_before))
                         {
-                            if (cb && !cb(static_cast<PierMoneyEvent>(t), ps(f), ps(to), v)) allow = false;
+                            if (cb && !forward(cb, t, f, to, v)) allow = false;
                         }
                         return allow;
                     });
@@ -203,7 +234,7 @@ namespace pier::api_impl
                     {
                         for (auto cb : snapshotListeners(g_after))
                         {
-                            if (cb) (void)cb(static_cast<PierMoneyEvent>(t), ps(f), ps(to), v);
+                            if (cb) (void)forward(cb, t, f, to, v);
                         }
                         return true;
                     });

@@ -1,12 +1,12 @@
 /** pier-bridge.h: calling a Pier mod's JSON services from a mod that is not one.
  *
  *  Header-only and dependency-free. Copy this file into your project, include it, call
- *  `pier::bridge::Client::open()` once, and ask.
+ *  `levilamina::bridge::Client::open()` once, and ask.
  *
- *      auto pier = pier::bridge::Client::open();
- *      if (!pier) { logger.warn("Pier is not installed"); return; }
+ *      auto client = levilamina::bridge::Client::open();
+ *      if (!client) { logger.warn("Pier is not installed"); return; }
  *
- *      auto reply = pier->call("rsw:perm:check",
+ *      auto reply = client->call("rsw:perm:check",
  *          R"({"subject":{"kind":"player","id":"2535...."},"node":"rcc.fly"})");
  *      if (reply.ok()) parseYourJson(reply.body);
  *
@@ -36,25 +36,37 @@
  *  Windows only, because LeviLamina is. The header does not compile elsewhere rather than
  *  compiling into something that always answers "Pier is not installed".
  *
+ *  Server only: a client build of Pier exports none of these symbols, so `open()` returns
+ *  null there and the caller takes its "not installed" path.
+ *
  *  # Threading
  *
  *  The call is synchronous on your thread and has no timeout, exactly like a Pier mod's.
  *  A provider that blocks blocks you. Most Pier services expect the server thread; calling
  *  one from a worker is between you and that service's own contract.
+ *
+ *  # Long replies
+ *
+ *  A Pier that exports `pier_bridge_call_sink` hands the reply over whole, and the
+ *  provider runs exactly once. An older Pier only has the buffer form: a reply longer than
+ *  2047 bytes costs a second call, and the provider runs twice. `Client::runsOnce()` says
+ *  which one this host offers, for a service whose calls are not safe to repeat.
  */
 #ifndef PIER_BRIDGE_H
 #define PIER_BRIDGE_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 
-namespace pier::bridge
+namespace levilamina::bridge
 {
     /** What the host answered. The numbers are Pier's own `PIER_SERVICE_*`. */
     enum class Status : int32_t
@@ -114,7 +126,11 @@ namespace pier::bridge
                 release(handle);
                 return nullptr;
             }
-            return std::unique_ptr<Client>(new Client(handle, call, list));
+            auto client = std::unique_ptr<Client>(new Client(handle, call, list));
+            // Optional: added to Pier without raising the bridge ABI, so absent on older hosts.
+            client->mCallSink = reinterpret_cast<CallSinkFn>(symbol(handle, "pier_bridge_call_sink"));
+            client->mListSink = reinterpret_cast<ListSinkFn>(symbol(handle, "pier_bridge_list_sink"));
+            return client;
         }
 
         ~Client() { release(mHandle); }
@@ -123,12 +139,25 @@ namespace pier::bridge
         Client& operator=(const Client&) = delete;
 
         /** Asks one service. `request` is whatever that service documents, usually JSON. */
-        Reply call(const std::string& name, const std::string& request) const
+        Reply call(std::string_view name, std::string_view request) const
         {
-            return run([&](char* buf, uint32_t cap, uint32_t* len) {
-                return mCall(name.c_str(), request.c_str(), buf, cap, len);
-            });
+            if (mCallSink)
+            {
+                Collect got;
+                auto code = mCallSink(name.data(), name.size(), request.data(), request.size(), &got,
+                                      &Collect::take);
+                return got.finish(code);
+            }
+            // The buffer form takes NUL-terminated text.
+            std::string const n(name);
+            std::string const r(request);
+            return run([&](char* buf, uint32_t cap, uint32_t* len)
+                       { return mCall(n.c_str(), r.c_str(), buf, cap, len); });
         }
+
+        /** Whether call() runs the provider exactly once for any reply length. False only
+         *  on a Pier older than the sink form, see "Long replies" above. */
+        bool runsOnce() const { return mCallSink != nullptr; }
 
         /** Every registered service, as `[{"name":…,"mod":…}]`.
          *
@@ -136,12 +165,56 @@ namespace pier::bridge
          *  better in a log than a NotFound at the moment somebody needed the answer. */
         Reply services() const
         {
+            if (mListSink)
+            {
+                Collect got;
+                return got.finish(mListSink(&got, &Collect::take));
+            }
             return run([&](char* buf, uint32_t cap, uint32_t* len) { return mList(buf, cap, len); });
         }
 
     private:
         using CallFn = int32_t (*)(const char*, const char*, char*, uint32_t, uint32_t*);
         using ListFn = int32_t (*)(char*, uint32_t, uint32_t*);
+        using SinkFn = void (*)(void*, const char*, std::size_t);
+        using CallSinkFn = int32_t (*)(const char*, std::size_t, const char*, std::size_t, void*, SinkFn);
+        using ListSinkFn = int32_t (*)(void*, SinkFn);
+
+        /** Receives the reply inside Pier's call. Nothing may throw back through Pier and the
+         *  provider's frames, so an allocation failure is recorded and reported afterwards. */
+        struct Collect
+        {
+            std::string body;
+            bool lost = false;
+
+            static void take(void* ctx, const char* data, std::size_t len) noexcept
+            {
+                auto* self = static_cast<Collect*>(ctx);
+                try
+                {
+                    self->body.assign(data, len); // The last write wins, as in the buffer form
+                }
+                catch (...)
+                {
+                    self->lost = true;
+                }
+            }
+
+            Reply finish(int32_t code)
+            {
+                Reply out;
+                out.status = static_cast<Status>(code);
+                if (lost)
+                {
+                    // The service ran; only its answer could not be kept here.
+                    out.status = Status::Error;
+                    out.body = "the reply was too large to store";
+                    return out;
+                }
+                out.body = std::move(body);
+                return out;
+            }
+        };
 
         Client(void* handle, CallFn call, ListFn list)
             : mHandle(handle), mCall(call), mList(list)
@@ -166,6 +239,7 @@ namespace pier::bridge
                 out.body.assign(small, len);
                 return out;
             }
+            // The provider runs a second time here; see "Long replies" in the file header.
             std::string big(len + 1, '\0');
             uint32_t again = 0;
             code = invoke(big.data(), static_cast<uint32_t>(big.size()), &again);
@@ -195,7 +269,16 @@ namespace pier::bridge
         void* mHandle;
         CallFn mCall;
         ListFn mList;
+        CallSinkFn mCallSink = nullptr;
+        ListSinkFn mListSink = nullptr;
     };
-} // namespace pier::bridge
+} // namespace levilamina::bridge
+
+// The namespace of releases before 26.51.2, kept as an alias so that code written against it
+// still builds (contract section 2.5). The compiler warns wherever it is used.
+namespace [[deprecated("pier::bridge is levilamina::bridge since 26.51.2")]] pier
+{
+    namespace bridge = ::levilamina::bridge;
+}
 
 #endif // PIER_BRIDGE_H

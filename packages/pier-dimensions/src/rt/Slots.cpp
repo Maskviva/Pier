@@ -58,8 +58,21 @@ namespace pier::dimensions::rt
 
         bool biomeExists(std::string const& dimName, std::string const& biome)
         {
+            // Before the level exists there is no biome registry to ask, and a dimension
+            // registered from on_load arrives exactly then, so the name is let through
+            // unchecked and that is logged once; refusing would make on_load registration
+            // impossible.
             auto level = ll::service::getLevel();
-            if (!level) return true;
+            if (!level)
+            {
+                static std::atomic<bool> told{false};
+                if (!told.exchange(true))
+                {
+                    hostLogger().info("[dim] biome names registered before the level exists are "
+                                      "not checked against the biome registry");
+                }
+                return true;
+            }
             if (level->getBiomeRegistry().lookupByName(biome)) return true;
             hostLogger().error("[dim] {}", pier::trf("dim.slots.1", dimName, biome));
             return false;

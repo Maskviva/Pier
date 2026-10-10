@@ -202,6 +202,12 @@ namespace pier::api_impl
                 if (!provider || provider.get() != svc.mod) return PIER_SERVICE_NOT_FOUND;
                 if (provider->unloading.load(std::memory_order_acquire)) return PIER_SERVICE_NOT_FOUND;
 
+                // A service runs on the caller's thread, which for a bridge caller or a
+                // worker is not the server thread an unload runs on. Without the count an
+                // unload there finds no callback in flight and unmaps the provider mid-call.
+                CallbackScope scope{provider.get(), "service"};
+                if (scope.revoked()) return PIER_SERVICE_NOT_FOUND;
+
                 // isEnabled() must not be consulted here. ModManager::enable() flips
                 // the state to Enabled only after the onEnable callback returns, and
                 // during the whole load phase no mod is enabled yet, so consulting it

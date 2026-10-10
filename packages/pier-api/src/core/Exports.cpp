@@ -15,6 +15,7 @@
  */
 #ifndef PIER_BUILD_CLIENT
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -23,31 +24,46 @@
 
 namespace
 {
-/** Copies the provider's reply into the caller's buffer.
+    /** Copies the provider's reply into the caller's buffer.
      *
      *  `needed` is written whether or not the reply fit, so one call with a short buffer
      *  tells the caller exactly how long to make the next one. Returning only "too small"
      *  would make every caller grow a buffer by guessing. */
-struct Sink
-{
+    struct Sink
+    {
         char* buf;
         uint32_t cap;
         uint32_t needed;
-};
+    };
 
-void writeBack(void* ctx, PierStr s)
-{
+    void writeBack(void* ctx, PierStr s)
+    {
         auto* out = static_cast<Sink*>(ctx);
         out->needed = static_cast<uint32_t>(s.len);
         if (!out->buf || out->cap == 0) return;
         uint32_t n = s.len < out->cap ? static_cast<uint32_t>(s.len) : out->cap - 1;
         if (s.ptr && n > 0) std::memcpy(out->buf, s.ptr, n);
         out->buf[n] = '\0';
-}
+    }
+
+    /** The caller's sink of the `_sink` exports: bytes and a length, valid for the call. */
+    using BridgeSink = void (*)(void* ctx, char const* data, std::size_t len);
+
+    struct Forward
+    {
+        void* ctx;
+        BridgeSink sink;
+    };
+
+    void forward(void* ctx, PierStr s)
+    {
+        auto* f = static_cast<Forward*>(ctx);
+        if (f->sink) f->sink(f->ctx, s.ptr ? s.ptr : "", s.ptr ? s.len : 0);
+    }
 } // namespace
 
 /** The bridge ABI. Raised when the meaning or the signature of an exported symbol changes,
- *  never when a service is added: services are data over this, not part of it.
+ *  never when a symbol or a service is added.
  *
  *  A consumer calls `pier_bridge_abi()` first and refuses to go on when it disagrees.
  *  Calling into a signature that changed under it is the one failure that crashes rather
@@ -58,34 +74,55 @@ void writeBack(void* ctx, PierStr s)
 
 PIER_BRIDGE_EXPORT uint32_t pier_bridge_abi(void) { return PIER_BRIDGE_ABI; }
 
+/** Buffer form. A reply longer than `reply_cap` is cut, and a second call with a larger
+ *  buffer runs the provider again; a provider with side effects then acts twice. The
+ *  `_sink` form below runs it once and is what a consumer uses when it is exported. */
 PIER_BRIDGE_EXPORT int32_t pier_bridge_call(
-        const char* name,
-        const char* request,
-        char* reply,
-        uint32_t reply_cap,
-        uint32_t* reply_len)
+    const char* name, const char* request, char* reply, uint32_t reply_cap, uint32_t* reply_len)
 {
-        if (reply_len) *reply_len = 0;
-        if (!name) return PIER_SERVICE_REFUSED;
+    if (reply_len) *reply_len = 0;
+    if (!name) return PIER_SERVICE_REFUSED;
 
-        Sink sink{reply, reply_cap, 0};
-        PierStr n{name, std::strlen(name)};
-        PierStr r{request ? request : "", request ? std::strlen(request) : 0};
+    Sink sink{reply, reply_cap, 0};
+    PierStr n{name, std::strlen(name)};
+    PierStr r{request ? request : "", request ? std::strlen(request) : 0};
 
-        // A null mod handle. The registry treats it as an anonymous caller, which is what
-        // this is: the caller is not a Pier mod and has no handle to present.
-        int32_t code = pier::bridge::callService(nullptr, n, r, &sink, &writeBack);
-        if (reply_len) *reply_len = sink.needed;
-        return code;
+    // A null mod handle. The registry treats it as an anonymous caller, which is what
+    // this is: the caller is not a Pier mod and has no handle to present.
+    int32_t code = pier::bridge::callService(nullptr, n, r, &sink, &writeBack);
+    if (reply_len) *reply_len = sink.needed;
+    return code;
 }
 
 PIER_BRIDGE_EXPORT int32_t pier_bridge_list(char* reply, uint32_t reply_cap, uint32_t* reply_len)
 {
-        if (reply_len) *reply_len = 0;
-        Sink sink{reply, reply_cap, 0};
-        pier::bridge::listServices(&sink, &writeBack);
-        if (reply_len) *reply_len = sink.needed;
-return PIER_SERVICE_OK;
+    if (reply_len) *reply_len = 0;
+    Sink sink{reply, reply_cap, 0};
+    pier::bridge::listServices(&sink, &writeBack);
+    if (reply_len) *reply_len = sink.needed;
+    return PIER_SERVICE_OK;
+}
+
+/** Sink form: the provider runs once and every reply it writes reaches `sink` whole, so
+ *  there is no buffer to size and no second call. Lengths are explicit, so a name or a
+ *  request may hold a zero byte. `sink` runs on this thread inside the call, must copy
+ *  what it keeps and must not throw. */
+PIER_BRIDGE_EXPORT int32_t pier_bridge_call_sink(
+    const char* name, std::size_t name_len, const char* request, std::size_t request_len, void* ctx,
+    BridgeSink sink)
+{
+    if (!name || name_len == 0) return PIER_SERVICE_REFUSED;
+    Forward f{ctx, sink};
+    PierStr n{name, name_len};
+    PierStr r{request ? request : "", request ? request_len : 0};
+    return pier::bridge::callService(nullptr, n, r, &f, &forward);
+}
+
+PIER_BRIDGE_EXPORT int32_t pier_bridge_list_sink(void* ctx, BridgeSink sink)
+{
+    Forward f{ctx, sink};
+    pier::bridge::listServices(&f, &forward);
+    return PIER_SERVICE_OK;
 }
 
 #endif // PIER_BUILD_CLIENT

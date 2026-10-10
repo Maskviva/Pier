@@ -8,8 +8,8 @@
   <a href="../../actions/workflows/build.yml"><img src="../../actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <a href="https://github.com/Maskviva/pier/releases"><img src="https://img.shields.io/github/v/release/Maskviva/pier?color=334155" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
-  <img src="https://img.shields.io/badge/BDS-1.26.40-62B47A" alt="BDS 1.26.40">
-  <img src="https://img.shields.io/badge/LeviLamina-26.40.0-8B5CF6" alt="LeviLamina 26.40.0">
+  <img src="https://img.shields.io/badge/BDS-1.26.51-62B47A" alt="BDS 1.26.51">
+  <img src="https://img.shields.io/badge/LeviLamina-26.51.5-8B5CF6" alt="LeviLamina 26.51.5">
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@ Pier exposes the Bedrock server through one C ABI. A mod is a dynamic library th
 that ABI, so the language it is written in is the author's choice rather than the
 platform's.
 
-Rust is the first official binding. Go, Zig and anything else with a C FFI can have one,
+Rust, C++, Go and Zig have official bindings. Anything else with a C FFI can have one,
 and adding it does not require touching Pier.
 
 ## Why Pier exists
@@ -58,80 +58,98 @@ Pier is the redesign: the interface first, the implementation second.
 
 The whole of Pier is one header,
 [`packages/pier-abi/include/sdk/abi.h`](packages/pier-abi/include/sdk/abi.h). Everything
-else in this repository is one implementation of it. That inversion is what the four
-problems above turn into once they are taken seriously.
+else in this repository implements it: the C++ host, and every language binding. The
+sections below describe how the things this header settles each work.
 
-### One layout, on every target
+### Every target shares one table
 
-`PierApi` carries no conditional compilation. The client-only slots and the custom
-dimension slots occupy their places on every build and are simply NULL when the matching
-package was not compiled in.
+`PierApi` carries no conditional compilation. The client-only slots and the custom dimension
+slots sit in the same place on every build, and hold NULL when the matching package was not
+compiled in.
 
-So "does the host have this capability" is a question about a pointer, answered at
-runtime, and the same mod source builds for every target. The version-number marker and
-the patches defending it are all gone, because the layout no longer forks.
+A mod that wants to know whether the host has a capability looks at that slot at runtime.
+The same mod source therefore builds for server and client. The marker once kept in the top
+bits of the version number, and the patches that maintained it, have been removed.
 
-### Capabilities register themselves
+### Capability packages register themselves
 
-Pier is eight C++ packages. `pier-host` owns the table and the mod lifecycle and knows
-nothing about what fills it. A capability package registers itself through a service
-provider interface at four points: the slot pack it fills, the teardown steps it needs,
+Pier is eight C++ packages. `pier-host` owns the table and the mod lifecycle and does not
+know what fills the table. Each capability package registers four things with the host
+through a service provider interface: the slot pack it fills, the teardown steps it needs,
 whether it vetoes an unload, and the events it provides.
 
-The edge points inward. Delete a package from the build and no registration happens, the
-slots stay NULL, and the host does not change by one line. That makes optionality
-executable rather than declared, and a check runs it once per package on every push.
+Delete a package from the build and it registers nothing: its slots stay NULL, and the host
+does not change by one line. Each package is one `includes(...)` line of the root build
+file; remove the line, and configuring, building and running all go on as before. A check
+removes each package in turn and builds again on every push.
 
-### Handles are identities
+Self-registration depends on every package being an object library and not a static one. A
+linker drops the units of a static library that no outside symbol refers to, and the
+registrations are file-level static objects with no outside reference. Once dropped, the
+feature is gone and the startup log says nothing. After this was written into the contract
+it was still broken once, in four packages, and the check came after that.
 
-Nothing crosses the ABI as a pointer into the server. A player is a selector, an actor is
-an id, a block is a dimension and a coordinate. Each call resolves again.
+### What crosses the boundary: names and ids
 
-Keep one across ticks and it stays valid: once the actor is gone a call returns an error
-rather than jumping into freed memory. The cost is a lookup per call, which is the right
-trade for a boundary that mods on the other side of will get wrong.
+No pointer into the server crosses the ABI. A player is a selector, an actor an id, a block a
+dimension and a coordinate, and the host looks each up again on every call.
 
-### Buffers belong to whoever made them
+A handle can therefore be kept across ticks. Once the actor is gone, the host cannot find it
+and the call returns an error; it does not land in freed memory. Each call costs a lookup.
 
-Any buffer crossing the boundary is allocated and freed by its producer, and the receiver
-copies anything it keeps. The ABI never returns a pointer for the other side to free,
-because that needs an allocator contract and the two allocators are not the same. Every
-output goes through a sink.
+Looking a player up by **name** needs care: when no account name matches, the selector falls
+back to the display name, which another mod can change. A player who sets their display
+name to an offline player's account name receives every call addressed by that name. So
+permissions, money and ownership use the xuid, and the Rust binding gives the two selectors
+different types, which shows at the call which one is in use.
 
-### An error is an error
+### Whoever allocates a buffer frees it
 
-There is no slot that answers a question it could not determine with a plausible value.
-Cannot-be-determined and the answer being no are kept apart, all the way down: a decision
-that might fail to answer does not return a bare boolean, because collapsed into `false` a
-caller can only guess and collapsed into `true` it is a security hole.
+A buffer crossing the boundary is allocated and freed by its producer, and the receiver
+copies what it keeps. No call returns a pointer for the other side to free: that would need
+both sides to share an allocator, and a mod and the host each have their own. Every output
+goes through a sink.
 
-### The contract only grows
+### When a slot cannot answer
 
-Adding a capability appends a slot and leaves the ABI version alone. Reordering or
-removing one advances both version numbers together, and a mod built before that is
-refused at load with a message saying so, rather than being allowed to run into a slot
-that moved.
+A slot that cannot answer does one of three things: it returns a value that can mean "no
+answer"; it logs, falls back, and says in the log what it fell back to; or it refuses.
 
-Compatibility is a range, not an equality. A mod built against an older Pier keeps
-working.
+Take a function deciding whether a player may enter a plot, which cannot answer when the
+player cannot be read. Returning a bare boolean, it would give `false` and the caller could
+not tell "may not enter" from "unknown", or give `true` and let the unreadable player in. So
+the return type of such a function has room for the third case.
 
-### The rules are checked, not just written
+### How the contract grows
 
-A rule with no script guarding it is a wish. Every property above has a check in
-`tools/checks/`, and `python3 tools/run-checks.py` runs them on every push: that the
-header parses as C11, that the slot order only ever grew, that the Rust mirror matches it
-parameter by parameter, that no capability package has a sideways edge, that no comment
-claims something the code does not do.
+Adding a capability appends a slot and leaves the ABI version alone. Reordering, removing or
+changing a slot advances both version numbers together, and a mod built before that is
+refused at load with the reason in the log, rather than running into a slot that moved.
 
-Each check states what it covers and what it cannot see, and a delivery note is allowed to
-copy that sentence and nothing stronger.
+The load check is a range: `MIN_SUPPORTED <= the mod's version <= the host's version`, so a
+mod built against an older Pier keeps loading.
+
+### The checks in the repository
+
+The object library rule was first only written in the contract, and a delivery note said it
+held; then it was broken in the four packages that depend on self-registration. Since then
+every rule of the contract has a script in `tools/checks/`, and
+`python3 tools/run-checks.py` runs them on every push: that the header parses as C11, that
+the slot order only grew, that the Rust mirror matches it parameter by parameter, that no
+capability package has a sideways edge, that no comment describes something the code does
+not do.
+
+Each check states what it covers and what it cannot see. A delivery note citing a check
+copies that sentence, so a reader knows which parts still need a person to look.
 
 The rules themselves are in [`CONTRACT.md`](CONTRACT.md), with the reasoning for each.
 
 ## Writing a mod
 
-**[Rust](docs/rust/index.md)** is the first official binding and is
-what to reach for today.
+**[Rust](docs/rust/index.md)** is the first official binding and the most complete one;
+**[C++](docs/cpp/index.md)** works on the header directly, **[Go](docs/go/index.md)**
+builds a mod as a c-shared DLL, and **[Zig](docs/zig/index.md)** reads the header through
+translate-c.
 
 ```rust
 use levilamina::prelude::*;
@@ -150,8 +168,9 @@ levilamina::register_mod!(MyMod);
 
 - [Your first mod](docs/rust/first-mod.md) walks through building
   and installing one.
-- [pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template) is a working starting
-  point rather than an empty skeleton.
+- [pier-mod-template](https://github.com/Maskviva/pier-mod-template) is a Rust mod that runs
+  as it is: it logs, subscribes to chat, registers a command and schedules a task. Start
+  from it with GitHub's *Use this template*, or with `cargo generate`.
 
 ## Binding another language
 
@@ -179,7 +198,7 @@ lip install github.com/Maskviva/Pier
 
 Or unpack the release archive into `plugins/pier/`.
 
-Pier needs LeviLamina 26.40.0 on BDS 1.26.40.
+Pier needs LeviLamina 26.51.5 on BDS 1.26.51.
 [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) is optional: it is delay-loaded, so
 a server without it starts normally and only the economy calls return failure values.
 

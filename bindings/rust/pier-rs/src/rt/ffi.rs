@@ -29,7 +29,7 @@ pub(crate) fn s(text: &str) -> sys::PierStr {
 
 /// Borrows a `PierStr` the host handed over as a `&str`.
 ///
-/// UTF-8 is validated, because these bytes ultimately come from a client, as a player name, chat or
+/// UTF-8 is validated, because these bytes come from a client, as a player name, chat or
 /// command output, and the undefined behavior of `from_utf8_unchecked` is triggered by anyone
 /// setting their name to a bad byte sequence.
 ///

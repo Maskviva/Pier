@@ -1,6 +1,6 @@
 //! `PierApi`: the function table the host hands to a mod, cell for cell against `sdk/abi.h`.
-//! Written by hand rather than generated: half the value of `abi.h` lives in the per-slot comments,
-//! and a generator carries signatures but not reasons. The cost is one failure mode, and it is the
+//! Written by hand rather than generated, with the per-slot documentation left in `abi.h`, which a
+//! binding author reads directly (contract §10). The cost is one failure mode, and it is the
 //! worst one. A slot is appended at the end, the mirror does not follow, every slot after it is off
 //! by one, a call to `bus_publish` lands on a different function pointer, there is no diagnostic at
 //! all, and both sides still compile. The `sys-mirrors-abi` check exists for exactly that.
@@ -78,6 +78,7 @@ pub struct PierApi {
             PierEntitySink,
         ) -> bool,
     >,
+    // ── §A world read/write & clock
     pub get_block:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, *mut c_void, PierBlockSink) -> bool>,
     pub set_block: Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr) -> bool>,
@@ -85,14 +86,13 @@ pub struct PierApi {
 
     // The append area: append only, never reorder.
 
-    // ── §A world read/write & clock
     pub set_time: Option<unsafe extern "C" fn(i64) -> bool>,
     pub set_weather: Option<unsafe extern "C" fn(i32) -> bool>,
+    // ── §B player management
     pub list_players: Option<unsafe extern "C" fn(*mut c_void, PierStrSink)>,
     pub player_resolve: Option<unsafe extern "C" fn(PierPlayerSel, *mut PierActorId) -> bool>,
     pub player_send_message: Option<unsafe extern "C" fn(PierPlayerSel, PierStr) -> bool>,
 
-    // ── §B player management
     pub player_disconnect: Option<unsafe extern "C" fn(PierPlayerSel, PierStr) -> bool>,
     pub broadcast_message: Option<unsafe extern "C" fn(PierStr)>,
     pub player_set_gamemode: Option<unsafe extern "C" fn(PierPlayerSel, i32) -> bool>,
@@ -113,11 +113,11 @@ pub struct PierApi {
             PierStrSink,
         ) -> bool,
     >,
+    // ── §C actors (players resolve here too, via player_resolve)
     pub list_actors: Option<unsafe extern "C" fn(i32, *mut c_void, PierActorSink)>,
     pub actor_snapshot: Option<unsafe extern "C" fn(PierActorId, *mut c_void, PierStrSink) -> bool>,
     pub actor_get_num: Option<unsafe extern "C" fn(PierActorId, i32, *mut f64) -> bool>,
 
-    // ── §C actors (players resolve here too, via player_resolve)
     pub actor_get_str:
         Option<unsafe extern "C" fn(PierActorId, i32, *mut c_void, PierStrSink) -> bool>,
     pub actor_action: Option<
@@ -137,6 +137,7 @@ pub struct PierApi {
     pub explode: Option<
         unsafe extern "C" fn(i32, f64, f64, f64, f32, f32, PierActorId, bool, bool, bool) -> bool,
     >,
+    // ── §D blocks & block entities
     pub block_get_num: Option<unsafe extern "C" fn(i32, i32, i32, i32, i32, *mut f64) -> bool>,
     pub block_get_str:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, i32, *mut c_void, PierStrSink) -> bool>,
@@ -144,15 +145,14 @@ pub struct PierApi {
         unsafe extern "C" fn(i32, i32, i32, i32, i32, PierStr, *mut c_void, PierStrSink) -> bool,
     >,
 
-    // ── §D blocks & block entities
     pub block_entity_snbt:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, *mut c_void, PierStrSink) -> bool>,
+    // ── §E items (SNBT value objects) & containers
     pub item_get_num: Option<unsafe extern "C" fn(PierStr, i32, *mut f64) -> bool>,
     pub item_get_str: Option<unsafe extern "C" fn(PierStr, i32, *mut c_void, PierStrSink) -> bool>,
     pub item_transform:
         Option<unsafe extern "C" fn(PierStr, i32, PierStr, f64, *mut c_void, PierStrSink) -> bool>,
 
-    // ── §E items (SNBT value objects) & containers
     pub container_size: Option<unsafe extern "C" fn(PierContainerRef, *mut i32) -> bool>,
     pub container_get_item:
         Option<unsafe extern "C" fn(PierContainerRef, i32, *mut c_void, PierStrSink) -> bool>,
@@ -160,8 +160,10 @@ pub struct PierApi {
     pub container_add_item: Option<unsafe extern "C" fn(PierContainerRef, PierStr) -> bool>,
     pub container_remove_item: Option<unsafe extern "C" fn(PierContainerRef, i32, i32) -> bool>,
     pub container_clear: Option<unsafe extern "C" fn(PierContainerRef) -> bool>,
+    // ── §F scoreboard
     pub scoreboard_op:
         Option<unsafe extern "C" fn(i32, PierStr, PierStr, i64, *mut c_void, PierStrSink) -> bool>,
+    // ── §G forms (async result callback)
     pub form_send: Option<
         unsafe extern "C" fn(
             PierModHandle,
@@ -172,6 +174,7 @@ pub struct PierApi {
             *mut c_void,
         ) -> bool,
     >,
+    // ── §H parameterized commands & enums
     pub register_command_ex: Option<
         unsafe extern "C" fn(
             PierModHandle,
@@ -184,21 +187,18 @@ pub struct PierApi {
         ) -> bool,
     >,
 
-    // ── §F scoreboard
     pub register_command_enum: Option<unsafe extern "C" fn(PierStr, PierStr) -> bool>,
 
-    // ── §G forms (async result callback)
     pub register_command_soft_enum: Option<unsafe extern "C" fn(PierStr, PierStr) -> bool>,
 
-    // ── §H parameterized commands & enums
     pub update_command_soft_enum: Option<unsafe extern "C" fn(PierStr, i32, PierStr) -> bool>,
+    // ── §I NBT binary, KvDb (thread-safe), system & server info
     pub nbt_snbt_to_binary:
         Option<unsafe extern "C" fn(PierStr, i32, *mut c_void, PierBytesSink) -> bool>,
     pub nbt_binary_to_snbt:
         Option<unsafe extern "C" fn(*const u8, usize, i32, *mut c_void, PierStrSink) -> bool>,
     pub kvdb_open: Option<unsafe extern "C" fn(PierModHandle, PierStr, bool) -> PierKvDbHandle>,
 
-    // ── §I NBT binary, KvDb (thread-safe), system & server info
     pub kvdb_close: Option<unsafe extern "C" fn(PierKvDbHandle)>,
     pub kvdb_get:
         Option<unsafe extern "C" fn(PierKvDbHandle, PierStr, *mut c_void, PierStrSink) -> bool>,
@@ -244,6 +244,7 @@ pub struct PierApi {
     pub money_listen_before_event: Option<unsafe extern "C" fn(PierMoneyCb)>,
     pub money_listen_after_event: Option<unsafe extern "C" fn(PierMoneyCb)>,
     pub money_ranking: Option<unsafe extern "C" fn(u16, *mut c_void, PierStrSink)>,
+    // ── Player: equipment, cooldown, network (dedicated fns)
     pub player_get_carried_item:
         Option<unsafe extern "C" fn(PierPlayerSel, *mut c_void, PierStrSink) -> bool>,
     pub player_get_item:
@@ -255,6 +256,7 @@ pub struct PierApi {
     pub player_start_cooldown: Option<unsafe extern "C" fn(PierPlayerSel, PierStr, i32) -> bool>,
     pub player_get_network_status:
         Option<unsafe extern "C" fn(PierPlayerSel, *mut c_void, PierStrSink) -> bool>,
+    // ── Actor: relationships, equipment, effects, geometry (dedicated fns)
     pub actor_get_vehicle: Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
     pub actor_get_first_passenger:
         Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
@@ -262,7 +264,6 @@ pub struct PierApi {
 
     // Appended: API gap fill, gated by struct_size.
 
-    // ── Player: equipment, cooldown, network (dedicated fns)
     pub actor_get_target: Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
     pub actor_get_equipped_item:
         Option<unsafe extern "C" fn(PierActorId, i32, *mut c_void, PierStrSink) -> bool>,
@@ -275,32 +276,32 @@ pub struct PierApi {
         unsafe extern "C" fn(PierActorId, f32, bool, bool, *mut c_void, PierStrSink) -> bool,
     >,
 
-    // ── Actor: relationships, equipment, effects, geometry (dedicated fns)
     pub actor_distance_to: Option<unsafe extern "C" fn(PierActorId, PierActorId, *mut f64) -> bool>,
     pub actor_get_aabb: Option<unsafe extern "C" fn(PierActorId, *mut c_void, PierStrSink) -> bool>,
     pub actor_clone:
         Option<unsafe extern "C" fn(PierActorId, i32, f64, f64, f64, *mut PierActorId) -> bool>,
+    // ── Block: state get/set, collision shape (dedicated fns)
     pub block_get_state:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr, *mut c_void, PierStrSink) -> bool>,
     pub block_set_state: Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr, PierStr) -> bool>,
     pub block_get_collision_shape:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, *mut c_void, PierStrSink) -> bool>,
+    // ── Item: enchants, matching, NBT (dedicated fns)
     pub item_get_enchants: Option<unsafe extern "C" fn(PierStr, *mut c_void, PierStrSink) -> bool>,
     pub item_set_enchants:
         Option<unsafe extern "C" fn(PierStr, PierStr, *mut c_void, PierStrSink) -> bool>,
     pub item_matches: Option<unsafe extern "C" fn(PierStr, PierStr) -> bool>,
     pub item_get_user_data: Option<unsafe extern "C" fn(PierStr, *mut c_void, PierStrSink) -> bool>,
+    // ── Level: biome, spawn, save, weather, path, sleep (dedicated fns)
     pub level_get_biome:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, *mut c_void, PierStrSink) -> bool>,
     pub level_get_default_spawn: Option<unsafe extern "C" fn(*mut i32, *mut i32, *mut i32) -> bool>,
     pub level_set_default_spawn: Option<unsafe extern "C" fn(i32, i32, i32) -> bool>,
 
-    // ── Block: state get/set, collision shape (dedicated fns)
     pub level_save: Option<unsafe extern "C" fn() -> bool>,
     pub level_get_sleep_status: Option<unsafe extern "C" fn(*mut c_void, PierStrSink) -> bool>,
     pub level_update_weather: Option<unsafe extern "C" fn(f32, i32, f32, i32) -> bool>,
 
-    // ── Item: enchants, matching, NBT (dedicated fns)
     pub level_find_path:
         Option<unsafe extern "C" fn(PierActorId, i32, i32, i32, *mut c_void, PierStrSink) -> bool>,
     pub packet_hook_register: Option<
@@ -312,7 +313,6 @@ pub struct PierApi {
         unsafe extern "C" fn(PierModHandle, PierConnCb, *mut c_void) -> PierPacketHookHandle,
     >,
 
-    // ── Level: biome, spawn, save, weather, path, sleep (dedicated fns)
     pub packet_conn_hook_unregister:
         Option<unsafe extern "C" fn(PierModHandle, PierPacketHookHandle) -> bool>,
     pub client_get_local_player: Option<unsafe extern "C" fn(*mut c_void, PierStrSink) -> bool>,
@@ -342,16 +342,20 @@ pub struct PierApi {
 
     // Capability group: client (client_*). All NULL on a server host.
     pub md_get_dimension_id: Option<unsafe extern "C" fn(PierStr) -> i32>,
+    // ── Mod-scoped scheduling
     pub schedule_for: Option<unsafe extern "C" fn(PierModHandle, PierTaskCb, *mut c_void) -> u64>,
     pub schedule_after_for:
         Option<unsafe extern "C" fn(PierModHandle, PierTaskCb, *mut c_void, u64) -> u64>,
     pub schedule_cancel: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
     pub schedule_pending_count: Option<unsafe extern "C" fn(PierModHandle) -> u32>,
+    // ── Client-side container resync
     pub container_refresh: Option<unsafe extern "C" fn(PierContainerRef) -> bool>,
 
     // Capability group: custom dimensions (md_*). All NULL when pier-dimensions was
+    // ── Titles
     pub player_send_title:
         Option<unsafe extern "C" fn(PierPlayerSel, i32, PierStr, i32, i32, i32) -> bool>,
+    // ── Cross-mod event bus
     pub bus_subscribe:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierBusCb, *mut c_void) -> u64>,
     pub bus_unsubscribe: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
@@ -359,13 +363,13 @@ pub struct PierApi {
     pub bus_publish_vetoable:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierStr, *mut u32) -> bool>,
     pub bus_subscriber_count: Option<unsafe extern "C" fn(PierStr) -> u32>,
+    // ── Plot-boundary confinement
     pub md_set_plot_merges: Option<unsafe extern "C" fn(i32, *const i32, i32)>,
     pub service_register:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierServiceCb, *mut c_void) -> u64>,
 
     // The tail of the append area, gated by struct_size.
 
-    // ── Mod-scoped scheduling
     pub service_unregister: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
     pub service_call: Option<
         unsafe extern "C" fn(PierModHandle, PierStr, PierStr, *mut c_void, PierStrSink) -> i32,
@@ -373,12 +377,10 @@ pub struct PierApi {
     pub service_list: Option<unsafe extern "C" fn(*mut c_void, PierStrSink)>,
     pub edit_set_block_nbt: Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr, i32) -> bool>,
 
-    // ── Client-side container resync
     pub edit_set_block_states:
         Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr, PierStr, i32) -> bool>,
     pub edit_set_block_entity: Option<unsafe extern "C" fn(i32, i32, i32, i32, PierStr) -> bool>,
 
-    // ── Titles
     pub edit_spawn_entity_nbt:
         Option<unsafe extern "C" fn(i32, PierStr, bool, f64, f64, f64, *mut PierActorId) -> bool>,
     pub edit_trace_ray: Option<
@@ -388,7 +390,6 @@ pub struct PierApi {
         Option<unsafe extern "C" fn(PierModHandle, PierStr, *const PierLaneDesc) -> u64>,
     pub lane_unpublish: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
 
-    // ── Cross-mod event bus
     pub lane_acquire:
         Option<unsafe extern "C" fn(PierModHandle, PierStr, u64, *mut PierLaneRef) -> i32>,
     pub lane_release: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
@@ -398,7 +399,6 @@ pub struct PierApi {
     pub level_chunks_loaded: Option<unsafe extern "C" fn(i32, i32, i32, i32, i32) -> i32>,
     pub player_conn_id: Option<unsafe extern "C" fn(PierPlayerSel) -> u64>,
 
-    // ── Plot-boundary confinement
     pub level_chunk_keys:
         Option<unsafe extern "C" fn(i32, i32, i32, *mut c_void, PierStrSink) -> i32>,
     pub level_delete_key: Option<unsafe extern "C" fn(PierStr) -> bool>,

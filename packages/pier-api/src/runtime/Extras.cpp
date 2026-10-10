@@ -10,7 +10,7 @@
  * BDS changes a signature. Mixed into another domain, which slots were appended could
  * only be recovered from git. Compiled into both targets.
  *
- * Read the existing 190 slots before adding one. Despawning an actor and setting
+ * Read the existing slots before adding one. Despawning an actor and setting
  * health are covered by AACT_DESPAWN and AACT_HEAL on actor_action, and a separate
  * slot would only fork the implementation.
  */

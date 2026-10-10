@@ -141,7 +141,8 @@ namespace pier::api_impl
             // The shared_ptr and the callback count are held until the callback
             // returns, so ModHost vetoes an unload rather than pulling the code section
             // away mid-dispatch.
-            CallbackScope scope{mod.get()};
+            CallbackScope scope{mod.get(), "bus"};
+            if (scope.revoked()) return false; // Published from a thread an unload is not on
             ran = true;
             return sub.cb(sub.user, ps(topic), ps(payload));
         }

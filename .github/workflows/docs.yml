@@ -1,0 +1,66 @@
+name: Docs
+
+# The documentation site on GitHub Pages, published with every release, so the site always
+# describes the version people can download. Run it by hand from the Actions tab to publish
+# between releases.
+#
+# One-time setup: Settings > Pages > Build and deployment > Source: GitHub Actions.
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a running one is never cancelled halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The whole history: every page shows when it last changed, read from git.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/configure-pages@v5
+
+      - name: Install
+        working-directory: docs
+        run: npm install
+
+      - name: Build
+        working-directory: docs
+        env:
+          # A project site lives under /<repository>/. With a custom domain set in
+          # Settings > Pages, set the repository variable DOCS_BASE to / instead.
+          DOCS_BASE: ${{ vars.DOCS_BASE || format('/{0}/', github.event.repository.name) }}
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

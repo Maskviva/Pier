@@ -12,7 +12,7 @@
  * index and the text are always emitted. The parameter shapes that make a client fail to render
  * the whole form are clamped here as well: a dropdown with empty options, an out-of-range default
  * index, and a slider default outside [min,max] or off the step grid. PIER_TRACE_FORM=1 prints the
- * element list and, on the way back, the variant kind and raw value of every key. / */
+ * element list and, on the way back, the variant kind and raw value of every key. */
 #ifndef PIER_BUILD_CLIENT
 
 #include <algorithm>
@@ -83,14 +83,14 @@ namespace pier::api_impl
         bool clampSliderValue(SliderSpec const& spec, double& v)
         {
             double const before = v;
-            if (!(v == v)) v = spec.min; // NaN
+            if (std::isnan(v)) v = spec.min;
             v = std::clamp(v, spec.min, spec.max);
             if (spec.step > 0.0)
             {
                 double k = std::round((v - spec.min) / spec.step);
                 v = std::clamp(spec.min + k * spec.step, spec.min, spec.max);
             }
-            return std::abs(before - v) > 1e-9 || !(before == before);
+            return std::abs(before - v) > 1e-9 || std::isnan(before);
         }
 
         /** PIER_TRACE_FORM=1 turns on form tracing. Read once. */
@@ -132,7 +132,7 @@ namespace pier::api_impl
             auto mod = weakMod.lock();
             if (!mod || mod.get() != pending.mod) return; // Mod is gone
             if (!mod->acceptsCallbacks()) return;                // Muted while disabled
-            CallbackScope scope{mod.get()};               // Veto unload during callback
+            CallbackScope scope{mod.get(), "form"};               // Veto unload during callback
             if (pending.cb) pending.cb(pending.user, ps(resultSnbt));
         }
 

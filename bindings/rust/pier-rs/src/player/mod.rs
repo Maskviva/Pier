@@ -109,7 +109,8 @@ impl Player {
     ///
     /// The host sinks one SNBT per player. An unparsable entry is skipped with a warning
     /// rather than emptying the whole table: one bad entry should not make who is on the
-    /// server unanswerable.
+    /// server unanswerable. Every ABI v2 host fills `list_players`, server and client alike,
+    /// so an empty list means that nobody is online.
     pub fn list() -> Vec<PlayerInfo> {
         if !crate::has_slot!(list_players) {
             return Vec::new();
@@ -149,7 +150,9 @@ impl Player {
         Ok(())
     }
 
-    /// Whether this selector currently resolves to anyone.
+    /// Whether this selector currently resolves to anyone. Every ABI v2 host fills
+    /// `player_resolve`, server and client alike, so false here means nobody matches, never
+    /// a host that cannot tell.
     pub fn is_online(&self) -> bool {
         self.resolve().is_ok()
     }
@@ -229,11 +232,12 @@ impl Player {
         }
         let v = NbtValue::parse(&text)
             .map_err(|e| Error(format!("parsing the death coordinate failed: {e}")))?;
-        let dim = self
-            .text(sys::PIER_PSTR_LAST_DEATH_DIMENSION)?
-            .trim()
-            .parse::<i32>()
-            .unwrap_or(0);
+        // An unreadable dimension is an error and not 0: read as the overworld it would
+        // send a death in a custom dimension to the wrong world (contract §5.1).
+        let dim_text = self.text(sys::PIER_PSTR_LAST_DEATH_DIMENSION)?;
+        let dim = dim_text.trim().parse::<i32>().map_err(|_| {
+            Error(format!("the last death dimension {dim_text:?} is not a dimension id"))
+        })?;
         Ok(Some((
             (v.get_f64("x")?, v.get_f64("y")?, v.get_f64("z")?),
             dim,

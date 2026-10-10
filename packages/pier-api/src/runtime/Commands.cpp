@@ -286,7 +286,8 @@ namespace pier::api_impl
                                 args = p.get<ParamKind::RawText>().mText;
                             }
                             std::string originName = originIdentity(origin);
-                            CallbackScope scope{local.mod}; // Veto unload during the callback
+                            // Vetoes an unload during the callback.
+                            CallbackScope scope{local.mod, "command"};
                             local.cb(
                                 local.user,
                                 ps(args),
@@ -317,7 +318,7 @@ namespace pier::api_impl
         struct ParamDecl
         {
             std::string name;
-            ll::command::ParamKind::Kind kind;
+            ll::command::ParamKind::Kind kind{};
             std::string enumName; // For Enum and SoftEnum
             bool optional = false;
             /** Set for kind `text`: the literal word this position must match.
@@ -708,7 +709,8 @@ namespace pier::api_impl
                                     output.error("command '" + cmdName + "' requires a higher permission level");
                                     return;
                                 }
-                                CallbackScope scope{local.mod}; // Veto unload during the callback
+                                // Vetoes an unload during the callback.
+                            CallbackScope scope{local.mod, "command"};
                                 std::string args = "{overload:" + snbtNum(idx) + ",args:{";
                                 for (auto const& d : decls)
                                 {

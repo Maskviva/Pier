@@ -48,23 +48,26 @@ namespace pier::hooks
                 return origin(actor, location);
             }
 
-            // These two name lookups throw while an actor is being destroyed, and an
-            // exception crossing a detour takes the whole server down, so they are caught
-            // here.
+            // These name lookups throw while an actor is being destroyed, and an exception
+            // crossing a detour takes the whole server down, so they are caught here. An
+            // unreadable target is sent as targetKnown 0 with targetIsPlayer 1, the
+            // direction a protection fails closed in.
             std::string targetName;
-            bool targetIsPlayer = false;
+            bool targetIsPlayer = true;
+            bool known = false;
             std::string itemName;
             try
             {
                 targetName = actor.getTypeName();
                 targetIsPlayer = actor.isPlayer();
+                known = true;
                 ::ItemStack const& held = this->getSelectedItem();
                 if (!held.isNull()) itemName = held.getTypeName();
             }
             catch (...)
             {
-                // A partial failure also counts as unreadable: a subscriber seeing an
-                // empty string falls back to a coarser action.
+                // The item name may be lost on its own; `known` covers the target only.
+                itemName.clear();
             }
 
             auto const& pos = actor.getPosition();
@@ -74,6 +77,7 @@ namespace pier::hooks
                 + ",\"z\":" + snbtNum(static_cast<int>(pos.z))
                 + ",\"dim\":" + snbtNum(static_cast<int>(actor.getDimensionId()))
                 + ",\"targetIsPlayer\":" + (targetIsPlayer ? "1" : "0")
+                + ",\"targetKnown\":" + (known ? "1" : "0")
                 + ",\"target\":\"" + snbtEscape(targetName)
                 + "\",\"item\":\"" + snbtEscape(itemName)
                 + "\"," + playerRefSnbt(*this) + "}";

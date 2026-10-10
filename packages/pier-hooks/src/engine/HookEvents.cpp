@@ -233,7 +233,7 @@ namespace pier::hooks
         } w; // Observation only: the write-back is a no-op
         for (auto& [cb, user, mod] : snap)
         {
-            CallbackScope scope{mod}; // Veto unload during the callback
+            CallbackScope scope{mod, "hook"}; // Veto unload during the callback
             callOne(cb, user, def.idText, snbt, &w, [](void*, PierStr) {});
         }
     }
@@ -247,7 +247,7 @@ namespace pier::hooks
         bool cancelled = false;
         for (auto& [cb, user, mod] : snap)
         {
-            CallbackScope scope{mod};
+            CallbackScope scope{mod, "hook"};
             std::string reply;
             callOne(cb, user, def.idText, snbt, &reply, [](void* ctx, PierStr v)
             {
@@ -272,7 +272,7 @@ namespace pier::hooks
         bool haveRedirect = false;
         for (auto& [cb, user, mod] : snap)
         {
-            CallbackScope scope{mod};
+            CallbackScope scope{mod, "hook"};
             std::string reply;
             callOne(cb, user, def.idText, snbt, &reply, [](void* ctx, PierStr v)
             {

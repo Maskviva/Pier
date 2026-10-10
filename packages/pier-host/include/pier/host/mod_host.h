@@ -1,3 +1,4 @@
+/** mod_host.h: the LeviLamina mod manager for mods of type pier. */
 #pragma once
 
 #include <memory>

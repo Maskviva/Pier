@@ -183,13 +183,14 @@ pub const PLAYER_OPERATED_ITEM_FRAME: &str = "PlayerOperatedItemFrameEvent";
 /// place and was already covered; changing its text was neither a place nor an interact.
 pub const PLAYER_EDIT_SIGN: &str = "PlayerEditSignEvent";
 
-/// Cancellable. A `Craft*` item-stack request: which action is in the `action` word
-/// (`craft` / `creative` / `anvil` / `grindstone` / `loom`), never the engine enumerator.
-/// Take, place and swap are not reported here.
+/// Not raised by this host. The name is kept for mods that already subscribe to it, and
+/// [`is_cancellable`] answers `Some(false)` for it so no mod mistakes it for a gate. It is
+/// left out of [`ALL_SYNTHETIC`], which lists only what the host registers.
 pub const PLAYER_REQUEST_ITEM_ACTION: &str = "PlayerRequestItemActionEvent";
 
 /// Cancellable. A player attacks a target. The payload carries `targetIsPlayer`, which is
-/// how the pvp flag tells attacking a player from attacking a mob.
+/// how the pvp flag tells attacking a player from attacking a mob, and `targetKnown`: when
+/// the target could not be read it is 0 and `targetIsPlayer` is 1, so a pvp rule refuses.
 pub const PLAYER_ATTACK_TARGET: &str = "PlayerAttackTargetEvent";
 
 /// Cancellable. A player changes game mode, including through `/gamemode` and calls from
@@ -414,7 +415,6 @@ pub const ALL_SYNTHETIC: &[&str] = &[
     PLAYER_ATTACK_ITEM_FRAME,
     PLAYER_OPERATED_ITEM_FRAME,
     PLAYER_EDIT_SIGN,
-    PLAYER_REQUEST_ITEM_ACTION,
     PLAYER_ATTACK_TARGET,
     PLAYER_CHANGE_GAME_MODE,
     PLAYER_DROP_ITEM,

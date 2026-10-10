@@ -53,8 +53,9 @@ EXEMPT_EXACT = {
 }
 EXEMPT_PREFIX = (
     "tools/",             # The checks and surrogates came with the new architecture and have no old counterpart
-    "docs/.vitepress/dist/",   # `.gitignore` line: what `vitepress build` writes, from sources already in the ledger
-    "docs/.vitepress/cache/",  # `.gitignore` line: what `vitepress dev`/`build` writes for its own dependency cache
+    "site/",                   # `.gitignore` line: what `mkdocs build` writes, from sources already in the ledger
+    "docs/en/api/",            # written by tools/gen-api-docs.py from the bindings, which are in the ledger;
+    "docs/zh/api/",            # the api-docs-current check holds them equal to what the generator writes
 )
 
 

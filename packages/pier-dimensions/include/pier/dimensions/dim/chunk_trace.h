@@ -17,7 +17,7 @@
  *
  * Environment variables are user-visible strings and fall under the product name ban of contract
  * §7, hence the PIER_ prefix. This is a diagnostic switch and not a data format, so no older name
- * is accepted. / */
+ * is accepted. */
 namespace pier::dimensions
 {
     /** The master tracing switch, reading the env once and caching it. */

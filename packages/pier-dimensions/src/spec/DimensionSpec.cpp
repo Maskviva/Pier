@@ -211,7 +211,7 @@ namespace pier::dimensions::spec
     {
         std::vector<std::string> problems;
         DimensionSpec s;
-        s.seed = static_cast<uint>(num(t, "seed", 0));
+        s.seed = static_cast<uint>(num(t, "seed", 0, &problems));
 
         // No terrain section is not an incomplete payload any more: it is how a mod
         // that supplies its own terrain describes a dimension. The pre-26.20.3 shapes
@@ -229,21 +229,21 @@ namespace pier::dimensions::spec
             auto const* hp = compound(t, "height", &problems);
             if (!hp) return {std::nullopt, problems};
             auto const& h = *hp;
-            s.minY = num(h, "min", s.minY);
-            s.maxY = num(h, "max", s.maxY);
+            s.minY = num(h, "min", s.minY, &problems);
+            s.maxY = num(h, "max", s.maxY, &problems);
         }
         if (t.contains("sky"))
         {
             auto const* skyp = compound(t, "sky", &problems);
             if (!skyp) return {std::nullopt, problems};
             auto const& sky = *skyp;
-            if (auto g = generatorNamed(str(sky, "client", "overworld"))) s.sky.client = *g;
+            if (auto g = generatorNamed(str(sky, "client", "overworld", &problems))) s.sky.client = *g;
             else problems.push_back("sky.client must be overworld, nether or end");
-            s.sky.skylight = boolean(sky, "skylight", !s.sky.timeless());
-            s.sky.weather = boolean(sky, "weather", !s.sky.timeless());
+            s.sky.skylight = boolean(sky, "skylight", !s.sky.timeless(), &problems);
+            s.sky.weather = boolean(sky, "weather", !s.sky.timeless(), &problems);
             if (sky.contains("time"))
             {
-                auto const tick = num(sky, "time", 0);
+                auto const tick = num(sky, "time", 0, &problems);
                 if (tick < 0 || tick > 23999) problems.push_back("sky.time must be 0..23999");
                 else s.sky.time = tick;
             }
@@ -261,19 +261,19 @@ namespace pier::dimensions::spec
             return {std::nullopt, problems};
         }
         auto const& terrain = *terrainp;
-        auto const kind = str(terrain, "kind", "");
+        auto const kind = str(terrain, "kind", "", &problems);
         if (kind == "native")
         {
-            auto g = generatorNamed(str(terrain, "generator", ""));
+            auto g = generatorNamed(str(terrain, "generator", "", &problems));
             if (!g) { problems.push_back("terrain.generator must be overworld, nether, end, flat or void"); return {std::nullopt, problems}; }
-            s.terrain = Native{*g, str(terrain, "biome", "minecraft:plains"), num(terrain, "engine_terrain", 1) != 0};
+            s.terrain = Native{*g, str(terrain, "biome", "minecraft:plains", &problems), num(terrain, "engine_terrain", 1, &problems) != 0};
         }
         else if (kind == "template" || kind == "volume")
         {
             Pack p;
             p.kind = kind;
-            p.path = str(terrain, "pack", "");
-            p.sha256 = str(terrain, "sha256", "");
+            p.path = str(terrain, "pack", "", &problems);
+            p.sha256 = str(terrain, "sha256", "", &problems);
             // The caller's spec names no hash yet; the stored one always does, because
             // Slots.cpp writes it. A hash that is present and malformed is refused.
             if (!p.sha256.empty() && !hexDigits(p.sha256)) problems.push_back("terrain.sha256 is not 64 hex digits");
@@ -309,15 +309,15 @@ namespace pier::dimensions::spec
         else if (kind == "layers")
         {
             Layers l;
-            l.baseY = static_cast<int>(num(terrain, "base_y", 63));
-            l.biome = str(terrain, "biome", "minecraft:plains");
+            l.baseY = static_cast<int>(num(terrain, "base_y", 63, &problems));
+            l.biome = str(terrain, "biome", "minecraft:plains", &problems);
             if (terrain.contains("layers") && terrain.at("layers").is_array())
             {
                 for (auto const& ePtr : terrain.at("layers").get<ListTag>())
                 {
                     if (!ePtr || ePtr->getId() != Tag::Type::Compound) continue;
                     auto const& c = static_cast<CompoundTag const&>(*ePtr);
-                    l.layers.push_back(Layers::Layer{str(c, "block", ""), static_cast<int>(num(c, "thickness", 1))});
+                    l.layers.push_back(Layers::Layer{str(c, "block", "", &problems), static_cast<int>(num(c, "thickness", 1, &problems))});
                 }
             }
             if (l.layers.empty() && !terrain.contains("grid"))
@@ -332,12 +332,12 @@ namespace pier::dimensions::spec
             {
                 auto const& g = *gp;
                 Layers::Grid grid;
-                grid.cell = static_cast<int>(num(g, "cell", 64));
-                grid.gap = static_cast<int>(num(g, "gap", 7));
-                grid.edge = static_cast<int>(num(g, "edge", 1));
-                grid.gapBlock = str(g, "gap_block", "minecraft:birch_planks");
-                grid.edgeBlock = str(g, "edge_block", "minecraft:stone_block_slab");
-                grid.confine = num(g, "confine", 0) != 0;
+                grid.cell = static_cast<int>(num(g, "cell", 64, &problems));
+                grid.gap = static_cast<int>(num(g, "gap", 7, &problems));
+                grid.edge = static_cast<int>(num(g, "edge", 1, &problems));
+                grid.gapBlock = str(g, "gap_block", "minecraft:birch_planks", &problems);
+                grid.edgeBlock = str(g, "edge_block", "minecraft:stone_block_slab", &problems);
+                grid.confine = num(g, "confine", 0, &problems) != 0;
                 l.grid = grid;
             }
             s.terrain = l;

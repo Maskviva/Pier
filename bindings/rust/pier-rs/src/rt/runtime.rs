@@ -139,6 +139,21 @@ macro_rules! require_slot {
     }};
 }
 
+/// The slot as an `Option`: `None` both when the host table is too short to hold it and when
+/// it is NULL. For a caller that degrades instead of returning an error; the length check is
+/// what makes reading the field sound on a host older than this SDK.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! opt_slot {
+    ($field:ident) => {
+        if $crate::__rt::has_slot(core::mem::offset_of!($crate::sys::PierApi, $field)) {
+            $crate::__rt::api().$field
+        } else {
+            None
+        }
+    };
+}
+
 /// Only asks whether it exists and returns no `Err`. For code that uses it when present
 /// and degrades otherwise.
 ///

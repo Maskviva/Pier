@@ -192,15 +192,32 @@ namespace pier::hooks
             st.blockEntities.add(Clock::now() - t0);
         }
 
-        void ensureProfilerHooked()
+        /** All five detours or none. A partial set would report buckets that read zero
+         *  because nothing timed them, so the ones that did attach are removed again and
+         *  the next profile_begin retries from scratch. */
+        bool ensureProfilerHooked()
         {
-            if (gProf.hooked) return;
-            ProfLevelTickHook::hook();
-            ProfDimensionTickHook::hook();
-            ProfRedstoneTickHook::hook();
-            ProfChunkBlocksHook::hook();
-            ProfBlockEntitiesHook::hook();
+            if (gProf.hooked) return true;
+            int const codes[] = {ProfLevelTickHook::hook(), ProfDimensionTickHook::hook(),
+                                 ProfRedstoneTickHook::hook(), ProfChunkBlocksHook::hook(),
+                                 ProfBlockEntitiesHook::hook()};
+            bool ok = true;
+            for (int c : codes) ok = ok && c == 0;
+            if (!ok)
+            {
+                hostLogger().error(
+                    "[profiler] detours failed to install (level {}, dimension {}, redstone {}, "
+                    "chunk blocks {}, block entities {}); profile_begin refuses",
+                    codes[0], codes[1], codes[2], codes[3], codes[4]);
+                ProfLevelTickHook::unhook();
+                ProfDimensionTickHook::unhook();
+                ProfRedstoneTickHook::unhook();
+                ProfChunkBlocksHook::unhook();
+                ProfBlockEntitiesHook::unhook();
+                return false;
+            }
             gProf.hooked = true;
+            return true;
         }
 
         bool api_profile_begin(uint32_t ticks)
@@ -209,7 +226,7 @@ namespace pier::hooks
                 auto& st = gProf;
                 if (ticks == 0 || ticks > 12000) return false; // Cap: ten minutes at 20 TPS
                 if (st.sampling) return false;                 // One window at a time
-                ensureProfilerHooked();
+                if (!ensureProfilerHooked()) return false;
                 st.levelTick.reset();
                 st.dimTick.reset();
                 st.redstone.reset();

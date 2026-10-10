@@ -1,6 +1,9 @@
+/** ModHost.cpp: loading a pier mod through the pier_main handshake, and unloading it. */
 #include "pier/host/mod_host.h"
 
 #include <chrono>
+#include <cstddef>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -10,11 +13,13 @@
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/mod/ModManagerRegistry.h"
+#include "ll/api/utils/ErrorUtils.h"
 #include "ll/api/utils/StringUtils.h"
 
 #include "pier/host/api_table.h"
 #include "pier/host/hosted_mod.h"
 #include "pier/host/spi.h"
+#include "pier/host/watchdog.h"
 #include "pier/support/config.h"
 #include "pier/support/i18n.h"
 #include "pier/support/log.h"
@@ -26,6 +31,35 @@ namespace pier
     namespace
     {
         ModHost* gInstance = nullptr;
+
+        /** The vtable length every mod since ABI v1 fills: the header scalars, the
+         *  instance and the three lifecycle callbacks. A later append to PierModVTable
+         *  raises sizeof and leaves this alone, so an older mod keeps loading. */
+        constexpr std::size_t kVTableMin = offsetof(PierModVTable, on_unload) + sizeof(void*);
+
+        /** What pier_main writes into. Any vtable a future SDK fills fits inside it, and a
+         *  write past sizeof(PierModVTable) lands here instead of in HostedMod. */
+        constexpr std::size_t kVTableScratch = 512;
+        static_assert(sizeof(PierModVTable) <= kVTableScratch);
+
+        /** A lifecycle callback under the watchdog and the callback counter. An exception
+         *  out of a mod is undefined behavior on its side already; catching it here turns
+         *  it into a refusal the loader can report instead of a terminate. */
+        bool runLifecycle(HostedMod& mod, bool (*fn)(void*), char const* site)
+        {
+            if (fn == nullptr) return true;
+            CallbackScope scope{&mod, site};
+            try
+            {
+                return fn(mod.vtable.instance);
+            }
+            catch (...)
+            {
+                hostLogger().error("[host] {}", pier::trf("host.mod_host.threw", mod.getName(), site));
+                ll::error_utils::printCurrentException(hostLogger());
+                return false;
+            }
+        }
     } // namespace
 
     ModHost::ModHost() : ModManager(ModHostName) { gInstance = this; }
@@ -58,9 +92,18 @@ namespace pier
         }
         auto entry = modDir / ll::string_utils::sv2u8sv(mod->getManifest().entry);
 
-        if (auto e = mod->lib.load(entry); e)
+        // Tracked before the dylib is mapped: DllMain and static constructors run inside
+        // LoadLibrary, and a mod that hangs there is reported by name like any other.
+        watchdog::track(mod.get(), mod->getName());
+        auto const loadError = [&]
         {
-            return ll::makeExceptionError(std::make_exception_ptr(*e));
+            watchdog::Scope watch{mod.get(), "LoadLibrary"};
+            return mod->lib.load(entry);
+        }();
+        if (loadError)
+        {
+            watchdog::untrack(mod.get());
+            return ll::makeExceptionError(std::make_exception_ptr(*loadError));
         }
 
         // The only entry symbol. A miss is refused outright, with no fallback to a
@@ -71,14 +114,22 @@ namespace pier
         {
             // pier_main has not been called, so the mod ran no code and there is
             // nothing registered to tear down.
-            (void)mod->lib.free();
+            {
+                watchdog::Scope watch{mod.get(), "FreeLibrary"};
+                (void)mod->lib.free();
+            }
+            watchdog::untrack(mod.get());
             return ll::makeStringError(
                 "'" + mod->getName() + "' does not export " PIER_MAIN_SYMBOL
                 "; the entry symbol is exported by the SDK registration macro"
             );
         }
 
-        mod->vtable = PierModVTable{};
+        // A mod writes its vtable with the sizeof it compiled. A mod built after the vtable
+        // grows writes past a host-sized struct, so pier_main fills an oversized zeroed
+        // scratch area and only the prefix this host knows is copied out of it.
+        alignas(PierModVTable) unsigned char scratch[kVTableScratch]{};
+        auto* out = reinterpret_cast<PierModVTable*>(scratch);
 
         /*  Single exit for every rejection path
          * Once pier_main has been called the mod may already have subscribed to
@@ -107,14 +158,37 @@ namespace pier
             }
             mod->listeners.clear();
             spi::runTeardown(mod.get());
-            (void)mod->lib.free();
+            {
+                watchdog::Scope watch{mod.get(), "FreeLibrary"};
+                (void)mod->lib.free();
+            }
+            watchdog::untrack(mod.get());
             return ll::makeStringError(std::move(why));
         };
 
-        if (!main(bridgeApi(), static_cast<PierModHandle>(mod.get()), &mod->vtable))
+        bool entered = false;
+        bool threw = false;
+        {
+            CallbackScope scope{mod.get(), PIER_MAIN_SYMBOL};
+            try
+            {
+                entered = main(bridgeApi(), static_cast<PierModHandle>(mod.get()), out);
+            }
+            catch (...)
+            {
+                ll::error_utils::printCurrentException(hostLogger());
+                threw = true;
+            }
+        }
+        if (threw)
+        {
+            return abandon("'" + mod->getName() + "': an exception left " PIER_MAIN_SYMBOL);
+        }
+        if (!entered)
         {
             return abandon("'" + mod->getName() + "': " PIER_MAIN_SYMBOL " returned false");
         }
+        std::memcpy(&mod->vtable, scratch, sizeof(PierModVTable));
 
         /*  Handshake: size first, then version, then target
          * The vtable carries its own struct_size (contract §2.3) and the host reads
@@ -122,12 +196,20 @@ namespace pier
          * when the length is too small even abi_version is untrustworthy, so the
          * length check comes first. */
         auto const& vt = mod->vtable;
-        if (vt.struct_size < sizeof(PierModVTable))
+        if (vt.struct_size < kVTableMin)
         {
             return abandon(
                 "'" + mod->getName() + "' filled in a vtable of " + std::to_string(vt.struct_size)
-                + " bytes, the host requires at least " + std::to_string(sizeof(PierModVTable))
+                + " bytes, the host requires at least " + std::to_string(kVTableMin)
                 + "; its SDK does not set struct_size, or predates ABI v1"
+            );
+        }
+        if (vt.struct_size > kVTableScratch)
+        {
+            return abandon(
+                "'" + mod->getName() + "' declares a vtable of " + std::to_string(vt.struct_size)
+                + " bytes, larger than the " + std::to_string(kVTableScratch)
+                + " this host lends to pier_main; its SDK sets struct_size wrongly"
             );
         }
 
@@ -199,14 +281,12 @@ namespace pier
         {
             auto& hosted = static_cast<HostedMod&>(self);
             hosted.commandsMuted = false;
-            auto* fn = hosted.vtable.on_enable;
-            return fn ? fn(hosted.vtable.instance) : true;
+            return runLifecycle(hosted, hosted.vtable.on_enable, "on_enable");
         });
         mod->onDisable([](ll::mod::Mod& self)
         {
             auto& hosted = static_cast<HostedMod&>(self);
-            bool const ok =
-                hosted.vtable.on_disable ? hosted.vtable.on_disable(hosted.vtable.instance) : true;
+            bool const ok = runLifecycle(hosted, hosted.vtable.on_disable, "on_disable");
             hosted.commandsMuted = true;
             return ok;
         });
@@ -243,16 +323,16 @@ namespace pier
         // so no new callback enters while the counter is read, then a short grace period
         // lets the ones inside finish; without the gate one could start between the read
         // and FreeLibrary. The lane busy flag covers lanes only, this covers every site.
-        mod->unloading.store(true, std::memory_order_release);
-        int depth = mod->inCallback.load(std::memory_order_acquire);
+        mod->unloading.store(true, std::memory_order_seq_cst);
+        int depth = mod->inCallback.load(std::memory_order_seq_cst);
         for (int waited = 0; depth > 0 && waited < 200; waited += 5)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            depth = mod->inCallback.load(std::memory_order_acquire);
+            depth = mod->inCallback.load(std::memory_order_seq_cst);
         }
         if (depth > 0)
         {
-            mod->unloading.store(false, std::memory_order_release);
+            mod->unloading.store(false, std::memory_order_seq_cst);
             return ll::makeStringError(
                 "'" + std::string(name) + "' cannot be unloaded now, " + std::to_string(depth)
                 + " of its callbacks are executing, either unloading itself from inside "
@@ -260,9 +340,9 @@ namespace pier
             );
         }
 
-        if (mod->vtable.on_unload && !mod->vtable.on_unload(mod->vtable.instance))
+        if (!runLifecycle(*mod, mod->vtable.on_unload, "on_unload"))
         {
-            mod->unloading.store(false, std::memory_order_release);
+            mod->unloading.store(false, std::memory_order_seq_cst);
             return ll::makeStringError("'" + std::string(name) + "' refused to unload, on_unload returned false");
         }
         mod->commandsMuted = true;
@@ -291,9 +371,15 @@ namespace pier
         // is documented in spi.h).
         spi::runTeardown(mod.get());
 
-        if (auto const e = mod->lib.free(); e)
+        auto const freeError = [&]
         {
-            return ll::makeExceptionError(std::make_exception_ptr(*e));
+            watchdog::Scope watch{mod.get(), "FreeLibrary"};
+            return mod->lib.free();
+        }();
+        watchdog::untrack(mod.get());
+        if (freeError)
+        {
+            return ll::makeExceptionError(std::make_exception_ptr(*freeError));
         }
         eraseMod(name);
         return {};

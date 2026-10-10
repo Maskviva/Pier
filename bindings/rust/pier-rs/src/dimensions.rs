@@ -147,7 +147,7 @@ pub fn is_available() -> bool {
     if !crate::has_slot!(md_is_available) {
         return false;
     }
-    match crate::__rt::api().md_is_available {
+    match crate::opt_slot!(md_is_available) {
         Some(f) => unsafe { f() },
         None => false,
     }
@@ -165,7 +165,7 @@ pub fn dimension_id(name: &str) -> Option<i32> {
     if !crate::has_slot!(md_get_dimension_id) {
         return None;
     }
-    let f = crate::__rt::api().md_get_dimension_id?;
+    let f = crate::opt_slot!(md_get_dimension_id)?;
     match unsafe { f(s(name)) } {
         id if id >= 0 => Some(id),
         _ => None,
@@ -183,7 +183,7 @@ pub fn list() -> Vec<ExistingDimension> {
     if !crate::has_slot!(md_list_dimensions) {
         return Vec::new();
     }
-    let Some(f) = crate::__rt::api().md_list_dimensions else {
+    let Some(f) = crate::opt_slot!(md_list_dimensions) else {
         return Vec::new();
     };
     // The host sinks once per dimension rather than handing over the whole array at once,
@@ -228,7 +228,8 @@ pub fn set_rule(dimension: i32, rule: DimensionRule, allow: bool) -> Result<()> 
 
 /// Reads one rule. A dimension with no explicit registration for that rule gives
 /// `Ok(None)`, meaning it follows vanilla behavior, which is different from being
-/// registered with the value false.
+/// registered with the value false. A host older than this SDK that does not know `rule`
+/// also answers `Ok(None)`; the ABI gives no way to tell the two apart.
 pub fn rule(dimension: i32, rule: DimensionRule) -> Result<Option<bool>> {
     let f = crate::require_slot!(md_get_dimension_rule, "reading a dimension rule");
     let mut out = false;
@@ -396,7 +397,7 @@ pub fn add_dimension_pack(
     config_path: &str,
     spec_snbt: &str,
 ) -> std::result::Result<i32, PackError> {
-    let f = match crate::rt::runtime::api().md_add_dimension_pack {
+    let f = match crate::opt_slot!(md_add_dimension_pack) {
         Some(f) => f,
         None => {
             return Err(PackError {
@@ -418,7 +419,7 @@ pub fn add_dimension_pack(
 /// What a pack asks for, as the JSON document `md_pack_inspect` describes, without
 /// registering anything. A refusal carries the host's problem lines.
 pub fn pack_inspect(config_path: &str) -> std::result::Result<String, PackError> {
-    let f = match crate::rt::runtime::api().md_pack_inspect {
+    let f = match crate::opt_slot!(md_pack_inspect) {
         Some(f) => f,
         None => {
             return Err(PackError {
@@ -463,21 +464,22 @@ pub fn retire_dimension(name: &str) -> Result<bool> {
     Ok(unsafe { f(s(name)) })
 }
 
-/// 由 mod 自己填地形的维度。
+/// A dimension whose terrain the mod fills itself.
 ///
-/// 实现这个 trait 的东西会被交到区块工作线程上，所以它是 `Send + Sync`，而且
-/// **一旦注册就不能再改**。这不是风格要求，是 `abi.h` 的 `PierGenerateChunkFn`
-/// 写死的契约：宿主并发调用它，同一坐标必须永远给同一答案，回调里不能调宿主的
-/// 任何别的槽位。
+/// An implementation is handed to the chunk worker threads, so it is `Send + Sync`, and it
+/// must not change once registered. That is the contract of `PierGenerateChunkFn` in
+/// `abi.h`: the host calls it concurrently, the same coordinates must always give the same
+/// answer, and the callback must not call any other slot of the host.
 ///
-/// 一个只读自己 mount 结果的生成器天然满足这三条；一个去问世界当前状态的一条都
-/// 不满足。
+/// A generator that reads only what it mounted satisfies all three; one that consults the
+/// current state of the world satisfies none.
 pub trait ChunkSource: Send + Sync + 'static {
-    /// 填一个区块。`materials` 有 `256 * height` 项，下标
-    /// `(x * 16 + z) * height + y`，y 从 `min_y` 起；`biomes` 有 256 项，每列一个。
-    /// 两者都是注册时那两张调色板的下标，材质 0 是空气。
+    /// Fills one chunk. `materials` has `256 * height` entries, indexed
+    /// `(x * 16 + z) * height + y` with y counted from `min_y`; `biomes` has 256, one per
+    /// column. Both hold indices into the two palettes given at registration, and material
+    /// 0 is air.
     ///
-    /// 返回 false = 这一块填不出来，宿主填空气并记一行。
+    /// Returning false means the chunk could not be filled; the host writes air and logs it.
     fn fill(
         &self,
         chunk_x: i32,
@@ -489,10 +491,10 @@ pub trait ChunkSource: Send + Sync + 'static {
     ) -> bool;
 }
 
-/// 注册时交给宿主的那一份，连同它的两张调色板。
+/// What is handed to the host at registration, with its two palettes.
 pub struct Terrain {
     pub source: Box<dyn ChunkSource>,
-    /// 下标 0 必须是 `minecraft:air`：宿主拿它当「这一格没人写过」。
+    /// Entry 0 must be `minecraft:air`: the host reads it as "nothing was written here".
     pub materials: Vec<String>,
     pub biomes: Vec<String>,
 }
@@ -501,8 +503,9 @@ unsafe extern "C" fn generate_trampoline(
     user: *mut core::ffi::c_void,
     request: *const sys::PierChunkRequest,
 ) -> i32 {
-    // 恐慌不能穿过 FFI 边界：那边是引擎的区块流水线，展开进去是未定义行为。
-    // 抓住、返回 0，宿主会填空气并说一句——比让整个进程按未定义行为走要好。
+    // A panic must not cross the FFI boundary into the engine's chunk pipeline, where
+    // unwinding is undefined behavior. It is caught and reported as 0, and the host writes
+    // air and logs it.
     let done = std::panic::catch_unwind(|| {
         let (source, req) = unsafe { (&*(user as *const Terrain), &*request) };
         let n = 256usize * req.height.max(0) as usize;
@@ -523,12 +526,16 @@ unsafe extern "C" fn generate_trampoline(
     i32::from(done.unwrap_or(false))
 }
 
-/// 注册一个由这个 mod 填地形的维度；见 `abi.h` 的 `md_add_dimension_generated`。
+/// Registers a dimension whose terrain this mod fills; see `md_add_dimension_generated` in
+/// `abi.h`.
 ///
-/// `spec_snbt` 只带 seed / height / sky，**没有 terrain 段**——宿主不再理解地形。
+/// `spec_snbt` carries only seed, height and sky. A terrain section is refused, since the
+/// host does not read one.
 ///
-/// `terrain` 被泄漏成一个 `'static`：宿主会在区块线程上一直用它，而维度的生命期
-/// 由宿主决定，这一侧没有一个能安全回收它的时刻。一个维度一份，数量等于世界数量。
+/// `terrain` is leaked into a `'static`: the host uses it on chunk threads for as long as
+/// the dimension lives, and that lifetime is the host's, so this side has no moment at
+/// which reclaiming it is safe. A refused registration leaks it too, because a generator
+/// built during the attempt may still hold it. Register once per dimension.
 pub fn add_dimension_generated(name: &str, spec_snbt: &str, terrain: Terrain) -> Result<i32> {
     let f = crate::require_slot!(
         md_add_dimension_generated,
@@ -560,10 +567,12 @@ pub fn add_dimension_generated(name: &str, spec_snbt: &str, terrain: Terrain) ->
     Ok(r)
 }
 
-/// 给一个维度的圈禁规则装上格子几何；见 `md_set_dimension_cells`。
+/// Gives a dimension the cell geometry its confinement rules use; see
+/// `md_set_dimension_cells`.
 ///
-/// `cell` 是格子边长，`gap` 是格子之间的间隔，单位是方块。`cell` 传 0 表示撤掉，
-/// 之后 `PIER_DIMRULE_*_CROSS_CELL` 两条规则就没有可依据的答案了。
+/// `cell` is the edge of a cell and `gap` the space between cells, both in blocks. A `cell`
+/// of 0 removes the geometry, after which the two `PIER_DIMRULE_*_CROSS_CELL` rules have
+/// nothing to answer from.
 pub fn set_dimension_cells(dim_id: i32, cell: i32, gap: i32) -> Result<()> {
     let f = crate::require_slot!(
         md_set_dimension_cells,

@@ -1,0 +1,12 @@
+[package]
+name = "hello-pier-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Runnable reference for the four steps of contract §10, adding a language."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pier-rs = { path = "../../bindings/rust/pier-rs" }

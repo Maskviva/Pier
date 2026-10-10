@@ -5,6 +5,7 @@
  * interpolated at the cell corners. The surface walk is Java's per-column loop over
  * stone depth above and below and the water height. Every value the tool computes in
  * float is computed in float here, in the same order. */
+#include "pier/support/log.h"
 #include "pier/dimensions/pack/volume_pack.h"
 
 #include <algorithm>
@@ -130,11 +131,20 @@ namespace pier::dimensions::pack
         {
             if (static_cast<SurfOp>(p.surf[i].op) != SurfOp::Block) continue;
             auto const& name = p.strings[p.surf[i].aux];
-            std::uint16_t m = 0;
+            // size_t, not the uint16_t the index is stored as: a narrow counter wraps at
+            // 65536 and the search never ends. A palette past that range cannot be indexed,
+            // so the surface rule falls back to air and says so.
+            std::size_t m = 0;
             for (; m < mMaterials.size(); ++m)
                 if (mMaterials[m] == name) break;
+            if (m > 0xFFFF)
+            {
+                hostLogger().warn("[pack] surface block '{}' is past the 65536-entry material "
+                                  "palette; air is used for it", name);
+                continue;
+            }
             if (m == mMaterials.size()) mMaterials.push_back(name);
-            mSurfMaterial[i] = m;
+            mSurfMaterial[i] = static_cast<std::uint16_t>(m);
         }
         mCellW = 4 * static_cast<std::int32_t>(p.settings.sizeHorizontal);
         mCellH = 4 * static_cast<std::int32_t>(p.settings.sizeVertical);

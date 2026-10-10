@@ -25,6 +25,6 @@ namespace pier::dimensions
      * block updates still display.
      *
      * expectedMin and expectedMax must be exactly the pair written into the DimensionDefinition at
-     * registration. / */
+     * registration. */
     void verifyHeightRange(::Dimension& dim, int expectedMin, int expectedMax, char const* who);
 } // namespace pier::dimensions

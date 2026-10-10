@@ -1,0 +1,252 @@
+# The English site. The Chinese site is mkdocs.zh.yml, built into site/zh; the language
+# selector in the header links the two.
+site_name: Pier
+site_description: LeviLamina mods in Rust, C++, Go and Zig
+repo_url: https://github.com/Maskviva/pier
+repo_name: Maskviva/pier
+edit_uri: edit/main/docs/en/
+docs_dir: en
+site_dir: ../site
+exclude_docs: |
+  verify-delayload.md
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: en
+  icon:
+    logo: material/anchor
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.select
+    - content.tabs.link
+
+plugins:
+  - search
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      auto_title: true
+      linenums: true
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - assets/stylesheets/pier.css
+
+extra:
+  alternate:
+    - name: English
+      link: !ENV [DOCS_LINK_EN, "/"]
+      lang: en
+    - name: 中文
+      link: !ENV [DOCS_LINK_ZH, "/zh/"]
+      lang: zh
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Maskviva/pier
+
+# Links into a page are checked down to the heading they name, so a renamed interface
+# fails the --strict build instead of leaving a link that lands at the top of the page.
+validation:
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - User Guide:
+      - guide/installation.md
+      - guide/configuration.md
+      - guide/troubleshooting.md
+      - guide/compatibility.md
+  - Tutorials:
+      - rust/first-mod.md
+      - cpp/first-mod.md
+      - go/first-mod.md
+      - zig/first-mod.md
+      - Common tasks:
+          - tasks/index.md
+          - tasks/lifecycle.md
+          - Events:
+              - tasks/events.md
+              - guide/event-payloads.md
+          - tasks/commands.md
+          - Game objects:
+              - tasks/player.md
+              - tasks/entity.md
+              - tasks/world.md
+              - tasks/item.md
+          - tasks/scheduler.md
+          - tasks/crossmod.md
+          - tasks/data.md
+          - tasks/economy.md
+  - API:
+      # BEGIN gen-api-docs
+      - api/index.md
+      - "Rust":
+          - api/rust/index.md
+          - "crate root": api/rust/root.md
+          - "player": api/rust/player.md
+          - "entity": api/rust/entity.md
+          - "world": api/rust/world.md
+          - "block": api/rust/block.md
+          - "item": api/rust/item.md
+          - "container": api/rust/container.md
+          - "event": api/rust/event.md
+          - "event::names": api/rust/event-names.md
+          - "command": api/rust/command.md
+          - "gui": api/rust/gui.md
+          - "scoreboard": api/rust/scoreboard.md
+          - "packet": api/rust/packet.md
+          - "server": api/rust/server.md
+          - "Host": api/rust/host.md
+          - "bus": api/rust/bus.md
+          - "service": api/rust/service.md
+          - "lane": api/rust/lane.md
+          - "kvdb": api/rust/kvdb.md
+          - "money": api/rust/money.md
+          - "nbt": api/rust/nbt.md
+          - "sim": api/rust/sim.md
+          - "dimensions": api/rust/dimensions.md
+          - "client": api/rust/client.md
+          - "registry": api/rust/registry.md
+          - "types": api/rust/types.md
+      - "Go":
+          - api/go/index.md
+          - "Core": api/go/core.md
+          - "Events": api/go/events.md
+          - "Commands": api/go/commands.md
+          - "Server, ticks and system information": api/go/server.md
+          - "World": api/go/world.md
+          - "Bulk world editing": api/go/edit.md
+          - "Players": api/go/player.md
+          - "Actors": api/go/entity.md
+          - "Blocks": api/go/block.md
+          - "Items and containers": api/go/item.md
+          - "Scoreboard": api/go/scoreboard.md
+          - "Forms": api/go/form.md
+          - "NBT and the key-value database": api/go/data.md
+          - "Economy": api/go/money.md
+          - "Packets": api/go/packet.md
+          - "Simulated players": api/go/sim.md
+          - "Client": api/go/client.md
+          - "Custom dimensions": api/go/dimensions.md
+          - "Cross-mod": api/go/crossmod.md
+          - "Registries": api/go/registry.md
+          - "SNBT": api/go/nbt.md
+          - "Raw": api/go/raw.md
+      - "Zig":
+          - api/zig/index.md
+          - "Core": api/zig/core.md
+          - "Events": api/zig/events.md
+          - "Commands": api/zig/commands.md
+          - "Server, ticks and system information": api/zig/server.md
+          - "Players": api/zig/player.md
+          - "Actors": api/zig/entity.md
+          - "Blocks": api/zig/block.md
+          - "Items and containers": api/zig/item.md
+          - "Cross-mod": api/zig/crossmod.md
+          - "SNBT": api/zig/nbt.md
+      - "C++":
+          - api/cpp/index.md
+          - "Core": api/cpp/core.md
+          - "Events": api/cpp/events.md
+          - "Commands": api/cpp/commands.md
+          - "Server, ticks and system information": api/cpp/server.md
+          - "World": api/cpp/world.md
+          - "Bulk world editing": api/cpp/edit.md
+          - "Players": api/cpp/player.md
+          - "Actors": api/cpp/entity.md
+          - "Blocks": api/cpp/block.md
+          - "Items and containers": api/cpp/item.md
+          - "Scoreboard": api/cpp/scoreboard.md
+          - "Forms": api/cpp/form.md
+          - "NBT and the key-value database": api/cpp/data.md
+          - "Economy": api/cpp/money.md
+          - "Packets": api/cpp/packet.md
+          - "Simulated players": api/cpp/sim.md
+          - "Client": api/cpp/client.md
+          - "Custom dimensions": api/cpp/dimensions.md
+          - "Cross-mod": api/cpp/crossmod.md
+          - "Registries": api/cpp/registry.md
+          - "Shared types": api/cpp/types.md
+      # END gen-api-docs
+  - Bindings:
+      - Rust:
+          - rust/index.md
+          - rust/lifecycle.md
+          - rust/events.md
+          - rust/commands.md
+          - rust/errors.md
+          - rust/threads.md
+          - rust/cross-mod.md
+          - rust/api.md
+      - C++:
+          - cpp/index.md
+      - Go:
+          - go/index.md
+          - go/cross-mod.md
+      - Zig:
+          - zig/index.md
+      - guide/bridge.md
+  - Architecture:
+      - guide/what-is-pier.md
+      - guide/why.md
+      - guide/design.md
+      - guide/abi.md
+      - guide/manifest.md
+      - guide/adding-a-language.md
+  - FAQ: guide/faq.md

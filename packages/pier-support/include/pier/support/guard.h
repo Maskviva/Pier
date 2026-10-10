@@ -1,3 +1,4 @@
+/** guard.h: the exception barrier around every api_* entry point. */
 #pragma once
 // Every `api_*` entry point sits one frame below an `extern "C"` frame of another
 // language. A C++ exception crossing that boundary is undefined behavior, and in

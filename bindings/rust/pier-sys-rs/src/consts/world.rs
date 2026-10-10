@@ -42,7 +42,7 @@ pub const PIER_BPROP_EXPLOSION_RESISTANCE: i32 = 9;
 pub const PIER_BPROP_FRICTION: i32 = 10;
 /// Block::isContainerBlock
 pub const PIER_BPROP_IS_CONTAINER: i32 = 11;
-/// Block::isDoorBlock
+/// unsupported since BDS 1.26.40: BlockType::isDoorBlock is gone
 pub const PIER_BPROP_IS_DOOR: i32 = 12;
 /// Block::isFenceBlock
 pub const PIER_BPROP_IS_FENCE: i32 = 13;
@@ -50,7 +50,7 @@ pub const PIER_BPROP_IS_FENCE: i32 = 13;
 pub const PIER_BPROP_IS_RAIL: i32 = 14;
 /// Block::isSlabBlock
 pub const PIER_BPROP_IS_SLAB: i32 = 15;
-/// Block::isStairBlock
+/// unsupported since BDS 1.26.40: BlockType::isStairBlock is gone
 pub const PIER_BPROP_IS_STAIR: i32 = 16;
 /// Block::isWallBlock
 pub const PIER_BPROP_IS_WALL: i32 = 17;

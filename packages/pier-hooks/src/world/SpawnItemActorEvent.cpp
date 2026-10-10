@@ -22,7 +22,7 @@
 #include "mc/world/item/ItemStack.h"
 #include "mc/world/item/ItemStackBase.h"
 #include "mc/world/level/BlockSource.h"
-#include "mc/world/level/Spawner.h"
+#include "mc/world/level/BedrockSpawner.h"
 #include "mc/world/level/dimension/DimensionType.h"
 
 #include "pier/support/log.h"
@@ -35,11 +35,13 @@ namespace pier::hooks
     {
         HookEventDef& spawnItemDef(); // Forward declaration
 
+        // BedrockSpawner and not Spawner: the level owns a BedrockSpawner, which overrides
+        // spawnItem, so a detour on Spawner::$spawnItem installs and never fires.
         LL_TYPE_INSTANCE_HOOK(
             SpawnerSpawnItemHook,
             ll::memory::HookPriority::Normal,
-            Spawner,
-            &Spawner::$spawnItem,
+            BedrockSpawner,
+            &BedrockSpawner::$spawnItem,
             ::ItemActor*,
             ::BlockSource& region,
             ::ItemStack const& inst,
@@ -55,6 +57,8 @@ namespace pier::hooks
             int count = 0;
             std::string src;
             bool srcIsPlayer = false;
+            // Sent as "partial":1, so the defaults below are not read as answers.
+            bool readFailed = false;
             try
             {
                 dim = static_cast<int>(region.getDimensionId());
@@ -72,6 +76,7 @@ namespace pier::hooks
             catch (...)
             {
                 item.clear();
+                readFailed = true;
             }
 
             std::string snbt = "{\"eventId\":\"SpawnItemActorEvent\""
@@ -83,7 +88,8 @@ namespace pier::hooks
                 + ",\"count\":" + snbtNum(count)
                 + ",\"throwTime\":" + snbtNum(throwTime)
                 + ",\"sourceIsPlayer\":" + (srcIsPlayer ? "1" : "0")
-                + ",\"source\":\"" + snbtEscape(src) + "\"}";
+                + ",\"source\":\"" + snbtEscape(src) + "\""
+                + (readFailed ? ",\"partial\":1" : "") + "}";
 
             if (dispatchHookEventCancellable(def, snbt)) return nullptr;
             return origin(region, inst, spawner, pos, throwTime);

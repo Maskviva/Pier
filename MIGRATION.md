@@ -16,51 +16,51 @@ the new repository right now.
 | `README.md` | `README.md` | ✔ rewritten for Pier: why it exists, how it is designed, and where the first official binding lives. The progress section the old one carried is gone; MIGRATION.md is where status belongs |
 | `docs/CHANGELOG.md` | `—` | ✂ cut, not migrated: the version history of v1 is archived with the old repository and v2 starts its era again at ABI v1 |
 | `docs/DESIGN.md` | `—` | ✂ cut, not migrated: the design narrative of v1 was absorbed by CONTRACT v2 and the abi.h file header, and the history is archived in the old repository |
-| `docs/README.zh.md` | `docs/README.zh.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/RELOAD.md` | `docs/RELOAD.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/advanced/PORTING_NOTES.md` | `docs/advanced/PORTING_NOTES.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/advanced/abi.md` | `docs/advanced/abi.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/advanced/architecture.md` | `docs/advanced/architecture.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/advanced/decisions.md` | `docs/advanced/decisions.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/advanced/extending.md` | `docs/advanced/extending.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/advanced/memory-safety.md` | `docs/advanced/memory-safety.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/actor/command.md` | `docs/api/actor/command.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/actor/entity.md` | `docs/api/actor/entity.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/actor/gui.md` | `docs/api/actor/gui.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/actor/money.md` | `docs/api/actor/money.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/actor/player.md` | `docs/api/actor/player.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/actor/sim.md` | `docs/api/actor/sim.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/core/bus.md` | `docs/api/core/bus.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/core/lane.md` | `docs/api/core/lane.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/core/objects.md` | `docs/api/core/objects.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/core/overview.md` | `docs/api/core/overview.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/core/service.md` | `docs/api/core/service.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/core/system.md` | `docs/api/core/system.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/infra/data.md` | `docs/api/infra/data.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/infra/event.md` | `docs/api/infra/event.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/infra/packet.md` | `docs/api/infra/packet.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/infra/scoreboard.md` | `docs/api/infra/scoreboard.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/infra/server.md` | `docs/api/infra/server.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/rt/client.md` | `docs/api/rt/client.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/rt/log.md` | `docs/api/rt/log.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/rt/scheduler.md` | `docs/api/rt/scheduler.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/world/block.md` | `docs/api/world/block.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/world/container.md` | `docs/api/world/container.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/world/dimensions.md` | `docs/api/world/dimensions.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/world/item.md` | `docs/api/world/item.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/world/nbt.md` | `docs/api/world/nbt.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/api/world/world.md` | `docs/api/world/world.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/guide/commands.md` | `docs/guide/commands.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/guide/concepts.md` | `docs/guide/concepts.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/guide/events.md` | `docs/guide/events.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/guide/getting-started.md` | `docs/guide/getting-started.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/guide/logging-scheduling.md` | `docs/guide/logging-scheduling.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/guide/world.md` | `docs/guide/world.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/index.md` | `docs/index.md` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `docs/package.json` | `docs/package.json` | ⬜ outstanding, to be migrated by rewriting file by file |
-| `examples/region-scan/Cargo.toml` | `examples/hello-pier/Cargo.toml` | ✔ done, rewritten as hello-pier |
-| `examples/region-scan/manifest.json` | `examples/hello-pier/manifest.json` | ✔ done, rewritten: the type and the dependency name became "pier"; the mod the old version depended on no longer existed and the example could not load |
-| `examples/region-scan/src/lib.rs` | `examples/hello-pier/src/lib.rs` | ⬜ outstanding, region-scan itself is still to be migrated: it depends on the types, command and player domain modules, which were not written yet, so hello-pier verifies the four steps of contract §10 first |
+| `docs/README.zh.md` | `docs/en/README.zh.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/RELOAD.md` | `docs/en/RELOAD.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/advanced/PORTING_NOTES.md` | `docs/en/advanced/PORTING_NOTES.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/advanced/abi.md` | `docs/en/advanced/abi.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/advanced/architecture.md` | `docs/en/advanced/architecture.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/advanced/decisions.md` | `docs/en/advanced/decisions.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/advanced/extending.md` | `docs/en/advanced/extending.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/advanced/memory-safety.md` | `docs/en/advanced/memory-safety.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/actor/command.md` | `docs/en/api/actor/command.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/actor/entity.md` | `docs/en/api/actor/entity.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/actor/gui.md` | `docs/en/api/actor/gui.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/actor/money.md` | `docs/en/api/actor/money.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/actor/player.md` | `docs/en/api/actor/player.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/actor/sim.md` | `docs/en/api/actor/sim.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/core/bus.md` | `docs/en/api/core/bus.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/core/lane.md` | `docs/en/api/core/lane.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/core/objects.md` | `docs/en/api/core/objects.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/core/overview.md` | `docs/en/api/core/overview.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/core/service.md` | `docs/en/api/core/service.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/core/system.md` | `docs/en/api/core/system.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/infra/data.md` | `docs/en/api/infra/data.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/infra/event.md` | `docs/en/api/infra/event.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/infra/packet.md` | `docs/en/api/infra/packet.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/infra/scoreboard.md` | `docs/en/api/infra/scoreboard.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/infra/server.md` | `docs/en/api/infra/server.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/rt/client.md` | `docs/en/api/rt/client.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/rt/log.md` | `docs/en/api/rt/log.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/rt/scheduler.md` | `docs/en/api/rt/scheduler.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/world/block.md` | `docs/en/api/world/block.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/world/container.md` | `docs/en/api/world/container.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/world/dimensions.md` | `docs/en/api/world/dimensions.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/world/item.md` | `docs/en/api/world/item.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/world/nbt.md` | `docs/en/api/world/nbt.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/api/world/world.md` | `docs/en/api/world/world.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/guide/commands.md` | `docs/en/guide/commands.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/guide/concepts.md` | `docs/en/guide/concepts.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/guide/events.md` | `docs/en/guide/events.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/guide/getting-started.md` | `docs/en/guide/getting-started.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/guide/logging-scheduling.md` | `docs/en/guide/logging-scheduling.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/guide/world.md` | `docs/en/guide/world.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/index.md` | `docs/en/index.md` | ⬜ outstanding, to be migrated by rewriting file by file |
+| `docs/package.json` | `docs/requirements.txt` | ✔ done, the site moved from VitePress to MkDocs and its dependencies are Python ones |
+| `examples/region-scan/Cargo.toml` | `examples/hello-pier-rs/Cargo.toml` | ✔ done, rewritten as hello-pier-rs |
+| `examples/region-scan/manifest.json` | `examples/hello-pier-rs/manifest.json` | ✔ done, rewritten: the type and the dependency name became "pier"; the mod the old version depended on no longer existed and the example could not load |
+| `examples/region-scan/src/lib.rs` | `examples/hello-pier-rs/src/lib.rs` | ⬜ outstanding, region-scan itself is still to be migrated: it depends on the types, command and player domain modules, which were not written yet, so hello-pier verifies the four steps of contract §10 first |
 | `packages/pier-abi/include/sdk/abi.h` | `packages/pier-abi/include/sdk/abi.h` | ✔ done, recut: made C11, one layout, a four-field header, 190 slots in identical order cell for cell, verified under both compilers |
 | `packages/pier-abi/xmake.lua` | `packages/pier-abi/xmake.lua` | ✔ done, rewritten |
 | `packages/pier-api/include/pier/api/common.h` | `pier/api/bridge.h + pier/support/*` | ✔ done, split and rewritten: the guards, strings and SNBT went to support and the resolution helpers to bridge.h |
@@ -138,7 +138,7 @@ the new repository right now.
 | `packages/pier-hooks/src/protect/ProjectileEvent.cpp` | `same path` | ✔ done, rewritten: the history of the drift toward components and the division of the five hook points both kept; the re-entry gate became thread_local; the install status is reported per point with a separate error for the primary hook |
 | `packages/pier-hooks/src/protect/PushEntityEvent.cpp` | `same path` | ✔ done, rewritten: the decision in both directions, player against player allowed, throttling, and a try/catch added |
 | `packages/pier-hooks/src/protect/RideEvent.cpp` | `same path` | ✔ done, rewritten: the argument for the canAddPassenger hook point and the warning about the vehicle and rider being reversed, with a try/catch added |
-| `packages/pier-hooks/src/protect/TakeEntityEvent.cpp` | `same path` | ✔ done, rewritten, correcting a file header that disagreed with the code: it claimed to hook Player::take while the code hooks the $playerTouch of Arrow and ThrownTrident. That isItemActor is always false, and why it is kept, are both stated |
+| `packages/pier-hooks/src/protect/TakeEntityEvent.cpp` | `same path` | ✔ done, rewritten, correcting a file header that disagreed with the code: it claimed to hook Player::take while the code hooks the $playerTouch of Arrow and ThrownTrident. `isItemActor` tells an item pickup from an arrow or trident pickup |
 | `packages/pier-hooks/src/world/ContainerEvents.cpp` | `same path` | ✔ done, rewritten with StopProcessing as the cancel channel |
 | `packages/pier-hooks/src/world/DestroyEvents.cpp` | `same path` | ✔ done, rewritten with the timing automatic tool switching needs: dispatch before origin |
 | `packages/pier-hooks/src/world/DimensionEvents.cpp` | `same path` | ✔ done, rewritten with the argument for it being the single funnel, and the rvalue request read before being forwarded |
@@ -269,7 +269,7 @@ the new repository right now.
 | `—` | `bindings/rust/pier-rs/src/entity/relations.rs` | ✔ done, added: actor relations, equipment and effects, and rays, split out of the flat entity.rs |
 | `—` | `bindings/rust/pier-rs/src/player/io.rs` | ✔ done, added: the outbound channels of a player, meaning messages, titles, particles and raw packets, split out of the flat player.rs |
 | `—` | `bindings/rust/pier-rs/src/context.rs` | ✔ done, added: the facade for mod authors aggregating the entry points of every domain, moved out of rt/runtime.rs, since it is not part of the runtime foundation |
-| `—` | `docs/verify-delayload.md` | ✔ done, added: a runbook for verifying that /DELAYLOAD really took effect, through the dumpbin import table, the xmake -v link command line, and really moving LegacyMoney away |
+| `—` | `docs/en/verify-delayload.md` | ✔ done, added: a runbook for verifying that /DELAYLOAD really took effect, through the dumpbin import table, the xmake -v link command line, and really moving LegacyMoney away |
 | `—` | `tools/checks/delayload_matches_claims.py` | ✔ done, added: a check that a DLL the code describes as delay-loaded really carries a /DELAYLOAD on the linker side, in the right flag channel |
 | `xmake.lua` | `xmake.lua` | ✔ done, rewritten: the global macros at root scope, with the object packages aggregated |
 
@@ -307,8 +307,8 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `examples/hello-pier-cpp/build-clang.bat` | new, the same under clang-cl, the driver that produces an MSVC-ABI binary |
 | `examples/hello-pier-cpp/CMakeLists.txt` | new, the same for a CMake project |
 | `examples/hello-pier-cpp/xmake.lua` | new, the same for an xmake project |
-| `docs/cpp/index.md` | new, the C++ binding: capability checks, strings and error conventions |
-| `docs/cpp/first-mod.md` | new, an empty directory to a loadable DLL, four build systems |
+| `docs/en/cpp/index.md` | new, the C++ binding: capability checks, strings and error conventions |
+| `docs/en/cpp/first-mod.md` | new, an empty directory to a loadable DLL, four build systems |
 | `docs/zh/cpp/index.md` | new, the Chinese translation of the C++ binding page |
 | `docs/zh/cpp/first-mod.md` | new, the Chinese translation of the first-mod page |
 | `packages/pier-api/include/pier/api/bridge.h` | ✔ done, added: the declarations of the resolution helpers |
@@ -332,6 +332,86 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `packages/pier-host/include/pier/host/spi.h` | ✔ done, added: the six registration faces, replacing the hardcoded forwarding of the old ApiTable (contract §1 rule 2) |
 | `packages/pier-host/src/ApiTable.cpp` | ✔ done, added: it fills the four header scalars only, and each capability package fills its own domain slots |
 | `packages/pier-host/src/Spi.cpp` | ✔ done, added: the SPI registry itself |
+| `packages/pier-host/include/pier/host/watchdog.h` | ✔ added: the per-thread record of which mod holds a thread, read by the watchdog |
+| `packages/pier-host/src/Watchdog.cpp` | ✔ added: the watchdog that names a mod holding a thread and ends a process it has hung |
+| `docs/en/guide/event-payloads.md` | ✔ added: the reference for what an event payload carries, including the attacker fields of death events |
+| `docs/en/guide/troubleshooting.md` | ✔ added: the log lines a server operator meets, and what to do about each |
+| `docs/en/guide/faq.md` | ✔ added: the questions a mod author asks first |
+| `docs/zh/guide/event-payloads.md` | ✔ added: the Chinese edition of the event payload reference |
+| `docs/zh/guide/troubleshooting.md` | ✔ added: the Chinese edition of troubleshooting |
+| `docs/zh/guide/faq.md` | ✔ added: the Chinese edition of the FAQ |
+| `bindings/go/go.mod` | ✔ added: the Go module of the Go binding |
+| `bindings/go/levilamina/abi.go` | ✔ added: the cgo side of the Go binding: string views, the slot gates, and pier_main's handshake |
+| `bindings/go/levilamina/exports.go` | ✔ added: every Go function the host calls, from pier_main to the event and command callbacks |
+| `bindings/go/levilamina/levilamina.go` | ✔ added: the Go binding's public lifecycle: Mod, Register, Context, Logger and NotProvidedError |
+| `bindings/go/levilamina/host.go` | ✔ added: server status, mod-owned tasks and the event list for Go mods |
+| `bindings/go/levilamina/events.go` | ✔ added: event subscription and cancelling for Go mods |
+| `bindings/go/levilamina/commands.go` | ✔ added: command registration for Go mods |
+| `bindings/go/levilamina/flags.go` | ✔ added: the server target of a Go mod |
+| `bindings/go/levilamina/flags_client.go` | ✔ added: the client target of a Go mod, under the pier_client build tag |
+| `bindings/go/levilamina/glue.c` | ✔ added: the C callbacks that forward the host to exported Go functions |
+| `bindings/go/levilamina/glue.h` | ✔ added: the declarations of glue.c |
+| `bindings/go/levilamina/slots_gen.h` | ✔ added: one generated forwarding function and gate per slot, written by tools/gen-go-slots.py |
+| `bindings/go/levilamina/include/sdk/abi.h` | ✔ added: the Go module's copy of abi.h, kept identical by the go-binding check |
+| `bindings/go/levilamina/raw_gen.go` | ✔ added: one typed, gated Go method per callback-free slot, written by tools/gen-go-api.py |
+| `bindings/go/levilamina/props_gen.go` | ✔ added: one Go method per property and verb of the constant tables of abi.h, written by tools/gen-go-api.py |
+| `bindings/go/levilamina/types.go` | ✔ added: the Go forms of the ABI's selectors, ids, container references and handles |
+| `bindings/go/levilamina/nbt.go` | ✔ added: SNBT parsing and writing for Go mods, with the Rust binding's rules and depth cap |
+| `bindings/go/levilamina/callbacks.go` | ✔ added: the Go API over the slots that take a callback: console commands, blocks, actors, containers, forms, the bus, services and the economy |
+| `bindings/go/levilamina/facades.go` | ✔ added: the Go Player, Entity, BlockAt and Item types |
+| `bindings/go/levilamina/facades_ext.go` | ✔ added: the hand-written Go API over the typed slot layer: server, world, players, entities, blocks, items, containers, key-value stores, economy, cross-mod calls, simulated players and dimensions |
+| `bindings/go/levilamina/commands_ex.go` | ✔ added: commands with typed overloads, command enums and soft enums for Go mods |
+| `bindings/go/levilamina/advanced.go` | ✔ added: packet and connection hooks, region scans, bulk block writes, client key bindings and supplied terrain for Go mods |
+| `docs/en/go/cross-mod.md` | ✔ added: how a Go mod works with mods of other languages through services and the bus |
+| `docs/zh/go/cross-mod.md` | ✔ added: the Chinese edition of the Go cross-mod page |
+| `bindings/zig/build.zig` | ✔ added: the build of the Zig binding: translate-c over abi.h, the pier module, and the test that type-checks the binding |
+| `bindings/zig/build.zig.zon` | ✔ added: the package manifest of the Zig binding |
+| `bindings/zig/include/sdk/abi.h` | ✔ added: the Zig package's copy of abi.h, kept identical by the zig-binding check |
+| `bindings/zig/src/levilamina.zig` | ✔ added: the root of the Zig binding's levilamina module, and the test that analyzes every function of it |
+| `bindings/zig/src/core.zig` | ✔ added: the Zig handshake, slot gate, logging, tasks, events, commands, services and bus |
+| `bindings/zig/src/nbt.zig` | ✔ added: SNBT parsing for Zig mods, with the rules and depth cap of the other bindings, and its tests |
+| `bindings/zig/src/props_gen.zig` | ✔ added: one Zig method per property and verb of the constant tables of abi.h, written by tools/gen-zig-api.py |
+| `examples/hello-pier-zig/build.zig` | ✔ added: the build of the Zig example, a Windows DLL cross-compiled from any system |
+| `examples/hello-pier-zig/build.zig.zon` | ✔ added: the package manifest of the Zig example |
+| `examples/hello-pier-zig/src/main.zig` | ✔ added: the smallest Zig mod that does something: a command, an event listener, a delayed task, a service and a bus topic |
+| `examples/hello-pier-zig/manifest.json` | ✔ added: the manifest of the Zig example |
+| `docs/en/zig/index.md` | ✔ added: the Zig binding: how it is put together, its API, how it talks to other mods, and its rules |
+| `docs/en/zig/first-mod.md` | ✔ added: building and installing a first Zig mod |
+| `docs/zh/zig/index.md` | ✔ added: the Chinese edition of the Zig binding page |
+| `docs/zh/zig/first-mod.md` | ✔ added: the Chinese edition of the first Zig mod |
+| `docs/en/tasks/index.md` | ✔ added: the API overview: how the pages read, errors, threads and borrowed strings |
+| `docs/en/tasks/lifecycle.md` | ✔ added: the lifecycle of a mod and logging, in every language |
+| `docs/en/tasks/events.md` | ✔ added: subscribing to events, reading payloads and cancelling, in every language |
+| `docs/en/tasks/commands.md` | ✔ added: commands, commands with overloads and running a command, in every language |
+| `docs/en/tasks/player.md` | ✔ added: finding and acting on players, in every language |
+| `docs/en/tasks/scheduler.md` | ✔ added: scheduled tasks and getting back to the server thread, in every language |
+| `docs/en/tasks/crossmod.md` | ✔ added: services and the bus between mods of any language |
+| `docs/en/tasks/data.md` | ✔ added: the key-value database and SNBT parsing, in every language |
+| `docs/en/tasks/economy.md` | ✔ added: balances, transfers and transaction listeners, in every language |
+| `docs/zh/tasks/index.md` | ✔ added: the Chinese edition of the API overview page |
+| `docs/zh/tasks/lifecycle.md` | ✔ added: the Chinese edition of the lifecycle page |
+| `docs/zh/tasks/events.md` | ✔ added: the Chinese edition of the events page |
+| `docs/zh/tasks/commands.md` | ✔ added: the Chinese edition of the commands page |
+| `docs/zh/tasks/player.md` | ✔ added: the Chinese edition of the player page |
+| `docs/zh/tasks/scheduler.md` | ✔ added: the Chinese edition of the scheduler page |
+| `docs/zh/tasks/crossmod.md` | ✔ added: the Chinese edition of the crossmod page |
+| `docs/zh/tasks/data.md` | ✔ added: the Chinese edition of the data page |
+| `docs/zh/tasks/economy.md` | ✔ added: the Chinese edition of the economy page |
+| `docs/en/tasks/entity.md` | ✔ added: finding entities, their properties and verbs, and spawning mobs, in every language |
+| `docs/en/tasks/world.md` | ✔ added: time, weather, game rules and reading and placing blocks, in every language |
+| `docs/en/tasks/item.md` | ✔ added: item SNBT, giving items, and containers, in every language |
+| `docs/zh/tasks/entity.md` | ✔ added: the Chinese edition of the entity page |
+| `docs/zh/tasks/world.md` | ✔ added: the Chinese edition of the world page |
+| `docs/zh/tasks/item.md` | ✔ added: the Chinese edition of the item page |
+| `.github/workflows/docs.yml` | ✔ added: publishes the documentation site to GitHub Pages with every release |
+| `examples/hello-pier-go/go.mod` | ✔ added: the module of the Go example |
+| `examples/hello-pier-go/main.go` | ✔ added: the smallest Go mod that does something: a command, an event listener and a delayed task |
+| `examples/hello-pier-go/manifest.json` | ✔ added: the manifest of the Go example |
+| `examples/hello-pier-go/build.bat` | ✔ added: the build of the Go example, saying what is missing when Go or gcc is not on PATH |
+| `docs/en/go/index.md` | ✔ added: the Go binding: how it is put together, what it needs, its API and its rules |
+| `docs/en/go/first-mod.md` | ✔ added: building and installing a first Go mod |
+| `docs/zh/go/index.md` | ✔ added: the Chinese edition of the Go binding page |
+| `docs/zh/go/first-mod.md` | ✔ added: the Chinese edition of the first Go mod |
 | `packages/pier-support/include/pier/support/guard.h` | ✔ done, added: PIER_API_GUARD_*, gathering the barrier that was spread through the old repository |
 | `packages/pier-support/include/pier/support/log.h` | ✔ done, added |
 | `packages/pier-support/include/pier/support/module.h` | ✔ done, added |
@@ -364,29 +444,32 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `.github/workflows/build.yml` | ✔ added: builds the host, runs the contract checks of §9, and builds and tests the bindings |
 | `.github/workflows/release.yml` | ✔ added: builds and flattens the release archive that lip places into plugins/pier/ |
 | `.github/workflows/prime-cache.yml` | ✔ added: installs the packages once with a timeout long enough to finish and saves the cache explicitly. A normal build job times out during the levilamina install, and actions/cache only saves after a successful job, so the cache it needs can never be built by the build jobs |
-| `docs/.vitepress/config.mts` | ✔ added: the navigation and sidebar; the site runs general to specific, /guide/ for Pier itself and /rust/ for the first official binding |
-| `docs/guide/abi.md` | ✔ added: the shape of the ABI, the two gates, ownership and evolution |
-| `docs/guide/adding-a-language.md` | ✔ added: the four steps of contract §10, for a binding in any language |
-| `docs/guide/compatibility.md` | ✔ added: version numbering, and what the ABI does and does not promise |
-| `docs/guide/design.md` | ✔ added: the C++ side: package layering, inward registration, the two gates, ownership, and the checks that guard each rule |
-| `docs/guide/installation.md` | ✔ added: requirements, installing with lip or by hand, and checking it worked |
-| `docs/guide/manifest.md` | ✔ added: the manifest fields and the two that go wrong |
-| `docs/guide/what-is-pier.md` | ✔ added: what Pier is, the shape of it, and which binding to reach for |
-| `docs/guide/why.md` | ✔ added: where Pier came from: the four structural faults of the predecessor loader and what replaced each |
-| `docs/index.md` | ✔ added: the documentation landing page |
-| `docs/package.json` | ✔ added: the VitePress documentation site |
-| `docs/rust/api.md` | ✔ added: the map of the SDK, with rustdoc holding the detail |
-| `docs/rust/commands.md` | ✔ added: raw-text commands, typed overloads, and why registration is one way |
-| `docs/rust/cross-mod.md` | ✔ added: services, the bus and lanes, and which shape of question each answers |
-| `docs/rust/errors.md` | ✔ added: the error discipline, identity, logging, and the panic fences |
-| `docs/rust/events.md` | ✔ added: subscribing, reading a payload, cancelling, and batching with Wiring |
-| `docs/rust/first-mod.md` | ✔ added: writing, building and installing a first mod, plus what to check when nothing happens |
-| `docs/rust/index.md` | ✔ added: the Rust binding: the two crates, the smallest mod, and what the safe layer adds |
-| `docs/rust/lifecycle.md` | ✔ added: the four callbacks and what belongs in each |
-| `docs/rust/threads.md` | ✔ added: the server thread default and the packet interception exception |
+| `docs/mkdocs.yml` | ✔ added: the English site on MkDocs Material, laid out as the LegacyScriptEngine documentation is, with the navigation tabs and the language selector |
+| `docs/mkdocs.zh.yml` | ✔ added: the Chinese site, built into site/zh beside the English one |
+| `docs/requirements.txt` | ✔ added: what the site builds with, MkDocs held below 2 |
+| `docs/overrides/assets/stylesheets/pier.css` | ✔ added: the LeviMC palette and the home page's hero for both sites |
+| `docs/overrides/assets/favicon.svg` | ✔ added: the site icon |
+| `docs/en/guide/abi.md` | ✔ added: the shape of the ABI, the two gates, ownership and evolution |
+| `docs/en/guide/adding-a-language.md` | ✔ added: the four steps of contract §10, for a binding in any language |
+| `docs/en/guide/compatibility.md` | ✔ added: version numbering, and what the ABI does and does not promise |
+| `docs/en/guide/design.md` | ✔ added: the C++ side: package layering, inward registration, the two gates, ownership, and the checks that guard each rule |
+| `docs/en/guide/installation.md` | ✔ added: requirements, installing with lip or by hand, and checking it worked |
+| `docs/en/guide/manifest.md` | ✔ added: the manifest fields and the two that go wrong |
+| `docs/en/guide/what-is-pier.md` | ✔ added: what Pier is, the shape of it, and which binding to reach for |
+| `docs/en/guide/why.md` | ✔ added: where Pier came from: the four structural faults of the predecessor loader and what replaced each |
+| `docs/en/index.md` | ✔ added: the documentation landing page |
+| `docs/en/rust/api.md` | ✔ added: the map of the SDK, with rustdoc holding the detail |
+| `docs/en/rust/commands.md` | ✔ added: raw-text commands, typed overloads, and why registration is one way |
+| `docs/en/rust/cross-mod.md` | ✔ added: services, the bus and lanes, and which shape of question each answers |
+| `docs/en/rust/errors.md` | ✔ added: the error discipline, identity, logging, and the panic fences |
+| `docs/en/rust/events.md` | ✔ added: subscribing, reading a payload, cancelling, and batching with Wiring |
+| `docs/en/rust/first-mod.md` | ✔ added: writing, building and installing a first mod, plus what to check when nothing happens |
+| `docs/en/rust/index.md` | ✔ added: the Rust binding: the two crates, the smallest mod, and what the safe layer adds |
+| `docs/en/rust/lifecycle.md` | ✔ added: the four callbacks and what belongs in each |
+| `docs/en/rust/threads.md` | ✔ added: the server thread default and the packet interception exception |
 | `tooth.json` | ✔ added: the lip package manifest, which is how a server owner installs a release |
 
-**Summary**: ✔ 195 | ✂ 21 | ⬜ 44 (260 old files in total)
+**Summary**: ✔ 199 | ✂ 21 | ⬜ 43 (263 old files in total)
 
 ---
 
@@ -451,7 +534,7 @@ its `# Safety` assertions about the `ctx` type tested at any real call site, whi
 looking ready rather than being ready. `-D warnings` is right here, and getting around it
 with an `#[allow]` is what is wrong.
 
-`hello-pier` picked up the `host` layer with it: it really asks for the server stage, the
+`hello-pier-rs` picked up the `host` layer with it: it really asks for the server stage, the
 player count and the tick, lists the event ids once, and hands a delayed task back to the
 server thread, so the four steps of contract §10 went from reading correctly to being
 verifiable by running them.
@@ -804,9 +887,9 @@ false, nullptr or NotPossibleHere, so no half-updated state is created.
 | `packages/pier-hooks/src/player/EatEvent.cpp` | `PlayerUseItemCompleteEvent`, hooking `Player::completeUsingItem`, observation only |
 | `packages/pier-hooks/src/protect/ArmorStandEvent.cpp` | `ArmorStandSwapItemEvent`, hooking `ArmorStand::_trySwapItem`, protecting the equipment on an armor stand |
 | `packages/pier-hooks/src/protect/ItemFrameEvent.cpp` | `PlayerAttackItemFrameEvent`, hooking `ItemFrameBlock::$attack`, protecting the item in an item frame |
-| `packages/pier-hooks/src/protect/ItemFrameRotateEvent.cpp` | `PlayerOperatedItemFrameEvent`, hooking `ItemFrameBlock::use`, the rotate half of the item frame pair |
-| `packages/pier-hooks/src/protect/SignEditEvent.cpp` | `PlayerEditSignEvent`, hooking `SignBlockActor::$_playerCanUpdate`, the text on a sign already placed |
-| `packages/pier-hooks/src/protect/ItemActionEvent.cpp` | `PlayerRequestItemActionEvent`, hooking `ItemStackNetManagerServer::handleRequest`, the craft / anvil / grindstone / loom actions |
+| `packages/pier-hooks/src/protect/ItemFrameOperateEvent.cpp` | `PlayerOperatedItemFrameEvent`, hooking `ItemFrameBlock::use`, the rotate half of the item frame pair |
+| `packages/pier-hooks/src/protect/SignEvent.cpp` | `PlayerEditSignEvent`, hooking `SignBlockActor::$_playerCanUpdate`, the text on a sign already placed |
+| `—` | `PlayerRequestItemActionEvent` is not built: the item stack request has no cancellable hook point. The SDK keeps the name as observation-only and leaves it out of `ALL_SYNTHETIC` |
 | `packages/pier-hooks/src/protect/RideEvent.cpp` | `ActorRideEvent` appended, for a non-player passenger, sharing the detour with `PlayerRideEvent` |
 | `packages/pier-hooks/src/protect/PressurePlateEvent.cpp` | `ActorStepOnPressurePlateEvent` appended, for a non-player actor, with its own throttle table |
 
@@ -835,7 +918,7 @@ problems it exposed, redid how a value is read.
 | File | Contents |
 |---|---|
 | `bindings/rust/pier-rs/src/event/mod.rs` | `Event`, with typed access, a `dim()` aware of `_unresolved`, a `player()` unifying three shapes, and a differential `edit` and `cancel`; an RAII `Listener` that does not fail silently on unsubscribe; and the `Wiring` batch subscription builder, where `arm()` withdraws everything on any failure and `arm_lenient()` does not |
-| `bindings/rust/pier-rs/src/event/names.rs` | the event id constants: the LL registry events plus all 29 synthetic events, each stating whether it can be cancelled and what its payload fields are; `ALL_SYNTHETIC` makes a startup self-check easy |
+| `bindings/rust/pier-rs/src/event/names.rs` | the event id constants: the LL registry events plus every synthetic event the host registers, each stating whether it can be cancelled and what its payload fields are; `ALL_SYNTHETIC` makes a startup self-check easy |
 | `bindings/rust/pier-rs/src/service.rs` | `call`, `call_json::<T>`, `call_with` and `call_optional`; the `CallError` categories NotFound, Provider, Refused, Decode and Unavailable; `register` and `register_json`; and `exists` really parsing now, where an earlier generation substring-matched JSON text |
 | `bindings/rust/pier-rs/src/sel.rs` | the `PlayerSel` enum replaces a bare `kind: i32`, and the fact that `Name` goes through the display-name fallback and cannot serve as an identity is written into the type layer through `is_stable()` |
 
@@ -904,8 +987,8 @@ fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotG
 | `packages/pier-hooks/src/protect/SignEvent.cpp` | the synthetic, cancellable PlayerEditSignEvent, through the engine's own `_playerCanUpdate` gate |
 | `packages/pier-hooks/src/protect/ItemFrameOperateEvent.cpp` | the synthetic, cancellable PlayerOperatedItemFrameEvent: the right click that rotates a framed item |
 | `packages/pier-api/src/core/Exports.cpp` | the three C symbols a mod outside Pier calls the service registry through |
-| `docs/guide/bridge.md` | how a mod outside Pier calls a Pier mod's services, and why the caller is anonymous |
-| `docs/guide/configuration.md` | every setting `config.json` holds, what each one is wired to, and what a file that cannot be read costs |
+| `docs/en/guide/bridge.md` | how a mod outside Pier calls a Pier mod's services, and why the caller is anonymous |
+| `docs/en/guide/configuration.md` | every setting `config.json` holds, what each one is wired to, and what a file that cannot be read costs |
 | `docs/zh/guide/configuration.md` | the Chinese translation of that page |
 | `bindings/bridge/pier-bridge.h` | the bridge SDK: header-only, binds those symbols, for a mod that is not a Pier mod |
 | `docs/zh/guide/bridge.md` | the Chinese translation of the bridge page |

@@ -2,8 +2,8 @@
  * "PlayerChangeGameModeEvent".
  * Applying a mode only on join and on a dimension change misses the /gamemode, command
  * block and scoreboard trigger paths that follow. The hook point is the virtual
- * Player::$setPlayerGameType, through which every mode change passes; the inner
- * non-virtual _setPlayerGameType is an implementation detail and is not hooked.
+ * ServerPlayer::$setPlayerGameType: every player on a server host is a ServerPlayer, and
+ * a detour on the Player base is skipped whenever the override does not call it.
  * A subscriber setting the mode back from its callback does not self-trigger, since the
  * target mode is then inside the allowed set and the decision is idempotent. A re-entry
  * gate is added anyway, so a subscriber that judges the target mode disallowed cannot
@@ -20,6 +20,7 @@
 
 #include "ll/api/memory/Hook.h"
 
+#include "mc/server/ServerPlayer.h"
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/level/GameType.h"
@@ -53,8 +54,8 @@ namespace pier::hooks
         LL_TYPE_INSTANCE_HOOK(
             PlayerChangeGameModeHook,
             ll::memory::HookPriority::Normal,
-            Player,
-            &Player::$setPlayerGameType,
+            ServerPlayer,
+            &ServerPlayer::$setPlayerGameType,
             void,
             ::GameType gameType)
         {
@@ -109,7 +110,7 @@ namespace pier::hooks
                         "[hooks/GameModeEvent] the native detour failed to install with a "
                         "non-zero status. The usual cause is a mismatch between the BDS or "
                         "LeviLamina version this host was linked against and the one the "
-                        "server runs, so the symbol address of Player::$setPlayerGameType "
+                        "server runs, so the symbol address of ServerPlayer::$setPlayerGameType "
                         "resolved wrongly. Game mode enforcement now applies only at the "
                         "moment of entering the world, a player can bypass it with "
                         "/gamemode afterwards, and nothing is logged. Rebuild this host "

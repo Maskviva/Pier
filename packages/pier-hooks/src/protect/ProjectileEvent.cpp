@@ -8,7 +8,7 @@
  * does not refund ammunition: by the time the hook runs the arrow has already left the inventory,
  * and the client realigns within a tick.
  * Payload {eventId, x, y, z, dim, projectile, _player:{name,xuid,uuid}}. At hook points 2 and 4
- * the entity type is not resolved yet, so projectile may be empty and is informational only. / */
+ * the entity type is not resolved yet, so projectile may be empty and is informational only. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -70,8 +70,8 @@ namespace pier::hooks
 
         /** A name lookup throws while an item or actor is being destroyed, and an
          *  exception crossing a detour takes the whole server down, so it is caught here.
-         *  A subscriber receiving an empty name falls back to a coarser decision, which is
-         *  never more permissive. */
+         *  The name is then empty, and the event still fires: a rule keyed on the
+         *  projectile name does not match it, so such a rule must not be the only guard. */
         template <class Fn>
         std::string safeName(Fn&& fn)
         {
@@ -243,8 +243,9 @@ namespace pier::hooks
         }
 
         // 5. The older spawner path, a backstop for add-on entities and the code around
-        //    dispensers.
-
+        //    dispensers. Spawner and not BedrockSpawner: the level owns a BedrockSpawner,
+        //    which overrides spawnItem but inherits this function, so the Spawner
+        //    implementation is the one that runs.
         LL_TYPE_INSTANCE_HOOK(
             SpawnProjectileHook,
             ll::memory::HookPriority::Normal,

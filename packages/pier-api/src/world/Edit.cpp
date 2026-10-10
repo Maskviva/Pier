@@ -1,17 +1,15 @@
 /** world/Edit.cpp: native entry points for bulk world editing.
- * Three existing engine entry points are exposed, bypassing the setblock console command
- * underneath api_set_block. A stateful block write goes through
- * BlockSerializationUtils::tryGetBlockFromNBT plus BlockSource::setBlock, a block entity write
- * through BlockSource::getBlockEntity plus BlockActor::load, and placing an actor from NBT through
- * ActorFactory::loadActor plus Level::addEntity. Three things the command path cannot do. Block
- * states must be translated from serialized NBT into the ["k"=v] command syntax, and one bad
- * translation fails the whole command while the cell silently stays as it was, which has cost
- * stair facing, log axis and door hinge side. Block entities cannot be written back at all, so
- * chest contents, sign text and the mob inside a spawner are lost on a copy. Actors are addressed
- * by type name only, so variant, equipment and age are lost. It also removes the three layers of
- * command parsing, permission checking and dispatch. The /setblock path stays, because a block
- * spec typed by a player is easiest through command parsing. This file adds entry points rather
- * than replacing them, and an existing mod runs unchanged. / */
+ * Two engine entry points are exposed, bypassing the setblock console command underneath
+ * api_set_block. A stateful block write goes through BlockSerializationUtils::tryGetBlockFromNBT
+ * plus BlockSource::setBlock, and a block entity write through BlockSource::getBlockEntity plus
+ * BlockActor::load. The command path cannot do either. Block states must be translated from
+ * serialized NBT into the ["k"=v] command syntax, and one bad translation fails the whole command
+ * while the cell silently stays as it was, which has cost stair facing, log axis and door hinge
+ * side. Block entities cannot be written back at all, so chest contents, sign text and the mob
+ * inside a spawner are lost on a copy. The /setblock path stays, because a block spec typed by a
+ * player is easiest through command parsing. edit_spawn_entity_nbt is left NULL: placing an actor
+ * from NBT needs a fresh UniqueID for it, and the helper that assigned one is inlined since 26.32.
+ */
 #ifndef PIER_BUILD_CLIENT
 
 #include <algorithm>
@@ -30,10 +28,7 @@
 #include "mc/deps/game_refs/OwnerPtr.h"
 #include "mc/deps/nbt/CompoundTag.h"
 #include "mc/deps/nbt/CompoundTagVariant.h"
-#include "mc/deps/nbt/FloatTag.h"
-#include "mc/deps/nbt/ListTag.h"
 #include "mc/world/actor/Actor.h"
-#include "mc/world/actor/ActorFactory.h"
 #include "mc/world/level/BlockPos.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/Level.h"
@@ -162,45 +157,6 @@ namespace pier::api_impl
                 // reloads, by which time the player has concluded the copy failed.
                 vba->onChanged(*bs);
                 return true;
-            PIER_API_GUARD_END
-        }
-
-        bool api_edit_spawn_entity_nbt(
-            int32_t dim,
-            PierStr snbt,
-            bool use_pos,
-            double x,
-            double y,
-            double z,
-            PierActorId* out)
-        {
-            PIER_API_GUARD_BEGIN
-                auto* level = bridge::levelReady();
-                auto* bs = bridge::blockSourceOf(dim);
-                if (!level || !bs) return false;
-
-                auto parsed = CompoundTag::fromSnbt(sv(snbt));
-                if (!parsed) return false;
-                CompoundTag tag = std::move(*parsed);
-
-                if (use_pos)
-                {
-                    ListTag pos;
-                    pos.add(std::make_unique<FloatTag>(static_cast<float>(x)));
-                    pos.add(std::make_unique<FloatTag>(static_cast<float>(y)));
-                    pos.add(std::make_unique<FloatTag>(static_cast<float>(z)));
-                    tag["Pos"] = std::move(pos);
-                }
-
-                // Placing the actor needed NewUniqueIdsDataLoadHelper to map the
-                // UniqueID in the NBT onto a fresh one, the way /structure load does. Its
-                // constructor is inlined away in 26.32 and loadActor now wants a height
-                // range and a chunk besides. Reusing the snapshot's own id instead would
-                // collide with the source actor, and a collision makes the engine treat
-                // two actors as one: one vanishes, the other misbehaves, nothing logged.
-                (void)bs;
-                (void)out;
-                return false;
             PIER_API_GUARD_END
         }
 
@@ -367,7 +323,6 @@ namespace pier::api_impl
             api.edit_set_block_nbt = &api_edit_set_block_nbt;
             api.edit_set_block_states = &api_edit_set_block_states;
             api.edit_set_block_entity = &api_edit_set_block_entity;
-            api.edit_spawn_entity_nbt = &api_edit_spawn_entity_nbt;
             api.edit_trace_ray = &api_edit_trace_ray;
             api.edit_fill_region = &api_edit_fill_region;
             api.edit_set_blocks = &api_edit_set_blocks;

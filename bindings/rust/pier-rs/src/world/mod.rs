@@ -318,10 +318,15 @@ impl World {
         })?;
         let v = NbtValue::parse(&text)
             .map_err(|e| Error(format!("parsing the sleep status SNBT failed: {e}")))?;
+        // A missing field is an Err and not false or 0: "nobody is asleep" is an answer, and
+        // an unreadable status must not pass for it.
+        let missing = |name: &str| Error(format!("the sleep status has no `{name}`: {text}"));
         Ok(SleepStatus {
-            sleeping: v.opt_bool("sleeping").unwrap_or(false),
-            total_players: v.opt_i32("total_players").unwrap_or(0),
-            active_sleeping: v.opt_i32("active_sleeping").unwrap_or(0),
+            sleeping: v.opt_bool("sleeping").ok_or_else(|| missing("sleeping"))?,
+            total_players: v.opt_i32("total_players").ok_or_else(|| missing("total_players"))?,
+            active_sleeping: v
+                .opt_i32("active_sleeping")
+                .ok_or_else(|| missing("active_sleeping"))?,
         })
     }
 
@@ -357,18 +362,11 @@ impl World {
 
     // Read-only queries
 
-    /// The villages in one dimension.
-    pub fn villages(&self, dim: i32) -> Vec<VillageInfo> {
-        // Neither the length gate nor the non-null gate may be skipped (contract §2.2): with a
-        // table too short to reach this field, reading it is out of bounds, and what comes
-        // back often looks like a valid function pointer.
-        if !crate::has_slot!(villages) {
-            return Vec::new();
-        }
-        let Some(f) = crate::__rt::api().villages else {
-            return Vec::new();
-        };
-        parse_each(
+    /// The villages in one dimension, and `Err` for a host without the villages slot, which
+    /// an empty list would hide.
+    pub fn try_villages(&self, dim: i32) -> Result<Vec<VillageInfo>> {
+        let f = crate::require_slot!(villages, "listing villages");
+        Ok(parse_each(
             collect_strs(|ctx, sink| unsafe { f(dim, ctx, sink) }),
             "village",
             |v| {
@@ -379,29 +377,33 @@ impl World {
                     poi_count: v.opt_i32("poi_count").unwrap_or(0),
                 })
             },
-        )
+        ))
+    }
+
+    /// The villages in one dimension, and an empty list when the host cannot list them.
+    #[deprecated(
+        since = "26.51.2",
+        note = "use try_villages: this answers an empty list when the host has no villages slot"
+    )]
+    pub fn villages(&self, dim: i32) -> Vec<VillageInfo> {
+        self.try_villages(dim).unwrap_or_default()
     }
 
     /// The hardcoded generation areas in the loaded chunks within a radius.
     ///
     /// Only loaded chunks are examined, since a read-only query should not force chunks to
     /// load. An empty result therefore means either that there are none nearby or that the
-    /// nearby chunks are not loaded.
-    pub fn structures_near(
+    /// nearby chunks are not loaded; a host without the slot is an `Err`.
+    pub fn try_structures_near(
         &self,
         dim: i32,
         x: i32,
         y: i32,
         z: i32,
         radius: i32,
-    ) -> Vec<StructureInfo> {
-        if !crate::has_slot!(structures_near) {
-            return Vec::new();
-        }
-        let Some(f) = crate::__rt::api().structures_near else {
-            return Vec::new();
-        };
-        parse_each(
+    ) -> Result<Vec<StructureInfo>> {
+        let f = crate::require_slot!(structures_near, "listing nearby structures");
+        Ok(parse_each(
             collect_strs(|ctx, sink| unsafe { f(dim, x, y, z, radius, ctx, sink) }),
             "structure",
             |v| {
@@ -410,7 +412,23 @@ impl World {
                     bounds: parse_bounds(v)?,
                 })
             },
-        )
+        ))
+    }
+
+    /// As [`Self::try_structures_near`], with an empty list when the host cannot answer.
+    #[deprecated(
+        since = "26.51.2",
+        note = "use try_structures_near: this answers an empty list when the host has no structures slot"
+    )]
+    pub fn structures_near(
+        &self,
+        dim: i32,
+        x: i32,
+        y: i32,
+        z: i32,
+        radius: i32,
+    ) -> Vec<StructureInfo> {
+        self.try_structures_near(dim, x, y, z, radius).unwrap_or_default()
     }
 
     // Chunks and save keys

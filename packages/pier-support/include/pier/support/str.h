@@ -1,3 +1,4 @@
+/** str.h: PierStr to and from std::string_view without copying. */
 #pragma once
 // Zero-copy conversion between PierStr and std::string_view.
 // This is the other half of the contract rule that forbids language types. abi.h

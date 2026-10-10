@@ -66,6 +66,20 @@ namespace pier
          *  the ceiling is 5000 because a stale allow outlives the claim it was read
          *  from. */
         std::int64_t decisionTtlMs = 250;
+
+        /** The watchdog over threads held inside a pier mod. On by default; off makes
+         *  every dispatch skip it entirely. */
+        bool watchdogEnabled = true;
+
+        /** A mod holding a thread this long is named in a warning. 0 never warns. */
+        std::uint32_t watchdogWarnMs = 2000;
+
+        /** A mod holding a thread this long while the server runs ends the process, so a
+         *  supervisor can restart it. 0 never ends it at runtime. */
+        std::uint32_t watchdogHangMs = 30000;
+
+        /** The same limit once shutdown has begun. 0 waits for the mod forever. */
+        std::uint32_t watchdogShutdownMs = 10000;
     };
 
     /** Reads modDir/config.json, seeding it when absent, and installs the result.

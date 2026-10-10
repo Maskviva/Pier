@@ -234,7 +234,7 @@ namespace pier::api_impl
                         // callback returns.
                         auto owner = weakMod.lock();
                         if (!owner) return;
-                        CallbackScope scope{owner.get()};
+                        CallbackScope scope{owner.get(), "event"};
 
                         std::string snbt = bridge::enrichEventData(data);
 

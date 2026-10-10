@@ -74,4 +74,5 @@ let id = ctx.host().schedule_after(Duration::from_secs(30), || { ... })?;
 ctx.host().cancel(id);
 ```
 
-想确认干净了，就在 `on_unload` 里断言 `ctx.host().pending_tasks()`。
+想确认干净了，就在 `on_unload` 里断言 `ctx.host().try_pending_tasks()?`。
+宿主数不了时这里返回 `Err`，你的断言拿到的是这个错误，不会因为一个 0 而通过。

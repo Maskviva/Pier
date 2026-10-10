@@ -2,8 +2,8 @@
 
 Rust 是 Pier 的第一个官方绑定。这一节是写模组用的，不假设你了解底下的 ABI。
 
-想知道 Pier 是什么、为什么长这样，看 [Pier 那一节](/zh/guide/what-is-pier)。
-想绑定另一门语言，看 [加一门语言](/zh/guide/adding-a-language)。
+想知道 Pier 是什么、为什么长这样，看 [Pier 那一节](../guide/what-is-pier.md)。
+想绑定另一门语言，看 [加一门语言](../guide/adding-a-language.md)。
 
 ## 两个 crate
 
@@ -20,7 +20,7 @@ crate 名贴着你实际在写的东西——LeviLamina 的模组代码。
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.1" }
+pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.2" }
 ```
 
 ## 最小的模组
@@ -51,7 +51,7 @@ levilamina::register_mod!(MyMod);
   失败时翻成一条指明是哪一道的错误。
 - **字符串收口。** 跨边界来的东西活不过它所在的那次调用，所以你拿到的已经是拷贝。
 - **panic 围栏。** panic 穿回 C++ 是未定义行为，所以每个回调都被包住。
-  各条路径分别往哪个方向降级，见 [错误与日志](./errors#panic)。
+  各条路径分别往哪个方向降级，见 [错误与日志](errors.md#panic)。
 - **sink 内拷贝。** 宿主的指针在 sink 返回时就失效了。
 
 它不缓存宿主状态，不假装同步，不替宿主兜底。失败就是一个说得清原因的 `Err`，
@@ -59,12 +59,12 @@ levilamina::register_mod!(MyMod);
 
 ## 该看哪里
 
-- [第一个模组](./first-mod)：构建并装上服务器
-- [模组生命周期](./lifecycle)：四个回调，各自该放什么
-- [事件](./events) 与 [命令](./commands)：几乎每个模组都要做的两件事
-- [错误与日志](./errors)：这个绑定赖以成立的那条纪律
-- [线程](./threads)：你在哪条线程上，怎么回到服务器线程
-- [API 地图](./api)：全景，细节在 rustdoc 里
+- [第一个模组](first-mod.md)：构建并装上服务器
+- [模组生命周期](lifecycle.md)：四个回调，各自该放什么
+- [事件](events.md) 与 [命令](commands.md)：几乎每个模组都要做的两件事
+- [错误与日志](errors.md)：这个绑定赖以成立的那条纪律
+- [线程](threads.md)：你在哪条线程上，怎么回到服务器线程
+- [API 地图](api.md)：全景，细节在 rustdoc 里
 
-[pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template)
-是一个能跑的起手模板，不是空壳。
+[pier-mod-template](https://github.com/Maskviva/pier-mod-template) 是一个直接就能跑的 Rust 模组：
+它会打日志、订阅聊天、注册命令、排一个延迟任务。在 GitHub 上点 *Use this template*，或者用 `cargo generate`，都能从它开始。

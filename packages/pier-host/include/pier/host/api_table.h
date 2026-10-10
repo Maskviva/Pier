@@ -1,3 +1,4 @@
+/** api_table.h: the owner of the single PierApi table. */
 #pragma once
 // Owner of the PierApi table. There is exactly one table and it lives in the host.
 // Capability packages fill it through the SPI and mods receive a const pointer.

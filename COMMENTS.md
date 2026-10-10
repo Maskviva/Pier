@@ -196,3 +196,31 @@ British spelling outside that list still passes.
 kinds of §2, and whether it restates the code. Those three need a human. A passing script
 means the mechanical rules hold and not that this standard holds, and under
 `CONTRACT.md` §9 a delivery note may only copy that sentence.
+
+## 9. Describe what happens
+
+This section covers the documentation as well as comments.
+
+Write what the code does and what the reader's code receives, in the order it happens, and
+leave the conclusion to the reader. A sentence that gives only the conclusion asks to be
+trusted; a description of what happens can be checked against the code.
+
+Four constructions skip the process, and they are easy to recognize:
+
+- **A contrast used as a link between two steps**: "X 不是 A，而是 B", "not just A, but B".
+  At the start of a passage, answering a misreading, or at its end, as the finding, a
+  contrast can stand. Between two steps it takes their place.
+- **A closing metaphor or slogan**: a time bomb, an island, "a rule nobody checks is a
+  wish". The paragraph before it has already said what happens, and the metaphor adds a
+  verdict and no fact.
+- **"带着一丝不易察觉的……"** and "a hint of something imperceptible", English grammar carried
+  into Chinese, describing nothing.
+- **Summary words and stock verdicts**: "归根结底", "总而言之", "ultimately", "迟早出事".
+
+Write the process in their place. For a count that can fail, "the call never returns a 0"
+asks the reader to believe it; "a host that cannot count returns an error, which a check for
+0 receives in place of a 0" shows the path, and the reader can follow it.
+
+The `prose-tells` check fails on these constructions in every Markdown file and in the
+comments of every C, C++, Rust, Go, Zig and Python file. A verdict written in plain words
+gets past it, and a reviewer reads for that.

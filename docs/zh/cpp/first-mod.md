@@ -36,10 +36,13 @@ my-mod/
 
 ## src/Main.cpp
 
-见[上一页的完整代码](/zh/cpp/)，或者仓库里的 `examples/hello-pier-cpp/src/Main.cpp`。
+见[上一页的完整代码](index.md)，或者仓库里的 `examples/hello-pier-cpp/src/Main.cpp`。
 
-关键在于 enable 路径在 `register_command` 缺失时做了什么：打一条 warning，然后**仍然返回 true**。
-拒绝启用是错的，因为模组少了一项能力仍然能用。不能接受的是什么都不注册、也什么都不说。
+看一下 enable 路径在 `register_command` 缺失时做了什么：打一条 warning，然后**仍然返回 true**。
+模组于是在没有这条命令的情况下启用，其他功能照常工作；日志里那条 warning 写着少了哪条命令、为什么。
+
+还要注意 `onHello` 里的 `try`。往 `std::string` 里追加内容可能抛异常，而宿主是通过 C 函数指针调用 `onHello` 的，
+异常在那里没有定义好的出路。[异常](index.md#异常) 一节说明了那时会发生什么，并给出每个回调都该照抄的写法。
 
 ## 构建
 
@@ -98,7 +101,7 @@ plugins/my-mod/
   my_mod.dll
 ```
 
-启动服务器，日志里应该有你那几行：
+启动服务器，日志里应该有这两行，关服时还会有 `my-mod disabled` 和 `my-mod unloaded`：
 
 ```
 [my-mod] my-mod loaded
@@ -121,5 +124,5 @@ plugins/my-mod/
 
 ## 接着看
 
-- [ABI](/zh/guide/abi) —— 完整契约，也就是你在直接调用的东西。
-- [C++ 绑定](/zh/cpp/) —— 能力检查、字符串和错误约定，一页讲完。
+- [ABI](../guide/abi.md) —— 完整契约，也就是你在直接调用的东西。
+- [C++ 绑定](index.md) —— 能力检查、字符串和错误约定，一页讲完。

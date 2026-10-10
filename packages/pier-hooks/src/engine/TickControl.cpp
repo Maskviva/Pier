@@ -68,20 +68,26 @@ namespace pier::hooks
             for (int i = 0; i < n; ++i) origin();
         }
 
-        void ensureTickHooked()
+        /** False when the detour did not attach, so a freeze or warp reports failure
+         *  instead of returning true while the world keeps ticking. */
+        bool ensureTickHooked()
         {
-            if (!gTick.hooked)
+            if (gTick.hooked) return true;
+            int const r = LevelTickHook::hook();
+            if (r != 0)
             {
-                LevelTickHook::hook();
-                gTick.hooked = true;
+                hostLogger().error("[tick-control] the Level::$tick detour failed to install (code {})", r);
+                return false;
             }
+            gTick.hooked = true;
+            return true;
         }
 
         bool api_tick_freeze(bool on)
         {
             PIER_API_GUARD_BEGIN
                 if (!on && !gTick.hooked) return true; // Nothing to undo
-                ensureTickHooked();
+                if (!ensureTickHooked()) return false;
                 gTick.frozen = on;
                 if (!on) gTick.pendingSteps = 0;
                 return true;
@@ -107,7 +113,7 @@ namespace pier::hooks
             PIER_API_GUARD_BEGIN
                 if (!(factor > 0.0) || factor > 100.0) return false; // Also rejects NaN
                 if (factor == 1.0 && !gTick.hooked) return true;     // Nothing to undo
-                ensureTickHooked();
+                if (!ensureTickHooked()) return false;
                 gTick.warp = factor;
                 if (factor == 1.0) gTick.acc = 0.0;
                 return true;

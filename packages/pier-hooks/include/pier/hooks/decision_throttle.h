@@ -11,7 +11,7 @@
  * recycled and within the TTL window a recycled pointer would hand a resident's allow decision to
  * a griefer. The position is part of the key, so moving one cell invalidates it immediately, and
  * the worst a stale entry does is repeat the correct decision for the same position a few ticks
- * late. Server thread only, so no lock. / */
+ * late. Server thread only, so no lock. */
 #pragma once
 
 #include <chrono>

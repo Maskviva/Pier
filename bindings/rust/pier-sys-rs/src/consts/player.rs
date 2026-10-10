@@ -119,6 +119,9 @@ pub const PIER_PSTR_RESPAWN_POS: i32 = 10;
 
 // ── PierPlayerAction ──────────────────────────────────────────
 
+/// a=AbilitiesIndex, b=0/1 or a float (FlySpeed and the like). The permission level is
+/// restored afterwards; use PIER_PACT_SET_PERMISSION_LEVEL to change it. Refused until the
+/// player has finished joining; simulated players are exempt.
 pub const PIER_PACT_SET_ABILITY: i32 = 0;
 /// a=AbilitiesIndex → out "0"/"1" Player::canUseAbility
 pub const PIER_PACT_CAN_USE_ABILITY: i32 = 1;
@@ -126,11 +129,11 @@ pub const PIER_PACT_CAN_USE_ABILITY: i32 = 1;
 pub const PIER_PACT_SET_SELECTED_SLOT: i32 = 2;
 /// sarg=item SNBT                  ItemStack::fromTag + Player::addAndRefresh
 pub const PIER_PACT_GIVE_ITEM: i32 = 3;
-/// a,b,c=pos, sarg=dim ("0".."2")  via /spawnpoint
+/// a,b,c=pos, sarg=dim id (any registered dimension); native Player::setRespawnPosition
 pub const PIER_PACT_SET_SPAWN_POINT: i32 = 4;
-/// via /title clear
+/// native SetTitlePacket(Clear)
 pub const PIER_PACT_CLEAR_TITLE: i32 = 5;
-/// sarg=text, a=slot(0 title,1 subtitle,2 actionbar) via /title
+/// sarg=text, a=slot(0 title,1 subtitle,2 actionbar); native SetTitlePacket, text verbatim
 pub const PIER_PACT_SET_TITLE: i32 = 6;
 /// Appended.
 /// a=xp                  Player::addExperience

@@ -240,6 +240,9 @@ namespace pier::dimensions
          * The last line is deliberate: a player placing a mob in a creative world is
          * ordinary play and must not be blocked by a no-spawning setting.
          */
+        // Spawner and not BedrockSpawner: the level owns a BedrockSpawner, which overrides
+        // spawnItem but inherits this function, so the Spawner implementation is the one
+        // that runs.
         LL_TYPE_INSTANCE_HOOK(
             DimRuleSpawnMobHook,
             ll::memory::HookPriority::Normal,
@@ -312,6 +315,9 @@ namespace pier::dimensions
 
         //  Projectiles
 
+        // Spawner and not BedrockSpawner: the level owns a BedrockSpawner, which overrides
+        // spawnItem but inherits this function, so the Spawner implementation is the one
+        // that runs.
         LL_TYPE_INSTANCE_HOOK(
             DimRuleSpawnProjectileHook,
             ll::memory::HookPriority::Normal,

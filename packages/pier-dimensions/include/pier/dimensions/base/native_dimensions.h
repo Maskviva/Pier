@@ -1,19 +1,17 @@
 #pragma once
 
-/** native_dimensions.h: a wrapper over the native custom dimension interface of the BDS 26.20
- * engine. This host takes the native path only. The older FakeDimensionId approach, rewriting the
+/** native_dimensions.h: a wrapper over the engine's native custom dimension interface.
+ * This host takes the native path only. The older FakeDimensionId approach, rewriting the
  * dimension id of outbound packets, intercepting DimensionDataPacket and faking a trip through
  * the nether before a dimension change, is removed entirely and is mutually exclusive with this
- * one. The MoreDimensions approach does not apply either: on 26.20 neither
- * VanillaDimensions::DimensionMap() nor mFactoryMap is a data source for getOrCreateDimension.
- * The engine resolves a name through DimensionManager::mDimensionNameIdStore when building a
- * dimension from an id, and with no entry there it returns an expired WeakRef, which is why
- * blockSourceOf returns nullptr and a teleport is reported as failed. registerCustomDimension()
- * handed registration back to the engine, which allocated the id and wrote it into the NameIdStore
- * of the save. On 26.32 that entry point and the lookup that read the table back are both gone, so
- * the function refuses and no custom dimension can be created; NativeDimensions.cpp states the
- * reasoning and what was rejected in its place. No function throws. A failure returns nullopt,
- * false or nullptr and logs. */
+ * one. A dimension is registered the way LeviLamina's MoreDimensions registers one on the same
+ * engine: an id in DimensionManager::mDimensionNameIdStore, a definition through
+ * _registerDimensionWithDimensionDefinitionGroup, the engine's factory through
+ * _registerCustomDimensionWithFactory, and this host's factory bound over it afterwards. The
+ * engine resolves a name through the NameIdStore when building a dimension from an id, and with no
+ * entry there it returns an expired WeakRef, which is why blockSourceOf returns nullptr and a
+ * teleport is reported as failed. NativeDimensions.cpp states the order and why each step is where
+ * it is. No function throws. A failure returns nullopt, false or nullptr and logs. */
 
 #include <functional>
 #include <optional>

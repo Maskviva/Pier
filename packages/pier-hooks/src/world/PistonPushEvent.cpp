@@ -50,6 +50,7 @@ namespace pier::hooks
             std::string blocks = "[";
             int px = 0, py = 0, pz = 0;
             int fx = 0, fy = 0, fz = 0;
+            bool readFailed = false;
             try
             {
                 dim = static_cast<int>(region.getDimensionId());
@@ -71,9 +72,11 @@ namespace pier::hooks
             }
             catch (...)
             {
-                // An unreadable attachment list means the pushed set is unknown. This only
-                // reports, and the mod decides from the coordinates, having at least the
-                // piston position.
+                // An unreadable attachment list means the pushed set is unknown, which is not
+                // the empty list: "partial":1 says so. The list restarts, since a throw in the
+                // middle of it leaves a trailing comma that no SNBT parser accepts.
+                blocks = "[";
+                readFailed = true;
             }
             blocks += "]";
 
@@ -83,7 +86,8 @@ namespace pier::hooks
                 + ",\"z\":" + snbtNum(pz)
                 + ",\"dim\":" + snbtNum(dim)
                 + ",\"facing\":[" + snbtNum(fx) + "," + snbtNum(fy) + "," + snbtNum(fz) + "]"
-                + ",\"attached\":" + blocks + "}";
+                + ",\"attached\":" + blocks
+                + (readFailed ? ",\"partial\":1" : "") + "}";
 
             if (dispatchHookEventCancellable(def, snbt)) return false;
             return true;

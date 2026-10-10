@@ -84,7 +84,7 @@ namespace pier::api_impl
             auto mod = weakMod.lock();
             if (!mod || mod.get() != task.mod) return; // Mod gone, dylib may be unmapped
             if (!mod->acceptsCallbacks()) return;             // Muted while disabled
-            CallbackScope scope{mod.get()};            // Veto unload during the callback
+            CallbackScope scope{mod.get(), "task"};            // Veto unload during the callback
             if (task.cb) task.cb(task.user);
         }
 

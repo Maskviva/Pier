@@ -88,8 +88,21 @@ def find_engine_include():
     return None
 
 
+def template_bodies(text):
+    """The bodies of the class templates defined in one header, braces matched."""
+    out = []
+    for m in re.finditer(r"\btemplate\s*<[^;{}]*>\s*(?:class|struct)\s+\w+[^;{}]*\{", text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            i += 1
+        out.append(text[m.end():i - 1])
+    return out
+
+
 def collect_engine_members(inc_dir):
-    """Member name to (how T is spelled, the header declaring it). A member name appearing in more than one class is discarded."""
+    """Member name to (how T is spelled, the header declaring it). A name whose spellings in
+    different classes would be judged differently is discarded as ambiguous."""
     members = {}
     ambiguous = set()
     enums = set()
@@ -98,6 +111,12 @@ def collect_engine_members(inc_dir):
         r"::ll::TypedStorage<\s*[^,]+,\s*[^,]+,\s*(.+?)\s*>\s+(m\w+)\s*;"
     )
     decl2 = re.compile(r"\bll::TypedStorage<\s*[^,]+,\s*[^,]+,\s*(.+?)\s*>\s+(m\w+)\s*;")
+    # A plain member of the same name in a class template makes the name ambiguous too:
+    # BidirectionalUnorderedMap holds a plain `mLeft`, and taking every `mLeft` for the one
+    # TypedStorage `mLeft` of a camera component reported sites that are correct.
+    plain = re.compile(r"^[ \t]*(?!.*TypedStorage)[\w:<>,\s\*&]+?[\s\*&](m[A-Z]\w*)\s*(?:;|\{\}|=)", re.M)
+    plain_names = set()
+    spellings = {}
     enum_decl = re.compile(r"\benum\s+(?:class\s+|struct\s+)?(\w+)\s*(?::[^{;]+)?[{;]")
 
     for dp, _, fs in os.walk(inc_dir):
@@ -112,15 +131,42 @@ def collect_engine_members(inc_dir):
                 continue
             for m in enum_decl.finditer(text):
                 enums.add(m.group(1))
+            # Only a class template counts: it is a hand-written generic container that Pier
+            # may instantiate itself, while a plain member of an ordinary class elsewhere,
+            # such as a reference in a LeviLamina event, is not what an engine-typed object
+            # in Pier holds.
+            for body in template_bodies(text):
+                for m in plain.finditer(body):
+                    plain_names.add(m.group(1))
             for rx in (decl, decl2):
                 for m in rx.finditer(text):
                     t, name = " ".join(m.group(1).split()), m.group(2)
-                    if name in members and members[name][0] != t:
-                        ambiguous.add(name)
-                    members.setdefault(name, (t, os.path.relpath(p, inc_dir)))
-    for name in ambiguous:
-        members.pop(name, None)
+                    spellings.setdefault(name, []).append((t, os.path.relpath(p, inc_dir)))
+    # A name held by several classes is still judged when every spelling gets the same
+    # verdict: mCause is ActorDamageCause in most classes and ActorHealCause in one, both
+    # enums, so `.get()` on any of them is the same error. Only a name whose spellings would
+    # be judged differently is ambiguous, along with the plain members above.
+    for name, seen in spellings.items():
+        verdicts = {collapses(t, enums)[0] for t, _ in seen}
+        if len(verdicts) == 1 and name not in plain_names:
+            members[name] = seen[0]
+        else:
+            ambiguous.add(name)
     return members, enums, ambiguous, n_files
+
+
+def collect_project_members():
+    """Member names Pier declares in its own types. A site using one of them may be reading
+    Pier's member and not the engine's, so it is not judged; PackCache::mTemplates and an
+    engine pool's mTemplates are spelled alike."""
+    names = set()
+    rx = re.compile(r"^[ \t]*(?!.*TypedStorage)[\w:<>,\s\*&]+?[\s\*&](m[A-Z]\w*)\s*(?:;|\{|=)", re.M)
+    for dp, _, fs in os.walk(PKGS):
+        for fn in fs:
+            if fn.endswith((".h", ".hpp", ".cpp")):
+                with open(os.path.join(dp, fn), encoding="utf-8", errors="replace") as fh:
+                    names |= set(rx.findall(strip(fh.read())))
+    return names
 
 
 def collapses(t, enums):
@@ -128,6 +174,9 @@ def collapses(t, enums):
     t = t.strip()
     if t.endswith("&") or t.endswith("&&"):
         return True, "a reference"
+    # A cv-qualifier is not the type: `ActorDamageCause const` is still that enum, and
+    # taking the last word of it as the type name read "const" and judged it a class.
+    t = re.sub(r"\b(?:const|volatile)\b", " ", t).strip()
     base = t.replace("::", " ").split()[-1] if t else ""
     if t in SCALARS or base in SCALARS:
         return True, "a scalar"
@@ -145,8 +194,12 @@ def main():
         return 0
 
     members, enums, ambiguous, n_files = collect_engine_members(inc)
-    print("  %d engine header(s), %d TypedStorage member(s), %d enum(s), %d ambiguous name(s) excluded"
-          % (n_files, len(members), len(enums), len(ambiguous)))
+    own = collect_project_members() & set(members)
+    for name in own:
+        members.pop(name, None)
+    print("  %d engine header(s), %d TypedStorage member(s), %d enum(s), %d ambiguous name(s) excluded,"
+          " %d more because Pier declares a member of that name itself"
+          % (n_files, len(members), len(enums), len(ambiguous), len(own)))
 
     problems = []
     scanned = 0

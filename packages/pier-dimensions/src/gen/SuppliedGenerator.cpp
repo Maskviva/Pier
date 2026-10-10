@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <mutex>
 #include <unordered_map>
 
 #include "ll/api/service/Bedrock.h"
@@ -266,30 +267,40 @@ namespace pier::dimensions
     {
         /** Name to terrain, for the dimensions a mod supplies.
          *
-         *  Written only from the server thread, at registration. A generator takes its
-         *  shared_ptr once, in createGenerator, and the chunk threads work from that
-         *  copy; the map itself never crosses a thread boundary.
+         *  Written on the server thread at registration and read in createGenerator,
+         *  which the engine may call from a chunk thread, so every access holds
+         *  terrainsMutex. A generator copies its shared_ptr once and the chunk threads work
+         *  from that copy, so the lock is taken once per dimension and not per chunk.
          */
         std::unordered_map<std::string, std::shared_ptr<SuppliedTerrain const>>& terrains()
         {
             static std::unordered_map<std::string, std::shared_ptr<SuppliedTerrain const>> map;
             return map;
         }
+
+        std::mutex& terrainsMutex()
+        {
+            static std::mutex m;
+            return m;
+        }
     } // namespace
 
     void rememberSuppliedTerrain(std::string const& dimName, std::shared_ptr<SuppliedTerrain const> terrain)
     {
+        std::lock_guard lock{terrainsMutex()};
         terrains()[dimName] = std::move(terrain);
     }
 
     std::shared_ptr<SuppliedTerrain const> suppliedTerrainOf(std::string const& dimName)
     {
+        std::lock_guard lock{terrainsMutex()};
         auto it = terrains().find(dimName);
         return it == terrains().end() ? nullptr : it->second;
     }
 
     void forgetSuppliedTerrain(std::string const& dimName)
     {
+        std::lock_guard lock{terrainsMutex()};
         terrains().erase(dimName);
     }
 } // namespace pier::dimensions

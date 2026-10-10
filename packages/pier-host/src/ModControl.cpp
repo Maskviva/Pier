@@ -248,7 +248,7 @@ namespace pier::mod_control
         std::error_code ec;
         if (!fs::is_regular_file(file, ec))
         {
-            return ll::makeStringError("mods/" + std::string(name) + "/manifest.json not found");
+            return ll::makeStringError(ll::string_utils::u8str2str(file.u8string()) + " not found");
         }
         auto c = parseCandidate(file, std::string(name));
         if (c.problem == "not-pier")
@@ -270,7 +270,7 @@ namespace pier::mod_control
         auto text = ll::file_utils::readFile(file);
         if (!text)
         {
-            return ll::makeStringError("mods/" + std::string(name) + "/manifest.json could not be read");
+            return ll::makeStringError(ll::string_utils::u8str2str(file.u8string()) + " could not be read");
         }
         nlohmann::json j;
         try
@@ -428,6 +428,9 @@ namespace pier::mod_control
             bool cascade = false;
             bool unknownFlag = false;
             std::string unknownFlagText;
+            /** The first word past the mod name. Dropping it would unload modA of
+             *  `unload modA modB` and report success for a command that did half its job. */
+            std::string extra;
         };
 
         ParsedArgs parseArgs(std::string const& raw)
@@ -469,6 +472,10 @@ namespace pier::mod_control
                 else if (a.name.empty())
                 {
                     a.name = t;
+                }
+                else if (a.extra.empty())
+                {
+                    a.extra = t;
                 }
             }
             return a;
@@ -846,6 +853,11 @@ namespace pier::mod_control
                 }
                 auto args = parseArgs(raw);
 
+                if (!args.extra.empty())
+                {
+                    output.error("unexpected argument " + args.extra + "; one mod name per command");
+                    return;
+                }
                 if (args.unknownFlag)
                 {
                     output.error("unrecognized argument " + args.unknownFlagText + " (only --cascade is supported)");

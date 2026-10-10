@@ -18,15 +18,48 @@ use crate::rt::ffi::{collect_strs, s};
 use crate::rt::logger::Logger;
 use crate::sys;
 
+/// What an economy event does. `Unknown` carries a value this SDK does not list, which a
+/// newer economy backend may send; a veto callback deciding on an unknown kind should
+/// refuse rather than guess.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoneyEventKind {
+    Set,
+    Add,
+    Reduce,
+    Trans,
+    Unknown(i32),
+}
+
+impl MoneyEventKind {
+    /// Maps the ABI value, keeping one outside the list as `Unknown`.
+    pub fn from_raw(raw: sys::PierMoneyEvent) -> Self {
+        match raw.0 {
+            sys::PIER_MONEY_SET => Self::Set,
+            sys::PIER_MONEY_ADD => Self::Add,
+            sys::PIER_MONEY_REDUCE => Self::Reduce,
+            sys::PIER_MONEY_TRANS => Self::Trans,
+            other => Self::Unknown(other),
+        }
+    }
+}
+
 /// One economy event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MoneyEvent {
+    /// The raw kind as the host sent it. [`MoneyEvent::kind_checked`] names it.
     pub kind: sys::PierMoneyEvent,
     /// The xuid of the payer. An empty string means created out of nothing.
     pub from: String,
     /// The xuid of the recipient. An empty string means destroyed into nothing.
     pub to: String,
     pub value: i64,
+}
+
+impl MoneyEvent {
+    /// The kind, with a value this SDK does not list kept as [`MoneyEventKind::Unknown`].
+    pub fn kind_checked(&self) -> MoneyEventKind {
+        MoneyEventKind::from_raw(self.kind)
+    }
 }
 
 /// The balance.
@@ -89,36 +122,53 @@ fn ok(done: bool, what: &str, xuid: &str) -> Result<()> {
     }
 }
 
-/// The transactions of the last `seconds` seconds, one per line.
+/// The transactions of the last `seconds` seconds, one per line, and `Err` for a host
+/// without the history slot, which an empty list would hide.
+pub fn try_history(xuid: &str, seconds: i32) -> Result<Vec<String>> {
+    let f = crate::require_slot!(money_get_hist, "reading the transaction history");
+    Ok(collect_strs(|ctx, sink| unsafe { f(s(xuid), seconds, ctx, sink) }))
+}
+
+/// The transactions of the last `seconds` seconds, and an empty list when the host cannot
+/// read them.
+#[deprecated(
+    since = "26.51.2",
+    note = "use try_history: this answers an empty list when the host has no history slot"
+)]
 pub fn history(xuid: &str, seconds: i32) -> Vec<String> {
-    if !crate::has_slot!(money_get_hist) {
-        return Vec::new();
-    }
-    let Some(f) = crate::__rt::api().money_get_hist else {
-        return Vec::new();
-    };
-    collect_strs(|ctx, sink| unsafe { f(s(xuid), seconds, ctx, sink) })
+    try_history(xuid, seconds).unwrap_or_default()
 }
 
-/// Clears transactions older than `seconds` seconds.
+/// Clears transactions older than `seconds` seconds, and `Err` for a host that cannot.
+pub fn try_clear_history(seconds: i32) -> Result<()> {
+    let f = crate::require_slot!(money_clear_hist, "clearing the transaction history");
+    unsafe { f(seconds) };
+    Ok(())
+}
+
+/// Clears transactions older than `seconds` seconds, doing nothing on a host that cannot.
+#[deprecated(
+    since = "26.51.2",
+    note = "use try_clear_history: this does nothing, silently, on a host that cannot clear"
+)]
 pub fn clear_history(seconds: i32) {
-    if !crate::has_slot!(money_clear_hist) {
-        return;
-    }
-    if let Some(f) = crate::__rt::api().money_clear_hist {
-        unsafe { f(seconds) };
-    }
+    let _ = try_clear_history(seconds);
 }
 
-/// The top `top_n` of the rich list, one per line.
+/// The top `top_n` of the rich list, one per line, and `Err` for a host without the
+/// ranking slot.
+pub fn try_ranking(top_n: u16) -> Result<Vec<String>> {
+    let f = crate::require_slot!(money_ranking, "reading the rich list");
+    Ok(collect_strs(|ctx, sink| unsafe { f(top_n, ctx, sink) }))
+}
+
+/// The top `top_n` of the rich list, and an empty list when the host cannot read it.
+#[deprecated(
+    since = "26.51.2",
+    note = "use try_ranking: this answers an empty list when the host has no ranking slot"
+)]
 pub fn ranking(top_n: u16) -> Vec<String> {
-    if !crate::has_slot!(money_ranking) {
-        return Vec::new();
-    }
-    let Some(f) = crate::__rt::api().money_ranking else {
-        return Vec::new();
-    };
-    collect_strs(|ctx, sink| unsafe { f(top_n, ctx, sink) })
+    try_ranking(top_n).unwrap_or_default()
 }
 
 /// Registers a callback that runs before the event, where returning `false` vetoes the

@@ -15,7 +15,7 @@ from pierpack.tpl_build import build_file  # noqa: E402
 from pierpack.tpl_read import read_template  # noqa: E402
 from pierpack import refgen_tpl as R  # noqa: E402
 
-# Pier 的 dimension_height.h 说了算。底原本是 -512，2026-09-10 收回原版的 -64。
+# Pier's dimension_height.h decides the floor, which is vanilla's -64.
 K_MIN_Y, K_MAX_Y, K_BEDROCK_Y = -64, 320, -64
 
 

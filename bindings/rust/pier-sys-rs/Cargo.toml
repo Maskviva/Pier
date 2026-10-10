@@ -1,6 +1,6 @@
 [package]
 name = "pier-sys-rs"
-version = "26.51.1"
+version = "26.51.2"
 edition = "2021"
 license = "Apache-2.0"
 description = "Raw FFI declarations for Pier, cell for cell against packages/pier-abi/include/sdk/abi.h (ABI v2)."
@@ -22,21 +22,12 @@ path = "src/lib.rs"
 # On features: from v1 onward these are build-time target declarations only and affect no
 # layout.
 #
-# Features that change the field set of PierApi are what caused the seven-slot
-# misalignment: the macro was defined by nobody on the host side while the cfg was always
-# true in the mirror, the two tables had different lengths, and the tail shifted whole.
-#
 # The layout of ABI v2 is identical on every target (contract §2.1) and an absent
-# capability is a NULL slot. Therefore:
-#
-#   * no feature selects a dimension capability. It is decided at runtime through
-#     `md_is_available()` and an empty slot, never at compile time;
-#   * `client` remains and decides only that one bit in `PierModVTable::mod_flags`,
-#     adding and removing no field. The host compares target through flags bit 0 and
-#     refuses to load explicitly on a mismatch.
-#
-# The `sys-mirrors-abi` check refuses any `#[cfg]` in this crate, tests aside, so that the
-# paragraph above stays true rather than remaining a wish.
+# capability is a NULL slot, so no feature changes a field of PierApi: the dimension
+# capability is decided at runtime. `client` changes nothing in this crate; it is kept
+# because pier-rs forwards its own `client` feature here and a feature is public surface
+# (contract §2.5). The `sys-mirrors-abi` check refuses any `#[cfg]` in this crate, tests
+# aside.
 [features]
 default = []
 client = []

@@ -173,6 +173,8 @@ impl<'a> Event<'a> {
     /// When an event carries an Actor stub that is neither an online player nor present in
     /// the runtime actor table, the host records the field name here. A non-empty list means
     /// the payload is incomplete, and a protection decision should refuse rather than guess.
+    /// The list is empty too when the payload could not be parsed at all, which
+    /// [`Self::check_complete`] does not count as complete.
     pub fn unresolved(&mut self) -> Vec<String> {
         let Some(v) = self.value_opt() else {
             return Vec::new();
@@ -187,19 +189,26 @@ impl<'a> Event<'a> {
             .unwrap_or_default()
     }
 
-    /// Checks whether the payload is complete, meaning `_unresolved` is empty.
+    /// Checks whether the payload is complete: it parsed, and `_unresolved` is empty. A
+    /// payload that did not parse is not complete, since nothing in it could be resolved.
     pub fn check_complete(&mut self) -> bool {
-        self.unresolved().is_empty()
+        self.value_opt().is_some() && self.unresolved().is_empty()
     }
 
     /// Which dimension the event happened in.
     ///
-    /// An unreadable value is an `Err` and never a 0. That rule is why this module exists: an
+    /// An unreadable value is an `Err`. An
     /// earlier design had callers write `payload.i32_at("dim").unwrap_or(0)`, so every event
     /// in a custom dimension, whose id is 3 or above, was judged to be in the overworld, and
     /// land protection refusing in the overworld and allowing elsewhere was bypassed with
     /// nothing logged.
     pub fn dim(&mut self) -> Result<i32> {
+        if self.value_opt().is_none() {
+            return Err(Error(format!(
+                "the payload of event `{}` could not be parsed, so the dimension is unknown",
+                self.id
+            )));
+        }
         if !self.check_complete() {
             let miss = self.unresolved().join(", ");
             return Err(Error(format!(

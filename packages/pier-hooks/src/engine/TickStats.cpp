@@ -130,11 +130,22 @@ namespace pier::hooks
             st.primed = true;
         }
 
+        /** get_tps answers -1 without these detours, which reads as "no data yet"; the
+         *  error line is what tells an operator that it will stay that way. */
         void ensureHooked()
         {
             if (gStats.hooked) return;
-            TickStatsOuterHook::hook();
-            TickStatsInnerHook::hook();
+            int const outer = TickStatsOuterHook::hook();
+            int const inner = TickStatsInnerHook::hook();
+            if (outer != 0 || inner != 0)
+            {
+                hostLogger().error(
+                    "[tick-stats] the Level::$tick detours failed to install (outer {}, inner {}); "
+                    "get_tps answers -1 for this session", outer, inner);
+                TickStatsOuterHook::unhook();
+                TickStatsInnerHook::unhook();
+                return;
+            }
             gStats.hooked = true;
         }
 

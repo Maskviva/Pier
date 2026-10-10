@@ -273,7 +273,7 @@ namespace pier::api_impl
          * default state, while {name:"minecraft:stone",states:{...}} is full serialized NBT and
          * runs the engine version upgrade table. An unrecognized block name returns false rather
          * than quietly filling in a placeholder the way getDefaultBlockState does, which would let
-         * a fill with a misspelled name wipe an entire area. / */
+         * a fill with a misspelled name wipe an entire area. */
         bool api_set_block(int32_t dim, int32_t x, int32_t y, int32_t z, PierStr blockSpec)
         {
             PIER_API_GUARD_BEGIN

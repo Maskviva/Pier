@@ -101,17 +101,6 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        bool api_client_get_screen_name(void* ctx, PierStrSink sink)
-        {
-            PIER_API_GUARD_BEGIN
-                // The current LL headers expose no stable getScreenName() accessor on
-                // ClientInstance, so this reports unsupported.
-                (void)ctx;
-                (void)sink;
-                return false;
-            PIER_API_GUARD_END
-        }
-
         PierKeyHandle api_client_register_key(
             PierModHandle modHandle,
             PierStr name,
@@ -229,7 +218,6 @@ namespace pier::api_impl
         {
             api.client_get_local_player = &api_client_get_local_player;
             api.client_is_in_level = &api_client_is_in_level;
-            api.client_get_screen_name = &api_client_get_screen_name;
             api.client_register_key = &api_client_register_key;
             api.client_unregister_key = &api_client_unregister_key;
             api.client_get_key_codes = &api_client_get_key_codes;

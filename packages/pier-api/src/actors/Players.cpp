@@ -4,6 +4,7 @@
  * table on every call. A pointer is never cached. Version-sensitive writes go through
  * a native call or a native packet.
  */
+#include <atomic>
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -16,6 +17,8 @@
 #include <variant>
 #include <vector>
 
+#include "mc/entity/components/AttributesComponent.h"
+#include "mc/deps/ecs/gamerefs_entity/EntityContext.h"
 #include "mc/deps/core/math/Vec2.h"
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/deps/core/string/HashedString.h"
@@ -48,6 +51,10 @@
 #include "mc/world/attribute/AttributeInstance.h"
 #include "mc/world/attribute/AttributeInstanceConstRef.h"
 #include "mc/world/attribute/AttributeInstanceForwarder.h"
+// Complete types for BaseAttributeMap: its inline destructor destroys a vector of handles,
+// and AttributesComponent.h only forward-declares AttributeInstanceHandle.
+#include "mc/world/attribute/AttributeInstanceHandle.h" // IWYU pragma: keep
+#include "mc/world/attribute/BaseAttributeMap.h"
 #include "mc/world/attribute/MutableAttributeWithContext.h"
 #include "mc/world/gamemode/InteractionResult.h"
 #include "mc/world/item/ItemStack.h"
@@ -195,10 +202,21 @@ namespace pier::api_impl
 
                 // Maps the ABI integer onto TextPacketType. An out-of-range value falls
                 // back to Raw, one plain line of text on the client, rather than being
-                // refused.
+                // refused, and the fallback is logged once.
                 auto ptype = TextPacketType::Raw;
                 if (type >= 0 && type <= 11)
+                {
                     ptype = static_cast<TextPacketType>(static_cast<uchar>(type));
+                }
+                else
+                {
+                    static std::atomic<bool> warned{false};
+                    if (!warned.exchange(true))
+                    {
+                        hostLogger().warn("[player] send_message_typed got type {}, outside "
+                                          "0..11; it is sent as Raw", type);
+                    }
+                }
 
                 // The body shape has to match the type on the wire: Chat and Whisper
                 // carry an author, Translate carries parameters, and everything else is
@@ -341,20 +359,18 @@ namespace pier::api_impl
         }
 
         /**
-         * Refuses, on this engine version. Attribute writes are unavailable and the
-         * signature is kept so the call site stays put for the day they come back.
+         * Writes through BaseAttributeMap::setCurrentValue, reached from the actor's
+         * AttributesComponent. The forwarder and MutableAttributeWithContext lost their
+         * write path to inlining, while the map's own setter remains and runs the listeners
+         * that sync the value to the client. LegacyScriptEngine writes attributes the same
+         * way on this engine version. False when there is no attribute component or the
+         * map refuses the value.
          */
         bool writeAttribute(Player& p, Attribute const& attr, float value)
         {
-            // The whole write path is inlined away: MutableAttributeWithContext lost its
-            // bool test and its operator->, and AttributeInstanceForwarder lost
-            // setCurrentValue, which AttributeInstance itself never had. Writing
-            // mCurrentValue directly would skip the listener pass that syncs the value to
-            // the client, so the attribute would move on the server and not on screen.
-            (void)p;
-            (void)attr;
-            (void)value;
-            return false;
+            auto component = p.getEntityContext().tryGetComponent<AttributesComponent>();
+            if (!component) return false;
+            return component->mAttributes->setCurrentValue(attr, value);
         }
 
         //  Properties
@@ -591,7 +607,15 @@ namespace pier::api_impl
                 switch (prop)
                 {
                 case PIER_PPROP_LEVEL:
-                    return writeAttribute(*p, Player::LEVEL(), static_cast<float>(v));
+                {
+                    // Through addLevels and not a bare attribute write, which would skip
+                    // the engine's level-change handling. LegacyScriptEngine sets a level
+                    // the same way.
+                    double current = 0.0;
+                    if (v < 0.0 || !readAttribute(*p, Player::LEVEL(), &current)) return false;
+                    p->addLevels(static_cast<int>(v) - static_cast<int>(current));
+                    return true;
+                }
                 case PIER_PPROP_EXPERIENCE:
                     return writeAttribute(*p, Player::EXPERIENCE(), static_cast<float>(v));
                 case PIER_PPROP_HUNGER:

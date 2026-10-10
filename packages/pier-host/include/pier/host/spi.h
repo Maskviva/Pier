@@ -1,3 +1,4 @@
+/** spi.h: the registration points through which capability packages fill the host. */
 #pragma once
 // The host SPI, the only collaboration surface between capability packages and the
 // host (contract §1 rule 2).

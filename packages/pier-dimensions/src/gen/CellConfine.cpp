@@ -13,7 +13,7 @@
  * behaves differently on purpose: the mod side deduplicates a title and takes what it reached,
  * while this is a protection decision, and an unfinished walk means not knowing whether two cells
  * share a group, which must be refused. Otherwise merging past 4096 cells would switch the
- * confinement off entirely. / */
+ * confinement off entirely. */
 #include "pier/dimensions/gen/cell_confine.h"
 
 #include <atomic>

@@ -72,7 +72,7 @@ namespace pier::bridge
     [[nodiscard]] std::string playerSummarySnbt(Player& p);
 
     /** ItemStack to and from SNBT. fromSnbt does not throw on malformed input, since
-     *  that input ultimately comes from a client. It returns nullopt on failure and
+     *  that input comes from a client. It returns nullopt on failure and
      *  leaves a log line. */
     [[nodiscard]] std::string itemToSnbt(ItemStack const& item);
     [[nodiscard]] std::optional<ItemStack> itemFromSnbt(std::string_view snbt);

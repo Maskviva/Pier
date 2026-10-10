@@ -1,3 +1,4 @@
+/** Spi.cpp: the registry behind spi.h. */
 #include "pier/host/spi.h"
 
 #include <algorithm>

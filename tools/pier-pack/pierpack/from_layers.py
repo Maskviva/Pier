@@ -11,9 +11,9 @@ from __future__ import annotations
 import json
 import re
 
-# 和 Pier 的 dimension_height.h 同源。底原本是 -512，2026-09-10 收回原版的 -64：
-# 一个 52 子区块高的维度超出引擎发布过的任何形状。这里跟着改，否则转出来的包
-# 声明的范围装不进任何维度，宿主以 Height 拒绝。
+# The same source as Pier's dimension_height.h, whose floor is vanilla's -64: a dimension
+# 52 subchunks tall exceeds every shape the engine ships. A pack declaring a range no
+# dimension can hold is refused by the host with Height.
 WORLD_MIN_Y, WORLD_MAX_Y, BEDROCK_Y = -64, 320, -64
 
 

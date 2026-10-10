@@ -1,3 +1,4 @@
+/** hosted_mod.h: one loaded pier mod, and the guard every callback dispatch holds. */
 #pragma once
 
 #include <atomic>
@@ -13,6 +14,8 @@
 #include "ll/api/utils/SystemUtils.h"
 
 #include "sdk/abi.h"
+
+#include "pier/host/watchdog.h"
 
 namespace pier
 {
@@ -80,28 +83,42 @@ namespace pier
         /** Whether a callback may be dispatched into this mod right now. */
         [[nodiscard]] bool acceptsCallbacks() const noexcept
         {
-            return isEnabled() && !unloading.load(std::memory_order_acquire);
+            return isEnabled() && !unloading.load(std::memory_order_seq_cst);
         }
     };
 
-    /** RAII counter around a mod callback dispatch. Construction adds one and
-     *  destruction subtracts one. Does nothing when mod is null. */
+    /** RAII counter around a mod callback dispatch, which also tells the watchdog which
+     *  mod holds this thread and through which entry. Does nothing when mod is null.
+     *
+     *  The counter and `unloading` form a store-then-load pair on each side, and x64
+     *  reorders a store with a later load unless both are seq_cst. With weaker orders an
+     *  unload and a dispatch on another thread can each miss the other. A dispatch that
+     *  can run off the server thread therefore checks revoked() after construction. */
     class CallbackScope
     {
     public:
-        explicit CallbackScope(HostedMod* mod) noexcept : mMod(mod)
+        explicit CallbackScope(HostedMod* mod, char const* site = "callback") noexcept
+            : mMod(mod), mWatch(mod, site)
         {
-            if (mMod) mMod->inCallback.fetch_add(1, std::memory_order_acq_rel);
+            if (mMod) mMod->inCallback.fetch_add(1, std::memory_order_seq_cst);
         }
         ~CallbackScope()
         {
-            if (mMod) mMod->inCallback.fetch_sub(1, std::memory_order_acq_rel);
+            if (mMod) mMod->inCallback.fetch_sub(1, std::memory_order_seq_cst);
         }
         CallbackScope(CallbackScope const&) = delete;
         CallbackScope& operator=(CallbackScope const&) = delete;
 
+        /** True when an unload began before this scope was counted; the dispatch must not
+         *  enter the dylib then, since FreeLibrary may already be running. */
+        [[nodiscard]] bool revoked() const noexcept
+        {
+            return mMod && mMod->unloading.load(std::memory_order_seq_cst);
+        }
+
     private:
         HostedMod* mMod;
+        watchdog::Scope mWatch;
     };
 
     /** PierModHandle to HostedMod*. The handle is the pointer itself. Its lifetime

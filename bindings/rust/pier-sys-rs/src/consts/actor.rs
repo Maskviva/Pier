@@ -108,7 +108,7 @@ pub const PIER_APROP_IS_IN_SNOW: i32 = 42;
 pub const PIER_APROP_IS_IN_THUNDERSTORM: i32 = 43;
 /// (G) Actor::isFrozen
 pub const PIER_APROP_IS_FROZEN: i32 = 44;
-/// (G) Actor::isInLove
+/// (G) unsupported since BDS 1.26.40: Actor::isInLove is gone, so the host always fails it
 pub const PIER_APROP_IS_IN_LOVE: i32 = 45;
 /// (G) Actor::getDeathTime
 pub const PIER_APROP_DEATH_TIME: i32 = 46;

@@ -1,0 +1,251 @@
+# 中文站点。英文站点是 mkdocs.yml，构建到 site/；页头的语言切换器连接两者。
+site_name: Pier
+site_description: 用 Rust、C++、Go、Zig 写 LeviLamina 模组
+repo_url: https://github.com/Maskviva/pier
+repo_name: Maskviva/pier
+edit_uri: edit/main/docs/zh/
+docs_dir: zh
+site_dir: ../site/zh
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: zh
+  icon:
+    logo: material/anchor
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: 切换到暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: 切换到亮色模式
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.code.select
+    - content.tabs.link
+
+plugins:
+  - search:
+      lang: zh
+      separator: '[\s\u200b\-]'
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      auto_title: true
+      linenums: true
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - assets/stylesheets/pier.css
+
+extra:
+  alternate:
+    - name: English
+      link: !ENV [DOCS_LINK_EN, "/"]
+      lang: en
+    - name: 中文
+      link: !ENV [DOCS_LINK_ZH, "/zh/"]
+      lang: zh
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Maskviva/pier
+
+# Links into a page are checked down to the heading they name, so a renamed interface
+# fails the --strict build instead of leaving a link that lands at the top of the page.
+validation:
+  anchors: warn
+
+nav:
+  - 主页: index.md
+  - 用户指南:
+      - guide/installation.md
+      - guide/configuration.md
+      - guide/troubleshooting.md
+      - guide/compatibility.md
+  - 教程:
+      - rust/first-mod.md
+      - cpp/first-mod.md
+      - go/first-mod.md
+      - zig/first-mod.md
+      - 常见任务:
+          - tasks/index.md
+          - tasks/lifecycle.md
+          - 事件:
+              - tasks/events.md
+              - guide/event-payloads.md
+          - tasks/commands.md
+          - 游戏对象:
+              - tasks/player.md
+              - tasks/entity.md
+              - tasks/world.md
+              - tasks/item.md
+          - tasks/scheduler.md
+          - tasks/crossmod.md
+          - tasks/data.md
+          - tasks/economy.md
+  - 接口:
+      # BEGIN gen-api-docs
+      - api/index.md
+      - "Rust":
+          - api/rust/index.md
+          - "crate 根": api/rust/root.md
+          - "玩家": api/rust/player.md
+          - "实体": api/rust/entity.md
+          - "世界": api/rust/world.md
+          - "方块": api/rust/block.md
+          - "物品": api/rust/item.md
+          - "容器": api/rust/container.md
+          - "事件": api/rust/event.md
+          - "事件名": api/rust/event-names.md
+          - "命令": api/rust/command.md
+          - "表单": api/rust/gui.md
+          - "计分板": api/rust/scoreboard.md
+          - "数据包": api/rust/packet.md
+          - "服务器": api/rust/server.md
+          - "宿主与任务": api/rust/host.md
+          - "事件总线": api/rust/bus.md
+          - "服务": api/rust/service.md
+          - "快速通道": api/rust/lane.md
+          - "键值数据库": api/rust/kvdb.md
+          - "经济": api/rust/money.md
+          - "NBT": api/rust/nbt.md
+          - "模拟玩家": api/rust/sim.md
+          - "自定义维度": api/rust/dimensions.md
+          - "客户端": api/rust/client.md
+          - "注册表": api/rust/registry.md
+          - "通用类型": api/rust/types.md
+      - "Go":
+          - api/go/index.md
+          - "核心": api/go/core.md
+          - "事件": api/go/events.md
+          - "命令": api/go/commands.md
+          - "服务器、刻与系统信息": api/go/server.md
+          - "世界": api/go/world.md
+          - "批量编辑世界": api/go/edit.md
+          - "玩家": api/go/player.md
+          - "实体": api/go/entity.md
+          - "方块": api/go/block.md
+          - "物品与容器": api/go/item.md
+          - "计分板": api/go/scoreboard.md
+          - "表单": api/go/form.md
+          - "NBT 与键值数据库": api/go/data.md
+          - "经济": api/go/money.md
+          - "数据包": api/go/packet.md
+          - "模拟玩家": api/go/sim.md
+          - "客户端": api/go/client.md
+          - "自定义维度": api/go/dimensions.md
+          - "跨模组": api/go/crossmod.md
+          - "注册表": api/go/registry.md
+          - "SNBT": api/go/nbt.md
+          - "Raw": api/go/raw.md
+      - "Zig":
+          - api/zig/index.md
+          - "核心": api/zig/core.md
+          - "事件": api/zig/events.md
+          - "命令": api/zig/commands.md
+          - "服务器、刻与系统信息": api/zig/server.md
+          - "玩家": api/zig/player.md
+          - "实体": api/zig/entity.md
+          - "方块": api/zig/block.md
+          - "物品与容器": api/zig/item.md
+          - "跨模组": api/zig/crossmod.md
+          - "SNBT": api/zig/nbt.md
+      - "C++":
+          - api/cpp/index.md
+          - "核心": api/cpp/core.md
+          - "事件": api/cpp/events.md
+          - "命令": api/cpp/commands.md
+          - "服务器、刻与系统信息": api/cpp/server.md
+          - "世界": api/cpp/world.md
+          - "批量编辑世界": api/cpp/edit.md
+          - "玩家": api/cpp/player.md
+          - "实体": api/cpp/entity.md
+          - "方块": api/cpp/block.md
+          - "物品与容器": api/cpp/item.md
+          - "计分板": api/cpp/scoreboard.md
+          - "表单": api/cpp/form.md
+          - "NBT 与键值数据库": api/cpp/data.md
+          - "经济": api/cpp/money.md
+          - "数据包": api/cpp/packet.md
+          - "模拟玩家": api/cpp/sim.md
+          - "客户端": api/cpp/client.md
+          - "自定义维度": api/cpp/dimensions.md
+          - "跨模组": api/cpp/crossmod.md
+          - "注册表": api/cpp/registry.md
+          - "通用类型": api/cpp/types.md
+      # END gen-api-docs
+  - 语言绑定:
+      - Rust:
+          - rust/index.md
+          - rust/lifecycle.md
+          - rust/events.md
+          - rust/commands.md
+          - rust/errors.md
+          - rust/threads.md
+          - rust/cross-mod.md
+          - rust/api.md
+      - C++:
+          - cpp/index.md
+      - Go:
+          - go/index.md
+          - go/cross-mod.md
+      - Zig:
+          - zig/index.md
+      - guide/bridge.md
+  - 架构:
+      - guide/what-is-pier.md
+      - guide/why.md
+      - guide/design.md
+      - guide/abi.md
+      - guide/manifest.md
+      - guide/adding-a-language.md
+  - 常见问题: guide/faq.md

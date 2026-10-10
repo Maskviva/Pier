@@ -46,6 +46,8 @@ namespace pier::hooks
             int dim = -1;
             std::string who;
             bool byPlayer = false;
+            // Sent as "partial":1, so byPlayer 0 is not read as an answer.
+            bool readFailed = false;
             try
             {
                 dim = static_cast<int>(region.getDimensionId());
@@ -58,6 +60,7 @@ namespace pier::hooks
             catch (...)
             {
                 who.clear();
+                readFailed = true;
             }
 
             std::string snbt = "{\"eventId\":\"FarmlandDecayEvent\""
@@ -67,7 +70,8 @@ namespace pier::hooks
                 + ",\"dim\":" + snbtNum(dim)
                 + ",\"fallDistance\":" + snbtDouble(fallDistance)
                 + ",\"byPlayer\":" + (byPlayer ? "1" : "0")
-                + ",\"actor\":\"" + snbtEscape(who) + "\"";
+                + ",\"actor\":\"" + snbtEscape(who) + "\""
+                + (readFailed ? ",\"partial\":1" : "");
             if (byPlayer && actor)
             {
                 snbt += "," + playerRefSnbt(*static_cast<Player*>(actor));

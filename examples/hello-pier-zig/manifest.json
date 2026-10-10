@@ -1,0 +1,10 @@
+{
+    "name": "hello-pier-zig",
+    "entry": "hello_pier_zig.dll",
+    "type": "pier",
+    "version": "0.1.0",
+    "description": "The smallest Zig mod that does something: one command, one event listener, one delayed task, and a service and a bus topic for mods of any language.",
+    "dependencies": [
+        { "name": "pier" }
+    ]
+}

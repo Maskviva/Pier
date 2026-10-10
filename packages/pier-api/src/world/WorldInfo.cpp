@@ -9,7 +9,7 @@
  * omitted: villagers hang off POIInstance weak_ptr arrays keyed by role, and walking them is both
  * fragile and version sensitive, while the POI count is the stable signal. A version that needs
  * villagers adds them here without touching the ABI shape, since the payload is data and not
- * layout. / */
+ * layout. */
 #ifndef PIER_BUILD_CLIENT
 
 #include <cstddef>

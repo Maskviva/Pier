@@ -1,8 +1,8 @@
 /** Config.cpp: reading config.json, and the one place the defaults are written.
  *
- * The seed text and the field defaults are two spellings of the same values. They are
- * kept adjacent on purpose: a reader comparing them can see a drift that no compiler
- * can, and a drift means the file an operator is handed disagrees with the behavior
+ * The seed text and the field defaults in config.h are two spellings of the same values,
+ * and read() takes its fallbacks from the defaults, so there are no more than two. A
+ * drift between them means the file an operator is handed disagrees with the behavior
  * they get when they delete a line from it.
  *
  * A key this host does not read is dropped without a word. Nothing here carries a former
@@ -37,6 +37,12 @@ namespace pier
   "hooks": {
     "disabled": [],
     "decision_ttl_ms": 250
+  },
+  "watchdog": {
+    "enabled": true,
+    "warn_ms": 2000,
+    "hang_ms": 30000,
+    "shutdown_ms": 10000
   }
 }
 )";
@@ -113,6 +119,19 @@ namespace pier
             return v;
         }
 
+        bool flag(nlohmann::json const& root, std::string const& path, bool fallback,
+                  std::vector<ConfigProblem>& out)
+        {
+            auto const* node = at(root, path);
+            if (!node) return fallback;
+            if (!node->is_boolean())
+            {
+                fail(out, "conf.bad_type", {path, "true/false"});
+                return fallback;
+            }
+            return node->get<bool>();
+        }
+
         std::int64_t number(nlohmann::json const& root, std::string const& path, std::int64_t fallback,
                             std::int64_t low, std::int64_t high, std::vector<ConfigProblem>& out)
         {
@@ -136,11 +155,23 @@ namespace pier
 
         Config read(nlohmann::json const& root, std::vector<ConfigProblem>& out)
         {
+            // Every fallback is the field's own default, so config.h is the one place a
+            // default is spelled; kSeed above is the other, which an operator reads.
+            Config const d{};
             Config c;
-            c.language = text(root, "language", "auto", out);
+            c.language = text(root, "language", d.language, out);
             c.disabledMods = list(root, "mods.disabled", out);
             c.disabledEvents = list(root, "hooks.disabled", out);
-            c.decisionTtlMs = number(root, "hooks.decision_ttl_ms", 250, 0, 5000, out);
+            c.decisionTtlMs = number(root, "hooks.decision_ttl_ms", d.decisionTtlMs, 0, 5000, out);
+            // A limit of an hour is already no limit in practice; the ceiling only keeps a
+            // typo with extra digits from overflowing the millisecond count.
+            c.watchdogEnabled = flag(root, "watchdog.enabled", d.watchdogEnabled, out);
+            c.watchdogWarnMs =
+                static_cast<std::uint32_t>(number(root, "watchdog.warn_ms", d.watchdogWarnMs, 0, 3600000, out));
+            c.watchdogHangMs =
+                static_cast<std::uint32_t>(number(root, "watchdog.hang_ms", d.watchdogHangMs, 0, 3600000, out));
+            c.watchdogShutdownMs = static_cast<std::uint32_t>(
+                number(root, "watchdog.shutdown_ms", d.watchdogShutdownMs, 0, 3600000, out));
             return c;
         }
     } // namespace

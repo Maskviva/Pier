@@ -65,6 +65,8 @@ namespace pier::hooks
             std::string sourceType;
             bool sourceIsPlayer = false;
             int64_t sourceId = 0;
+            // Sent as "partial":1, so the defaults below are not read as answers.
+            bool readFailed = false;
             try
             {
                 dim = static_cast<int>(region.getDimensionId());
@@ -78,6 +80,7 @@ namespace pier::hooks
             catch (...)
             {
                 sourceType.clear();
+                readFailed = true;
             }
 
             std::string snbt = "{\"eventId\":\"ExplosionEvent\""
@@ -92,7 +95,8 @@ namespace pier::hooks
                 + ",\"underwater\":" + (allowUnderwater ? "1" : "0")
                 + ",\"sourceIsPlayer\":" + (sourceIsPlayer ? "1" : "0")
                 + ",\"sourceId\":" + snbtNum(sourceId) + "L"
-                + ",\"source\":\"" + snbtEscape(sourceType) + "\"}";
+                + ",\"source\":\"" + snbtEscape(sourceType) + "\""
+                + (readFailed ? ",\"partial\":1" : "") + "}";
 
             if (dispatchHookEventCancellable(def, snbt)) return false;
             return origin(region, source, pos, explosionRadius, fire, breaksBlocks, maxResistance,

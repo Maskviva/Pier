@@ -9,33 +9,38 @@
 mod，只有已经用了 Pier 的那一半生态能调它。
 
 `bindings/bridge/pier-bridge.h` 就是那扇门。**纯头文件，零依赖，不需要链任何东西。**
+文件名写的是 Pier，表明它连的是哪套 ABI；命名空间是 `levilamina::bridge`，和 Rust、Go、Zig 绑定的规则一样。
+按 26.51.2 之前的命名空间 `pier::bridge` 写的代码，通过一个标了弃用的别名照样能编译，MSVC 和 clang 会在用到它的地方给出警告。
 
 ```cpp
 #include "pier-bridge.h"
 
-auto pier = pier::bridge::Client::open();
-if (!pier) {
+auto client = levilamina::bridge::Client::open();
+if (!client) {
     logger.warn("Pier 没装；退回只认 OP");
     return;
 }
 
-auto reply = pier->call("example:economy.balance",
+auto reply = client->call("example:economy.balance",
     R"({"player":"2535470000000000"})");
 
 switch (reply.status) {
-    case pier::bridge::Status::Ok:        useTheAnswer(reply.body); break;
-    case pier::bridge::Status::NotFound:  /* 没人提供它，这是正常部署 */ break;
+    case levilamina::bridge::Status::Ok:        useTheAnswer(reply.body); break;
+    case levilamina::bridge::Status::NotFound:  /* 没人提供它，这是正常部署 */ break;
     default:                              logger.warn(reply.body); break;
 }
 ```
 
-`pier->services()` 列出所有已注册的服务，形如 `[{"name":…,"mod":…}]`。在装载时问一次，
+`client->services()` 列出所有已注册的服务，形如 `[{"name":…,"mod":…}]`。在装载时问一次，
 日志上比「某个人正需要答案的那一刻冒出一个 NotFound」好读。
 
 完整的可运行例子在 `examples/hello-bridge/`：一个原生 LeviLamina mod，一条命令，
 把 `services()` 的结果打给你看。
 
 ## 它不是什么
+
+它不在客户端上。客户端构建的 Pier 不导出任何 bridge 符号，所以在那里 `Client::open()` 返回空，
+调用方走的是"没装 Pier"那条路。
 
 不是 Pier 的 mod ABI。没有事件、没有钩子、没有表单、没有快车道、没有维度。要这些的 mod
 就是 Pier mod，该 include 的是 `sdk/abi.h`。这扇门是给「已经有自己的装载器、只想问一个
@@ -69,10 +74,19 @@ bridge ABI 1 编出来的 mod，在管理器加端点之后照常能用。
 在你自己的线程上同步调用，没有超时，和 Pier mod 的调用一模一样。提供方卡住，你就跟着卡。
 大多数服务预期在服务器线程上被调；某个服务能不能从工作线程调，是那个服务自己的契约。
 
+## 长回复
+
+从这个版本起，Pier 在缓冲区形式之外还导出 `pier_bridge_call_sink`，`Client::call` 发现它就用它：
+回复整段交过来，provider 不管回复多长都只跑一次。
+
+旧版 Pier 只有缓冲区形式。第一次 2 KiB 的缓冲区装不下时，会换一个更大的缓冲区再调一次，
+**这会让 provider 再跑一遍**。对只读查询来说只是多花点时间；对任何会改状态的服务，改动会做两次。
+`client->runsOnce()` 能区分这两种宿主，调用这类服务的一方可以在旧宿主上直接拒绝继续，而不是冒这个险。
+
 ## 装载顺序
 
-`Client::open()` 要求 Pier **已经在进程里**。它用 `GetModuleHandleEx` 只绑已经装进来的
-那一份，绝不会把第二份 Pier 拉进来：第二份会是一个空的注册表，而不是正在跑的那个。
+`Client::open()` 要求 Pier **已经在进程里**。它用 `GetModuleHandleEx` 去找已经装进来的那一份 Pier，找不到就返回失败。
+它不会自己去加载 Pier.dll：那样加载进来的是第二份 Pier，里面的服务注册表是空的，你调用的服务一个都不在那里。
 
 所以在自己的 manifest 里把 Pier 写成依赖：
 

@@ -10,7 +10,7 @@ use core::ffi::c_void;
 use crate::rt::error::{Error, Result};
 use crate::rt::ffi::{call_out_str, collect_strs, r_owned, s};
 use crate::rt::logger::Logger;
-use crate::rt::runtime::{api, rt, TaskId};
+use crate::rt::runtime::{rt, TaskId};
 use crate::sys;
 
 /// The run stage of the server, mirroring `ll::GamingStatus`.
@@ -50,7 +50,7 @@ impl Host {
 
     /// Which stage the server is in. The ABI marks it thread safe, so any thread may ask.
     pub fn gaming_status(&self) -> GamingStatus {
-        match api().gaming_status {
+        match crate::opt_slot!(gaming_status) {
             Some(f) => GamingStatus::from(unsafe { f() }),
             // A missing core slot can only mean the host left it out while filling the table. No
             // panic: a status query must not take the server down. Returning Unknown(-1) lets the
@@ -126,18 +126,26 @@ impl Host {
         if !task.is_valid() {
             return false;
         }
-        match api().schedule_cancel {
+        match crate::opt_slot!(schedule_cancel) {
             Some(f) => unsafe { f(rt().handle(), task.0) },
             None => false,
         }
     }
 
-    /// How many tasks under this mod have not run. Suited to asserting 0 in `on_unload`.
+    /// How many tasks under this mod have not run. Suited to asserting 0 in `on_unload`: a
+    /// host that cannot count returns `Err`, which the assertion receives in place of a 0.
+    pub fn try_pending_tasks(&self) -> Result<u32> {
+        let f = crate::require_slot!(schedule_pending_count, "counting pending tasks");
+        Ok(unsafe { f(rt().handle()) })
+    }
+
+    /// How many tasks under this mod have not run, and 0 when the host cannot count.
+    #[deprecated(
+        since = "26.51.2",
+        note = "use try_pending_tasks: this answers 0 when the host cannot count, which passes the assertion it exists for"
+    )]
     pub fn pending_tasks(&self) -> u32 {
-        match api().schedule_pending_count {
-            Some(f) => unsafe { f(rt().handle()) },
-            None => 0,
-        }
+        self.try_pending_tasks().unwrap_or(0)
     }
 
     /// Executes a command as the console and returns its output.
@@ -167,7 +175,7 @@ impl Host {
     /// Printing this list when a subscription fails is far more useful than a bare subscribe
     /// failed (contract §5.3: a log line has to answer what to do about it).
     pub fn list_events(&self) -> Vec<String> {
-        let Some(f) = api().list_events else {
+        let Some(f) = crate::opt_slot!(list_events) else {
             return Vec::new();
         };
         collect_strs(|ctx, sink| unsafe { f(ctx, sink) })
@@ -244,11 +252,11 @@ impl Host {
     }
 
     pub fn current_tick(&self) -> Option<u64> {
-        api().get_current_tick.map(|f| unsafe { f() })
+        crate::opt_slot!(get_current_tick).map(|f| unsafe { f() })
     }
 
     pub fn player_count(&self) -> Option<i32> {
-        api().get_player_count.map(|f| unsafe { f() })
+        crate::opt_slot!(get_player_count).map(|f| unsafe { f() })
     }
 
     /// Reads an environment variable.
@@ -273,18 +281,22 @@ impl Host {
         }
     }
 
-    /// Whether this host runs under Wine.
+    /// Whether this host runs under Wine, and `Err` when the host cannot tell.
     ///
     /// Worth asking on its own: some Windows APIs behave differently under Wine than on real
     /// Windows, and the symptom usually appears far from the cause.
+    pub fn try_is_wine(&self) -> Result<bool> {
+        let f = crate::require_slot!(sys_is_wine, "asking whether the host runs under Wine");
+        Ok(unsafe { f() })
+    }
+
+    /// Whether this host runs under Wine, and `false` when the host cannot tell.
+    #[deprecated(
+        since = "26.51.2",
+        note = "use try_is_wine: this answers false when the host cannot tell"
+    )]
     pub fn is_wine(&self) -> bool {
-        if !crate::has_slot!(sys_is_wine) {
-            return false;
-        }
-        match api().sys_is_wine {
-            Some(f) => unsafe { f() },
-            None => false,
-        }
+        self.try_is_wine().unwrap_or(false)
     }
 
     pub fn os_name(&self) -> Result<String> {

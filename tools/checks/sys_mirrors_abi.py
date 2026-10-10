@@ -311,7 +311,9 @@ def run():
     missing = 0
     checked = 0
     for en in sorted(set(enum_names)):
-        m = re.search(r"enum\s+%s\s*\{(.*?)\n\};" % en, src, re.S)
+        # A typedef'd enum closes with `} Name;`, a plain one with `};`. Accepting only the
+        # second skipped every member of the first while still reporting a full match.
+        m = re.search(r"enum\s+%s\s*\{(.*?)\n\}\s*\w*\s*;" % en, src, re.S)
         if not m:
             continue
         body = re.sub(r"/\*.*?\*/", "", m.group(1), flags=re.S)

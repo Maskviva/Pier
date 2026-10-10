@@ -12,7 +12,7 @@
  * Payload {eventId, x, y, z, dim, entity, entityId, isItemActor, item, _player:{...}}, where
  * `item` carries the stack of a dropped item and is empty for a projectile.
  * x, y and z are truncated to integers, because LL reflection serializes a Vec3 as a JSON
- * array. / */
+ * array. */
 #include "pier/hooks/hook_events.h"
 
 #include <set>
@@ -38,8 +38,8 @@ namespace pier::hooks
     {
         HookEventDef& takeDef(); // Forward declaration; gDef is defined at the end of this file
 
-        /** The type name of the actor being picked up. An empty string when it cannot be
-         *  read, never a guess. */
+        /** The type name of the actor being picked up, or an empty string when it cannot
+         *  be read, which a rule reads as an unknown type. */
         std::string safeActorType(Actor const& a)
         {
             try

@@ -1,3 +1,4 @@
+/** mod_control.h: the /pier command, which loads, unloads and inspects pier mods at runtime. */
 #pragma once
 
 #include <string>

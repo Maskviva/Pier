@@ -374,7 +374,7 @@ namespace pier::bridge
 
     std::optional<ItemStack> itemFromSnbt(std::string_view snbt)
     {
-        // fromSnbt and fromTag throw on malformed input, and this input ultimately
+        // fromSnbt and fromTag throw on malformed input, and this input
         // comes from a client.
         try
         {

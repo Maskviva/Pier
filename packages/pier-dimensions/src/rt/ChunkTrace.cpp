@@ -244,6 +244,8 @@ namespace pier::dimensions
             auto const& cp = mPosition.get();
             if (ok)
             {
+                gTransitions.fetch_add(1, std::memory_order_relaxed);
+                if (to == ::ChunkState::Loaded) gLoaded.fetch_add(1, std::memory_order_relaxed);
                 hostLogger().info(
                     "{}", pier::trf("dim.chunk_trace.3", dimLabel(dimId), cp.x, cp.z, stateName(from), stateName(to)));
             }
@@ -444,7 +446,7 @@ namespace pier::dimensions
      * are normal. LevelChunkDoesntExist(2) means the server cannot find that column.
      * WrongDimension(3) means the dimension does not match, the one a custom dimension is most
      * likely to hit. PlayerDoesntExist(4) means the player index is stale. IndexOutOfBounds(5)
-     * means the subchunk y index is outside the dimension height range. / */
+     * means the subchunk y index is outside the dimension height range. */
     LL_TYPE_INSTANCE_HOOK(
         SubChunkPacketWriteTraceHook,
         HookPriority::Normal,

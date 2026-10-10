@@ -1,16 +1,16 @@
 /** pier/hooks/hook_events.h: the synthetic event registry. Event ids backed by native detours and
  * subscribed by name through the ordinary subscribe_event ABI. One concern per TU, each self-
  * registering, so adding a synthetic event touches neither this header, nor Events.cpp, nor any
- * table. The shared lifetime rules every hook file follows: - A detour installs lazily, on the
- * first subscriber or the first control call, and is never unpatched, because an unsubscribe can
- * arrive from inside the hooked function where unpatching is unsafe. An idle hook routes back to
- * origin on one subs-empty or not-armed test. - Everything runs on the server thread, so the
- * registry needs no lock. This package registers spi::EventProvider{name="hooks",
- * covers_registry=false}. The false says these are purely synthetic events, so an id with the
- * same suffix appearing in the registry means upstream introduced a real event whose name
- * collides and resolution must warn. A claim goes through spi::idMatches, an exact name or a
- * unique separated suffix, and never a substring: find(name) != npos would also match
- * "xxPlayerAttackEventxx". / */
+ * host table. The SDK lists it too, in ALL_SYNTHETIC of names.rs, and the synthetic-names check
+ * fails until it does. The shared lifetime rules every hook file follows: - A detour installs
+ * lazily, on the first subscriber or the first control call, and is never unpatched, because an
+ * unsubscribe can arrive from inside the hooked function where unpatching is unsafe. An idle hook
+ * routes back to origin on one subs-empty or not-armed test. - Everything runs on the server
+ * thread, so the registry needs no lock. This package registers spi::EventProvider{name="hooks",
+ * covers_registry=false}. The false says these are purely synthetic events, so an id with the same
+ * suffix appearing in the registry means upstream introduced a real event whose name collides and
+ * resolution must warn. A claim goes through spi::idMatches, an exact name or a unique separated
+ * suffix, and never a substring: find(name) != npos would also match "xxPlayerAttackEventxx". */
 #pragma once
 
 #include <cstdint>

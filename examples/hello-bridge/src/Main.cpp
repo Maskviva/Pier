@@ -37,8 +37,8 @@ namespace hello_bridge
         {
             auto& logger = getSelf().getLogger();
 
-            mPier = pier::bridge::Client::open();
-            if (!mPier)
+            mClient = levilamina::bridge::Client::open();
+            if (!mClient)
             {
                 // Absent Pier is a normal deployment and not a failure to enable. The
                 // alternative, refusing to come up, makes an optional integration into a
@@ -50,20 +50,20 @@ namespace hello_bridge
             // Asked once here rather than discovered by a NotFound later. A log line at
             // startup saying which services exist is readable; one at the moment somebody
             // needed an answer is not.
-            auto listed = mPier->services();
+            auto listed = mClient->services();
             if (listed.ok()) logger.info("services registered with Pier: {}", listed.body);
 
             // A name no mod registers, so a clean server takes the NotFound branch and
             // shows what an absent provider looks like. Replace it with one from the
             // documentation of whatever mod is being asked.
             constexpr char const* kService = "example:economy.balance";
-            auto reply = mPier->call(kService, R"({"player":"2535470000000000"})");
+            auto reply = mClient->call(kService, R"({"player":"2535470000000000"})");
             switch (reply.status)
             {
-            case pier::bridge::Status::Ok:
+            case levilamina::bridge::Status::Ok:
                 logger.info("{} answered {}", kService, reply.body);
                 break;
-            case pier::bridge::Status::NotFound:
+            case levilamina::bridge::Status::NotFound:
                 logger.info("no mod provides {}; nothing to do", kService);
                 break;
             default:
@@ -78,12 +78,12 @@ namespace hello_bridge
          *  that reference past the point where the loader is taking modules down. */
         bool disable()
         {
-            mPier.reset();
+            mClient.reset();
             return true;
         }
 
     private:
-        std::unique_ptr<pier::bridge::Client> mPier;
+        std::unique_ptr<levilamina::bridge::Client> mClient;
     };
 } // namespace hello_bridge
 

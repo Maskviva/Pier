@@ -517,9 +517,10 @@ def encode_rle(cells: list, sx: int, sy: int, sz: int) -> tuple[bytes, bytes]:
 
 
 
-#: 顶层允许出现的键。不认识的键是错误而不是忽略：一个拼错的名字、或者从 Java 数据包
-#: 抄来的一项这边没有的设置，静静地不生效，出来的地形和作者写的不是一回事，而没有任何
-#: 一侧会说话。列表随实现走——加了一项支持才往里加一个名字。
+#: The keys allowed at the top level. An unknown key is an error and not ignored: a
+#: misspelled name, or a setting copied from a Java datapack that this side lacks, would
+#: silently do nothing, and the terrain would differ from what the author wrote with nobody
+#: saying so. A name is added here only when its support is.
 TEMPLATE_KEYS = {
     "pier_pack",
     "type",

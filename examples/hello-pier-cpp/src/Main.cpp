@@ -8,7 +8,10 @@
  * One header, no library, no build system required. The four build files beside this one
  * produce the same DLL and exist so you can use whichever your own project already uses.
  */
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <exception>
 #include <string>
 
 #include "sdk/abi.h"
@@ -19,6 +22,10 @@ namespace
      *  whole lifetime of the mod, so keeping them is safe; nothing else here is. */
     PierApi const* gApi = nullptr;
     PierModHandle gSelf = nullptr;
+
+    /** PIER_FLAG_CLIENT for a mod built to run inside the client host, 0 for the server.
+     *  The host compares it with its own flag and refuses a mismatch at load. */
+    constexpr std::uint32_t kModFlags = 0;
 
     PierStr str(char const* s) { return PierStr{s, std::strlen(s)}; }
 
@@ -49,21 +56,36 @@ namespace
                  PierStrSink outSuccess, PierStrSink outError)
     {
         if (outSuccess == nullptr) return;
-        (void)outError;
 
-        std::string reply = "hello from a C++ mod";
-        if (originName.ptr != nullptr && originName.len > 0)
+        // Every callback the host calls is a C function, and an exception must not leave
+        // one: it would unwind through the host's frames, which is undefined behavior. The
+        // std::string below can throw std::bad_alloc, so the whole body sits in a try.
+        try
         {
-            reply += ", ";
-            reply.append(originName.ptr, originName.len);
+            std::string reply = "hello from a C++ mod";
+            if (originName.ptr != nullptr && originName.len > 0)
+            {
+                reply += ", ";
+                reply.append(originName.ptr, originName.len);
+            }
+            if (args.ptr != nullptr && args.len > 0)
+            {
+                reply += " (you said: ";
+                reply.append(args.ptr, args.len);
+                reply += ")";
+            }
+            outSuccess(ctx, PierStr{reply.data(), reply.size()});
         }
-        if (args.ptr != nullptr && args.len > 0)
+        catch (std::exception const& e)
         {
-            reply += " (you said: ";
-            reply.append(args.ptr, args.len);
-            reply += ")";
+            log(1, e.what());
+            if (outError != nullptr) outError(ctx, str("/hello failed; see the server log"));
         }
-        outSuccess(ctx, PierStr{reply.data(), reply.size()});
+        catch (...)
+        {
+            log(1, "/hello failed with an exception that is not a std::exception");
+            if (outError != nullptr) outError(ctx, str("/hello failed; see the server log"));
+        }
     }
 
     bool onEnable(void*)
@@ -106,23 +128,36 @@ namespace
 } // namespace
 
 /*
- * PIER_MAIN_EXPORT and not a bare extern "C". Naming the symbol is not the same as
- * exporting it: a Windows DLL exports nothing unless asked, and a mod that only declares
- * pier_main builds cleanly and is then refused at load. The macro comes from abi.h and
+ * PIER_MAIN_EXPORT and not a bare extern "C". Declaring the symbol does not export it: a
+ * Windows DLL exports only what is marked, and a mod that only declares pier_main builds
+ * cleanly and is then refused at load. The macro comes from abi.h and
  * carries the C linkage too.
  */
 PIER_MAIN_EXPORT bool pier_main(PierApi const* api, PierModHandle self, PierModVTable* out)
 {
     if (api == nullptr || out == nullptr) return false;
 
+    // The handshake, in the host's own order. Until the table is known to reach `log`
+    // nothing can be said, so that failure is silent here and reported by the host.
+    if (api->struct_size < offsetof(PierApi, log) + sizeof(void*)) return false;
     gApi = api;
     gSelf = self;
+    if (api->abi_version < PIER_ABI_VERSION)
+    {
+        log(1, "this host speaks an older Pier ABI than this mod was built against; upgrade Pier");
+        return false;
+    }
+    if ((api->host_flags & PIER_FLAG_CLIENT) != (kModFlags & PIER_FLAG_CLIENT))
+    {
+        log(1, "this mod was built for the other target (server or client) than this host");
+        return false;
+    }
 
     // The mod fills its own four header scalars. struct_size is how the host knows how
     // much of this table it may read, which is the mirror of what `has` does above.
     out->struct_size = sizeof(PierModVTable);
     out->abi_version = PIER_ABI_VERSION;
-    out->mod_flags = 0;
+    out->mod_flags = kModFlags;
     out->_reserved0 = 0;
 
     out->instance = nullptr;

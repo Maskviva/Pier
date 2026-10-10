@@ -1,3 +1,4 @@
+/** Entry.cpp: the host as a LeviLamina mod, from settings to the mod manager. */
 #include <memory>
 #include <string>
 
@@ -15,6 +16,7 @@
 #include "pier/host/hosted_mod.h"
 #include "pier/host/mod_host.h"
 #include "pier/host/spi.h"
+#include "pier/host/watchdog.h"
 
 #ifndef PIER_BUILD_CLIENT
 #include "pier/host/mod_control.h"
@@ -56,6 +58,8 @@ namespace pier
             //   4. Register the manager. Only from here can LeviLamina dispatch a pier
             //      mod, and such a mod must receive a fully built table.
             reportStartup(logger);
+            // Before any mod is loaded, so a pier_main that never returns is caught too.
+            watchdog::start(watchdogSettings());
             spi::buildApi(mutableApi(), logger);
             spi::runBootstrap(logger);
 
@@ -84,9 +88,29 @@ namespace pier
             return true;
         }
 
-        bool disable() { return true; }
+        /** Every pier mod depends on this one, so all of them are disabled by now. What
+         *  follows is their on_unload and FreeLibrary, which run under the shutdown limit. */
+        bool disable()
+        {
+            watchdog::enterShutdown();
+            return true;
+        }
+
+        /** The monitor runs code of this dll, so it is joined before the dll is unmapped. */
+        bool unload()
+        {
+            watchdog::stop();
+            return true;
+        }
 
     private:
+        static watchdog::Settings watchdogSettings()
+        {
+            auto const& c = pier::config();
+            return watchdog::Settings{c.watchdogEnabled, c.watchdogWarnMs, c.watchdogHangMs,
+                                      c.watchdogShutdownMs};
+        }
+
         /** config.json, then the language it names, then everything wrong with either.
          *
          *  The settings are read before the catalog exists, because the language is one

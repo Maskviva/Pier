@@ -255,6 +255,33 @@ def run():
         "§2 and whether it restates the code are invisible at the text level, so a pass does "
         "not mean the standard holds, only that the mechanical rules do."
     )
+    # §4 covers every comment, not only those under packages/. Outside it only the CJK
+    # rule is applied, since the budgets and widths are written for C++ blocks. A comment
+    # here is a full line starting with the language's marker; a string that holds CJK
+    # text, such as a pattern the checks match, is data and not a comment.
+    marks_of = {".rs": ("//",), ".py": ("#",), ".toml": ("#",), ".lua": ("--",)}
+    paths = [os.path.join(ROOT, fn) for fn in sorted(os.listdir(ROOT))
+             if fn.endswith(".toml") or fn == "xmake.lua"]
+    for top in ("bindings", "tools", "examples", "packages"):
+        for dp, dirs, names in os.walk(os.path.join(ROOT, top)):
+            dirs[:] = [d for d in dirs if d not in ("__pycache__", "target", "node_modules")]
+            for fn in sorted(names):
+                if fn.endswith((".rs", ".py", ".toml")) or fn == "xmake.lua":
+                    paths.append(os.path.join(dp, fn))
+    other = 0
+    for p in paths:
+        ext = ".lua" if p.endswith("xmake.lua") else os.path.splitext(p)[1]
+        marks = marks_of[ext]
+        rel = os.path.relpath(p, ROOT)
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh, 1):
+                t = line.strip()
+                if t.startswith(marks) and CJK.search(t):
+                    r.fail("%s:%d comment in CJK characters; comments are in English (§4)"
+                           % (rel, i))
+                    other += 1
+    r.note("%d file(s) outside C and C++ checked for CJK comments, %d hit(s)"
+           % (len(paths), other))
     return [r]
 
 

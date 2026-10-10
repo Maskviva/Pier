@@ -36,8 +36,8 @@ namespace
         }
         catch (std::exception const& e)
         {
-            // The probe itself failed, which is not the same as a slot failing and must
-            // not read as one. Reporting it here keeps the partial results.
+            // The probe itself failed here, between slots. This line says so, so the report
+            // does not show it as a failing slot, and the results so far are kept.
             probe::log(1, std::string{"pier-probe stopped early: "} + e.what());
         }
         catch (...)

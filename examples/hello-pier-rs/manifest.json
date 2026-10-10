@@ -1,0 +1,10 @@
+{
+    "name": "hello-pier-rs",
+    "entry": "hello_pier_rs.dll",
+    "type": "pier",
+    "version": "0.1.0",
+    "description": "Minimal runnable check of the Pier contract: one line each for load, enable, disable and unload.",
+    "dependencies": [
+        { "name": "pier" }
+    ]
+}

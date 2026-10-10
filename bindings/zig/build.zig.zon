@@ -1,0 +1,8 @@
+.{
+    .name = .pier,
+    .version = "26.51.2",
+    .fingerprint = 0xabfc00ddb334ccec,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{ "build.zig", "build.zig.zon", "src", "include" },
+}

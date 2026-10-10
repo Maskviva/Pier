@@ -1,3 +1,4 @@
+/** module.h: which loaded module owns an address. */
 #pragma once
 // Ownership lookup from a function address to the module that contains it.
 //

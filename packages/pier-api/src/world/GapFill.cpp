@@ -507,23 +507,6 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        bool api_item_set_enchants(PierStr item_snbt, PierStr enchants_snbt, void* ctx, PierStrSink out)
-        {
-            PIER_API_GUARD_BEGIN
-                auto opt = bridge::itemFromSnbt(sv(item_snbt));
-                if (!opt || !out) return false;
-                // Assembling an ItemEnchants from loose {type,level} pairs needs either
-                // a ListTag in exactly the NBT format the constructor expects, with
-                // id and lvl pairs as compound entries, or the
-                // EnchantUtils::applyEnchant route. Neither is straightforward through
-                // the public API, so this reports unsupported rather than risking
-                // corrupted item user-data. get_enchants above is read-only and safe;
-                // writing waits until the enchantment pipeline is in place.
-                (void)enchants_snbt;
-                return false;
-            PIER_API_GUARD_END
-        }
-
         bool api_item_matches(PierStr a, PierStr b)
         {
             PIER_API_GUARD_BEGIN
@@ -833,20 +816,6 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
-        bool api_level_find_path(
-            PierActorId id, int32_t x, int32_t y, int32_t z, void* ctx, PierStrSink sink)
-        {
-            PIER_API_GUARD_BEGIN
-                (void)id;
-                (void)x;
-                (void)y;
-                (void)z;
-                (void)ctx;
-                (void)sink;
-                return false; // Stub until the PathFinder pipeline is in place
-            PIER_API_GUARD_END
-        }
-
         void fill(PierApi& api)
         {
             api.player_get_carried_item = &api_player_get_carried_item;
@@ -873,7 +842,6 @@ namespace pier::api_impl
             api.block_set_state = &api_block_set_state;
             api.block_get_collision_shape = &api_block_get_collision_shape;
             api.item_get_enchants = &api_item_get_enchants;
-            api.item_set_enchants = &api_item_set_enchants;
             api.item_matches = &api_item_matches;
             api.item_get_user_data = &api_item_get_user_data;
             api.level_get_biome = &api_level_get_biome;
@@ -887,7 +855,6 @@ namespace pier::api_impl
             api.player_conn_id = &api_player_conn_id;
             api.level_get_sleep_status = &api_level_get_sleep_status;
             api.level_update_weather = &api_level_update_weather;
-            api.level_find_path = &api_level_find_path;
         }
 
         spi::SlotPackReg reg{{"gap-fill", &fill}};

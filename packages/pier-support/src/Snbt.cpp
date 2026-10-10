@@ -1,3 +1,4 @@
+/** Snbt.cpp: SNBT escaping and number formatting. */
 #include "pier/support/snbt.h"
 
 namespace pier

@@ -11,7 +11,7 @@
  * counting subscriber would count one attack twice. Payload {eventId, x, y, z, dim, target,
  * targetIsPlayer, cause, _player:{...}}. x, y and z are the target position and not the attacker
  * position, matching InteractEntityEvent and RideEvent; disagreeing would put hitting and right-
- * clicking the same sheep on two different plots. / */
+ * clicking the same sheep on two different plots. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -77,19 +77,21 @@ namespace pier::hooks
         {
             // getTypeName and isPlayer throw while an actor is being destroyed, and an
             // exception crossing a detour takes the whole server down, so they are caught
-            // here. A subscriber reading an empty string falls back to a coarser decision,
-            // which is never more permissive.
+            // here. An unreadable target is sent as targetKnown 0 with targetIsPlayer 1:
+            // a PvP rule then refuses, which is the direction a protection must fail in.
             std::string targetName;
-            bool isPlayerTarget = false;
+            bool isPlayerTarget = true;
+            bool known = false;
             try
             {
                 targetName = actor.getTypeName();
                 isPlayerTarget = actor.isPlayer();
+                known = true;
             }
             catch (...)
             {
                 targetName.clear();
-                isPlayerTarget = false;
+                isPlayerTarget = true;
             }
 
             auto const& pos = actor.getPosition();
@@ -99,6 +101,7 @@ namespace pier::hooks
                 + ",\"z\":" + snbtNum(static_cast<int>(pos.z))
                 + ",\"dim\":" + snbtNum(static_cast<int>(actor.getDimensionId()))
                 + ",\"targetIsPlayer\":" + (isPlayerTarget ? "1" : "0")
+                + ",\"targetKnown\":" + (known ? "1" : "0")
                 + ",\"target\":\"" + snbtEscape(targetName)
                 + "\",\"cause\":" + snbtNum(cause)
                 + "," + playerRefSnbt(self) + "}";

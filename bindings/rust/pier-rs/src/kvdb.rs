@@ -64,16 +64,21 @@ impl KvDb {
         &self.path
     }
 
-    /// Reads one key. A key that does not exist gives `None`.
+    /// Reads one key: `Ok(None)` for a key that does not exist, `Err` for a host without
+    /// `kvdb_get`. A database the host closed on its own, at an unload, also reads as
+    /// `Ok(None)`: the slot answers both with the same false, and the ABI cannot tell them
+    /// apart.
     ///
     /// Both gates apply even after `open` has succeeded: `kvdb_get` sits after `kvdb_open` in
     /// the table at a larger offset, and the first being covered does not imply the second is.
+    pub fn try_get(&self, key: &str) -> Result<Option<String>> {
+        let f = crate::require_slot!(kvdb_get, "reading a key-value store");
+        Ok(call_out_str(|ctx, sink| unsafe { f(self.handle, s(key), ctx, sink) }))
+    }
+
+    /// Reads one key, with `None` for every case [`KvDb::try_get`] keeps apart.
     pub fn get(&self, key: &str) -> Option<String> {
-        if !crate::has_slot!(kvdb_get) {
-            return None;
-        }
-        let f = crate::__rt::api().kvdb_get?;
-        call_out_str(|ctx, sink| unsafe { f(self.handle, s(key), ctx, sink) })
+        self.try_get(key).ok().flatten()
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<()> {

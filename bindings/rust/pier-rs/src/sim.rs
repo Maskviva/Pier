@@ -39,26 +39,31 @@ pub fn spawn(name: &str, dim: i32, x: f64, y: f64, z: f64) -> Result<SimPlayer> 
     }
 }
 
-/// The simulated players currently alive.
+/// The simulated players currently alive, and `Err` for a host without the slot, which an
+/// empty list would hide.
 ///
 /// A simulated player survives a restart with the save while an in-memory handle does not,
 /// so this is how they are found again after a restart.
-pub fn list() -> Vec<SimPlayer> {
-    if !crate::has_slot!(sim_list) {
-        return Vec::new();
-    }
-    let Some(f) = crate::__rt::api().sim_list else {
-        return Vec::new();
-    };
-    collect_strs(|ctx, sink| unsafe { f(ctx, sink) })
+pub fn try_list() -> Result<Vec<SimPlayer>> {
+    let f = crate::require_slot!(sim_list, "listing simulated players");
+    Ok(collect_strs(|ctx, sink| unsafe { f(ctx, sink) })
         .into_iter()
         .map(|name| SimPlayer { name })
-        .collect()
+        .collect())
+}
+
+/// The simulated players currently alive, and an empty list when the host cannot list them.
+#[deprecated(
+    since = "26.51.2",
+    note = "use try_list: this answers an empty list when the host has no sim_list slot"
+)]
+pub fn list() -> Vec<SimPlayer> {
+    try_list().unwrap_or_default()
 }
 
 impl SimPlayer {
     /// Attaches by name to a simulated player that already exists. It does not check whether
-    /// it really exists; [`SimPlayer::is_simulated`] does that.
+    /// it really exists; [`SimPlayer::try_is_simulated`] does that.
     pub fn by_name(name: impl Into<String>) -> SimPlayer {
         SimPlayer { name: name.into() }
     }
@@ -76,15 +81,21 @@ impl SimPlayer {
         PlayerSel::Name(self.name.clone())
     }
 
-    /// Whether this name currently points at a live simulated player.
+    /// Whether this name currently points at a live simulated player, and `Err` when the
+    /// host cannot tell.
+    pub fn try_is_simulated(&self) -> Result<bool> {
+        let f = crate::require_slot!(sim_is, "asking whether a player is simulated");
+        Ok(unsafe { f(self.sel().raw()) })
+    }
+
+    /// Whether this name currently points at a live simulated player, and `false` when the
+    /// host cannot tell.
+    #[deprecated(
+        since = "26.51.2",
+        note = "use try_is_simulated: this answers false when the host cannot tell"
+    )]
     pub fn is_simulated(&self) -> bool {
-        if !crate::has_slot!(sim_is) {
-            return false;
-        }
-        match crate::__rt::api().sim_is {
-            Some(f) => unsafe { f(self.sel().raw()) },
-            None => false,
-        }
+        self.try_is_simulated().unwrap_or(false)
     }
 
     /// Runs one verb. The argument is SNBT, and `"{}"` is passed when there is none.

@@ -32,6 +32,7 @@
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorDamageSource.h"
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
+#include "mc/legacy/ActorUniqueID.h"
 #include "mc/world/actor/player/Player.h"
 #include "mc/world/item/ItemStack.h"
 #include "mc/world/level/BlockPos.h"
@@ -139,16 +140,74 @@ namespace pier::bridge
             return type == "Player" || type == "ServerPlayer" || type == "Mob" || type == "Actor";
         }
 
+        /** `uid` is the ActorUniqueID every actor slot takes, so a consumer can act on the
+         *  actor named here. A player also carries `xuid` and `realName`, because `name` is
+         *  the name tag and a plugin may have changed it. */
         CompoundTagVariant describeActor(Actor& a)
         {
+            auto const uid = CompoundTagVariant(static_cast<int64_t>(a.getOrCreateUniqueID().rawID));
+            auto const dim = CompoundTagVariant(static_cast<int>(a.getDimensionId()));
+            if (a.isPlayer())
+            {
+                auto& p = static_cast<Player&>(a);
+                return CompoundTagVariant::object(
+                    {
+                        {"uid", uid},
+                        {"type", CompoundTagVariant(p.getTypeName())},
+                        {"name", CompoundTagVariant(p.getNameTag())},
+                        {"isPlayer", CompoundTagVariant(true)},
+                        {"dim", dim},
+                        {"xuid", CompoundTagVariant(p.getXuid())},
+                        {"realName", CompoundTagVariant(p.getRealName())}
+                    }
+                );
+            }
             return CompoundTagVariant::object(
                 {
+                    {"uid", uid},
                     {"type", CompoundTagVariant(a.getTypeName())},
                     {"name", CompoundTagVariant(a.getNameTag())},
-                    {"isPlayer", CompoundTagVariant(a.isPlayer())},
-                    {"dim", CompoundTagVariant(static_cast<int>(a.getDimensionId()))}
+                    {"isPlayer", CompoundTagVariant(false)},
+                    {"dim", dim}
                 }
             );
+        }
+
+        /**
+         * `{cause, attacker?, attackerUid?, projectile?, projectileUid?}` for a damage source.
+         *
+         * The attacker is the actor responsible: for a projectile, the one that fired it. A
+         * projectile source is a child entity source, whose getEntityUniqueID() is the
+         * shooter and getDamagingEntityUniqueID() the projectile; any other entity source
+         * names the attacker through getDamagingEntityUniqueID(). LegacyScriptEngine and
+         * iListenAttentively resolve it the same way. The uid is written even when the
+         * actor is already gone, so a kill by a despawned arrow still names its shooter's
+         * id and an absent `attacker` is never read as "no attacker".
+         */
+        CompoundTag describeSource(ActorDamageSource const& src)
+        {
+            CompoundTag out;
+            out["cause"] = CompoundTagVariant(static_cast<int>(src.mCause));
+            if (!src.isEntitySource()) return out;
+
+            auto* level = levelReady();
+            bool const child = src.isChildEntitySource();
+            ActorUniqueID const attackerId = child ? src.getEntityUniqueID() : src.getDamagingEntityUniqueID();
+            out["attackerUid"] = CompoundTagVariant(static_cast<int64_t>(attackerId.rawID));
+            if (auto* attacker = level ? level->fetchEntity(attackerId, false) : nullptr)
+            {
+                out["attacker"] = describeActor(*attacker);
+            }
+            if (child)
+            {
+                ActorUniqueID const projectileId = src.getDamagingEntityUniqueID();
+                out["projectileUid"] = CompoundTagVariant(static_cast<int64_t>(projectileId.rawID));
+                if (auto* projectile = level ? level->fetchEntity(projectileId, false) : nullptr)
+                {
+                    out["projectile"] = describeActor(*projectile);
+                }
+            }
+            return out;
         }
     } // namespace
 
@@ -289,16 +348,13 @@ namespace pier::bridge
 
             if (stub.type == "ActorDamageSource")
             {
-                // Reads the public member rather than getCause(), which is MCFOLD and
-                // not guaranteed to be exported. mCause is
-                // TypedStorage<..., ActorDamageCause> and ActorDamageCause is an enum,
-                // so by the collapse rules in tools/typed-storage.py it is that enum
-                // itself and writing .get() is compile error C2228.
-                if (auto* src = reinterpret_cast<ActorDamageSource*>(stub.addr))
+                // mCause is read rather than getCause(), which is MCFOLD and not
+                // guaranteed to be exported. ActorDamageCause is an enum, so by the
+                // collapse rules in tools/typed-storage.py the member is that enum itself
+                // and writing .get() is compile error C2228.
+                if (auto* src = reinterpret_cast<ActorDamageSource const*>(stub.addr))
                 {
-                    copy["_" + stub.key] = CompoundTagVariant::object(
-                        {{"cause", CompoundTagVariant(static_cast<int>(src->mCause))}}
-                    );
+                    copy["_" + stub.key] = describeSource(*src);
                     changed = true;
                 }
                 continue;

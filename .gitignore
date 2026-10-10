@@ -4,15 +4,17 @@
 /target/
 /.xmake/
 Cargo.lock
-docs/pnpm-lock.yaml
-docs/.vitepress/dist
-docs/.vitepress/cache
 
 # Tool runtime
 __pycache__/
 *.pyc
 compile_commands.json
-docs/node_modules/
+docs/venv
+.zig-cache/
+bindings/zig/.zig-cache/
+examples/hello-pier-go/hello_pier_go.dll
+examples/hello-pier-zig/.zig-cache
+examples/hello-pier-zig/zig-out
 
 # Editors
 .vscode/

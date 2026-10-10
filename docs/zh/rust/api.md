@@ -25,10 +25,10 @@ cargo doc --open -p pier-rs
 | `Block` | 一格，按维度加坐标寻址。读写、方块状态、方块实体、液体层。 |
 | `Server` | tick 冻结、步进、倍速，以及分项性能采样。 |
 
-::: warning 含水方块是两个方块
-基岩版的含水不是一个方块状态，而是同一格里的第二个方块。`Block::name` 只看主层，
-所以复制粘贴一个含水楼梯会把水丢干净，除非你连 `Block::extra` 一起搬。
-:::
+!!! warning "含水方块是两个方块"
+
+    基岩版的含水不是一个方块状态，而是同一格里的第二个方块。`Block::name` 只看主层，
+    所以复制粘贴一个含水楼梯会把水丢干净，除非你连 `Block::extra` 一起搬。
 
 ## 玩家与实体
 
@@ -40,16 +40,16 @@ cargo doc --open -p pier-rs
 | `Container` | 玩家身上的四个，加坐标上的那一个。 |
 | `ItemStack` | 值对象，不是句柄。 |
 
-::: danger 只有 xuid 是身份
-`PlayerSel::Name` 会退到显示名，而显示名可以被别的模组改。一个玩家把它改成某个
-离线玩家的账号名，就能让所有按名字寻址的调用落到自己身上。权限、经济、归属用
-`Player::by_xuid`。
-:::
+!!! danger "只有 xuid 是身份"
 
-::: warning ItemStack 是快照
-`container.item(0)` 返回的是一份拷贝。改它不会改容器；要用
-`container.set_item(0, &stack)` 写回去，然后 `container.refresh()`。
-:::
+    `PlayerSel::Name` 会退到显示名，而显示名可以被别的模组改。一个玩家把它改成某个
+    离线玩家的账号名，就能让所有按名字寻址的调用落到自己身上。权限、经济、归属用
+    `Player::by_xuid`。
+
+!!! warning "ItemStack 是快照"
+
+    `container.item(0)` 返回的是一份拷贝。改它不会改容器；要用
+    `container.set_item(0, &stack)` 写回去，然后 `container.refresh()`。
 
 ## 事件与命令
 

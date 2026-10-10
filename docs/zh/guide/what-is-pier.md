@@ -26,8 +26,11 @@ LeviLamina  ->  基岩版专用服务器
 
 | 语言 | 状态 | |
 |---|---|---|
-| Rust | 官方 | [文档](/zh/rust/) |
-| 任何有 C FFI 的语言 | 你自己写 | [加一门语言](./adding-a-language) |
+| Rust | 官方，功能最全 | [文档](../rust/index.md) |
+| C++ | 官方，直接使用头文件 | [文档](../cpp/index.md) |
+| Go | 官方，通过 cgo 构建 c-shared DLL | [文档](../go/index.md) |
+| Zig | 官方，通过 translate-c 直接使用头文件 | [文档](../zig/index.md) |
+| 任何有 C FFI 的语言 | 你自己写 | [加一门语言](adding-a-language.md) |
 
 Rust 排在最前，是因为 Pier 本来就是从「想用 Rust 写 LeviLamina 模组」长出来的。
 设计上并不偏向它，一个 Go 或 Zig 绑定不需要这个仓库改任何东西就能存在。
@@ -50,7 +53,7 @@ Rust 排在最前，是因为 Pier 本来就是从「想用 Rust 写 LeviLamina 
 
 ## 该看哪里
 
-- **你想写模组。** 目前用 [Rust](/zh/rust/)。
-- **你想知道它为什么长这样。** [为什么有 Pier](./why)，然后[是怎么设计的](./design)。
-- **你想绑一门语言。** [加一门语言](./adding-a-language)。
-- **你是服主。** [安装](./installation)。
+- **你想写模组。** [Rust](../rust/index.md) 功能最全；用 C++ 或 Go 的话，有 [C++](../cpp/index.md) 和 [Go](../go/index.md) 绑定。
+- **你想知道它为什么长这样。** [为什么有 Pier](why.md)，然后[是怎么设计的](design.md)。
+- **你想绑一门语言。** [加一门语言](adding-a-language.md)。
+- **你是服主。** [安装](installation.md)。

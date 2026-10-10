@@ -112,5 +112,52 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
       - run: cargo build --workspace --verbose
+      # The client feature changes only mod_flags, but nothing compiled it until this step.
+      - run: cargo clippy --workspace --all-targets --features pier-rs/client -- -D warnings
 
       - run: cargo test --workspace --verbose
+
+  go:
+    name: Go binding
+    # cgo builds the C side with gcc, and the windows-2022 image carries MinGW-w64 on PATH;
+    # a Pier mod is a Windows DLL, so this is the only target worth building.
+    runs-on: windows-2022
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Format
+        shell: bash
+        run: test -z "$(gofmt -l bindings/go examples/hello-pier-go)"
+      - name: Vet the binding
+        working-directory: bindings/go
+        run: go vet ./...
+      - name: Vet it for the client target
+        working-directory: bindings/go
+        run: go vet -tags pier_client ./...
+      - name: Build the example as a mod DLL
+        working-directory: examples/hello-pier-go
+        run: go build -buildmode=c-shared -trimpath -o hello_pier_go.dll .
+
+  zig:
+    name: Zig binding
+    # Zig cross-compiles the Windows mod DLL from Linux, and `zig build test` runs natively:
+    # it makes the compiler analyze every function of the binding against the table that
+    # translate-c read from abi.h, and runs the SNBT tests.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+      - name: Format
+        run: zig fmt --check bindings/zig examples/hello-pier-zig
+      - name: Type-check the binding and run its tests
+        working-directory: bindings/zig
+        run: zig build test
+      - name: Build the example as a Windows mod DLL
+        working-directory: examples/hello-pier-zig
+        run: zig build

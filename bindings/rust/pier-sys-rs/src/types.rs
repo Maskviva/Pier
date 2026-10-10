@@ -31,9 +31,9 @@ pub struct PierStr {
 }
 
 impl PierStr {
-    /// The empty string, which is not NULL. The host allows a null `ptr` with
-    /// `len == 0`, and going through this one constructor keeps empty to a single
-    /// representation.
+    /// The empty string, as a null `ptr` with `len == 0`. The host turns a view into a
+    /// `std::string_view` of `{ptr, len}`, which is valid for that pair, and going through
+    /// this one constant keeps empty to a single representation.
     pub const EMPTY: Self = Self {
         ptr: core::ptr::null(),
         len: 0,
@@ -41,9 +41,9 @@ impl PierStr {
 
     /// Borrows a view from a Rust string.
     ///
-    /// # Safety
-    /// The caller must keep `s` alive until the host has finished reading it. The borrow
-    /// checker cannot help across an ABI boundary, which is why this layer is `unsafe`.
+    /// The view does not hold the borrow: `s` has to outlive the host's reading of it, and
+    /// nothing in the type enforces that. The pier-rs wrappers do this correctly; a caller
+    /// of this function takes on the duty itself.
     #[inline]
     pub fn borrow(s: &str) -> Self {
         Self {
@@ -136,11 +136,12 @@ pub struct PierLaneDesc {
     pub release: Option<PierLaneRefFn>,
 }
 
-/// A lane that was acquired.
+/// A lane that was acquired. `struct_size` is filled in by the caller before the call, the
+/// reverse of elsewhere, because here the host writes the caller's struct.
 ///
-/// `alive` points at a liveness flag the host owns and never frees, which the host clears
-/// the moment the provider disappears. A consumer reads it before every use of `data` or
-/// `vtable`, since it is the only criterion that still holds across a `FreeLibrary`.
+/// `alive` points at a liveness flag the host owns and never frees, cleared the moment the
+/// provider disappears. Reading it does not close the window between the check and the
+/// call; `busy` does, and abi.h gives the protocol for both.
 #[repr(C)]
 pub struct PierLaneRef {
     pub struct_size: u32,
@@ -176,19 +177,32 @@ pub struct PierPacketEdit {
     pub target_sub_id: u8,
 }
 
-/// The kind of an economy event.
+/// The kind of an economy event: one of the `PIER_MONEY_*` values in `.0`.
 ///
-/// The name carries no external product name. A name matching the one in the LegacyMoney
-/// headers collides in the global scope, and including both at once redefines it outright.
-/// The rename also cleared an external product name off the contract surface
-/// (contract §7).
-#[repr(i32)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PierMoneyEvent {
-    Set = 0,
-    Add = 1,
-    Reduce = 2,
-    Trans = 3,
+/// A transparent integer and not a Rust `enum`, as everywhere else in this crate: the value
+/// comes from a third-party economy backend through the host, and an `enum` receiving a
+/// discriminant it does not list is undefined behavior. Any `i32` is a valid value here.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PierMoneyEvent(pub i32);
+
+pub const PIER_MONEY_SET: i32 = 0;
+pub const PIER_MONEY_ADD: i32 = 1;
+pub const PIER_MONEY_REDUCE: i32 = 2;
+pub const PIER_MONEY_TRANS: i32 = 3;
+
+/// The spellings of the former `enum`, kept so existing code compiles until the ABI version
+/// changes (contract §2.5).
+#[allow(non_upper_case_globals)]
+impl PierMoneyEvent {
+    #[deprecated(note = "compare `.0` with sys::PIER_MONEY_SET, or use pier-rs MoneyEventKind")]
+    pub const Set: Self = Self(PIER_MONEY_SET);
+    #[deprecated(note = "compare `.0` with sys::PIER_MONEY_ADD, or use pier-rs MoneyEventKind")]
+    pub const Add: Self = Self(PIER_MONEY_ADD);
+    #[deprecated(note = "compare `.0` with sys::PIER_MONEY_REDUCE, or use pier-rs MoneyEventKind")]
+    pub const Reduce: Self = Self(PIER_MONEY_REDUCE);
+    #[deprecated(note = "compare `.0` with sys::PIER_MONEY_TRANS, or use pier-rs MoneyEventKind")]
+    pub const Trans: Self = Self(PIER_MONEY_TRANS);
 }
 
 // Callback signatures.

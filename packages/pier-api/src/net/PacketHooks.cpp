@@ -431,7 +431,8 @@ namespace pier::api_impl
                     bool skip = false;
                     auto owner = liveOwner(*sub, skip);
                     if (skip) continue;
-                    CallbackScope scope{owner.get()};
+                    CallbackScope scope{owner.get(), "packet"};
+                    if (scope.revoked()) continue; // Network thread: recheck once counted
 
                     PierPacketEvent ev{};
                     ev.struct_size = static_cast<uint32_t>(sizeof(PierPacketEvent));
@@ -507,7 +508,8 @@ namespace pier::api_impl
                 bool skip = false;
                 auto owner = liveOwner(*sub, skip);
                 if (skip) continue;
-                CallbackScope scope{owner.get()};
+                CallbackScope scope{owner.get(), "connection"};
+                if (scope.revoked()) continue; // Network thread: recheck once counted
                 try
                 {
                     sub->cb(sub->user, connId, ps(*address), opened);

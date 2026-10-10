@@ -1,9 +1,9 @@
 # manifest
 
-每个 Pier 模组都是 `mods/` 下的一个目录，里面放着动态库和 `manifest.json`：
+每个 Pier 模组都是 `plugins/` 下的一个目录，里面放着动态库和 `manifest.json`：
 
 ```
-mods/
+plugins/
   my-mod/
     my_mod.dll
     manifest.json
@@ -73,4 +73,4 @@ mods/
 ```
 
 这只排装载顺序，不会让对方的 API 可达。要通信请用
-[服务或总线](/zh/rust/cross-mod)。
+[服务或总线](../rust/cross-mod.md)。

@@ -1,4 +1,4 @@
-//! `levilamina_sys`: the raw FFI declarations of Pier ABI v1.
+//! `levilamina_sys`: the raw FFI declarations of Pier ABI v2.
 //! This crate is a cell-for-cell mirror of `packages/pier-abi/include/sdk/abi.h` and the reference
 //! implementation of the four steps contract §10 gives for adding a language:
 //! 1. read `sdk/abi.h` only;

@@ -43,6 +43,8 @@ namespace pier::hooks
 
             int dim = -1;
             int sx = 0, sy = 0, sz = 0;
+            // Sent as "partial":1, so dim -1 and 0,0,0 are not read as a place.
+            bool readFailed = false;
             try
             {
                 dim = static_cast<int>(region.getDimensionId());
@@ -55,6 +57,7 @@ namespace pier::hooks
             {
                 // Unreadable coordinates do not block: this event hardens, it is not the
                 // last safety gate.
+                readFailed = true;
             }
 
             std::string snbt = "{\"eventId\":\"ChestPairEvent\""
@@ -64,7 +67,8 @@ namespace pier::hooks
                 + ",\"dim\":" + snbtNum(dim)
                 + ",\"otherX\":" + snbtNum(position.x)
                 + ",\"otherY\":" + snbtNum(position.y)
-                + ",\"otherZ\":" + snbtNum(position.z) + "}";
+                + ",\"otherZ\":" + snbtNum(position.z)
+                + (readFailed ? ",\"partial\":1" : "") + "}";
 
             if (dispatchHookEventCancellable(def, snbt)) return;
             origin(region, position);

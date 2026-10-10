@@ -1,3 +1,4 @@
+/** ApiTable.cpp: fills the four header scalars of the PierApi table. */
 #include "pier/host/api_table.h"
 
 namespace pier

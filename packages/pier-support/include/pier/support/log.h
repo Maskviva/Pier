@@ -1,3 +1,4 @@
+/** log.h: the host's own logger. */
 #pragma once
 // The host's own Logger, not that of any hosted mod.
 // It is a package-level entry point because guard.h and every capability package

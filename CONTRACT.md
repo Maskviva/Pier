@@ -98,9 +98,9 @@ pattern, which is why it is in the contract.
 
 This rule was violated once, after it was already in the contract and after a delivery note
 claimed every package was object, while four packages were still `static` and were exactly
-the four that depend entirely on self-registration, 22 TUs. The lesson is not to be more
-careful, it is that a rule with no script guarding it is a wish. The `object-kind` check was
-written for this rule and guards it now.
+the four that depend entirely on self-registration, 22 TUs. Being more careful would not
+have caught it: the rule was already written down, and the people who wrote the note had
+read it. The `object-kind` check was written for this rule and runs on every push now.
 
 **Rule 5: no language name appears inside `pier-abi`, and neither does a type of any one
 language.** No Rust, Go or Zig, and no `std::string_view` or `enum class` either. The lesson
@@ -150,6 +150,28 @@ explicitly and saying why, rather than hiding a marker in the high bits of a ver
 
 **2.4 There is one entry symbol, `pier_main`.** Its absence refuses the load explicitly with
 no fallback of any kind.
+
+**2.5 A binding removes nothing while the ABI version stays the same.** This holds for every
+binding in every language, not for one in particular. While `PIER_ABI_VERSION` is unchanged,
+a binding does not remove, rename or change the signature of a public item: a type, a
+function, a constant, a variant, a field or a module. An item that should go is deprecated
+instead, through the language's own mechanism where it has one and through a documented note
+where it does not, and the deprecation names what replaces it. Removal happens only in the
+release whose ABI version changes, because that is the release in which every mod is rebuilt
+anyway (2.2), and it is recorded in `CHANGELOG.md` under that release.
+
+Why: the ABI version is the one number that tells a mod author a rebuild is due. A binding
+that breaks its own surface between two ABI versions makes a mod stop compiling on an update
+that promised it nothing, which is the same broken promise as a slot that moved, delivered
+through the build instead of the loader.
+
+An item whose declaration is itself unsound, such as a language enum that receives integers
+the host does not validate, is corrected at once and not left in place: soundness outranks
+this rule. The correction keeps the old spelling compiling wherever the language allows, as
+deprecated aliases or constants, and `CHANGELOG.md` lists whatever still had to break.
+
+A binding's own version follows from this: deprecating or adding is a minor release, and a
+removal is the major release that goes with the ABI version change.
 
 ---
 
@@ -294,8 +316,9 @@ passed" into "this property holds".
 |---|---|---|
 | `abi-c-parse` | `sdk/abi.h` compiles under both `gcc -std=c11` and `g++ -std=c++20` | complete |
 | `abi-additive` | append only against the baseline `tools/abi-v1.slots`; a non-append change advances both version numbers together | complete |
+| `abi-values` | every released `PIER_*` constant and enum member keeps its value, against the baseline `tools/abi-v2.values`; names may be added | complete for the numbers; a meaning that changed while the number stayed is prose and needs a human |
 | `abi-no-lang` | `pier-abi/` comments carry no consumer-language spelling and declarations no C++ type; a user-visible string carries no historical product name | complete |
-| `abi-fixed-width` | the contract carries no type whose width depends on the platform, such as `int`, `long` or `unsigned short` | complete |
+| `abi-fixed-width` | the contract carries no type whose width depends on the platform, such as `int`, `long` or `unsigned short` | complete except `size_t`, which the ABI uses on purpose for lengths: the only build target is x64, and replacing it would itself be an ABI change |
 | `pkg-layering` | `add_deps`, the link graph, and `#include`, the compile graph, both follow the graph of section 1; capability packages have no sideways edge | complete |
 | `object-kind` | the xmake of every package is `set_kind("object")`, except `pier-abi`, which is headeronly | complete |
 | `optional-drops` | no symbol of an optional package is referenced across packages | **the necessary condition only**; the sufficient criterion is really deleting that line and running `xmake f` |
@@ -304,7 +327,9 @@ passed" into "this property holds".
 | `sources-are-built` | every `.cpp` under a package is reached by an `add_files` pattern of that package | it reimplements the `*` and `**` globs and ignores which `is_config` branch a pattern sits in, so it proves nothing under `src/` is unreferenced and not that every file builds on every target |
 | `sys-mirrors-abi` | the slot order, **each slot signature parameter by parameter**, the struct fields, the constants and the enum members all match `abi.h` cell for cell; the mirror carries no conditional compilation | complete, and stricter than `cargo check`, since a wrong width compiles on both sides |
 | `comment-claims` | a comment claiming something is swallowed, caught or never thrown has a try or a catch in the same function | an exception word has to appear as well, to avoid confusion with the swallow of packet-dropping |
-| `comment-style` | the mechanical part of `COMMENTS.md`: budgets, banned wording, ticket numbers, markdown layout, line width, spelling, and the English requirement over every file rather than the contract header alone | it cannot see whether a comment is true or restates the code, and those need a human |
+| `comment-style` | the mechanical part of `COMMENTS.md`: budgets, banned wording, ticket numbers, markdown layout, line width and spelling in C and C++, and the English requirement over the comments of every C, C++, Rust, Python, TOML and xmake file | it cannot see whether a comment is true or restates the code, and those need a human |
+| `synthetic-names` | the SDK's `ALL_SYNTHETIC` equals the set of events the host registers, in both directions | it cannot see whether a registered event fires, which needs a server |
+| `prose-tells` | no Markdown file or comment uses the constructions of COMMENTS.md section 9 that hand over a verdict in place of what happens | it catches the recognizable tells; a verdict in plain words needs a reviewer |
 | `manifest-matches-host` | the type, the dependency name and the entry of an example `manifest.json` really load under the host | complete |
 | `host-loadable` | the unified memory operators and the mod registration appear exactly once each, and their package necessarily reaches the artifact | complete |
 | `ledger-covers-tree` | every file on disk has a row in the ledger, the reverse direction of the ledger | the walk is the filesystem and not git, so its two exemption lists have to be kept level with `.gitignore` by hand |
@@ -351,6 +376,8 @@ the error is, it is whether something else already guards it.**
    vtable with `struct_size`, `abi_version`, `mod_flags` and the three lifecycle callbacks.
 4. Before calling a non-core slot, check that `struct_size` covers it and that the slot is
    not NULL.
+5. Remove nothing from the binding's public surface while the ABI version is unchanged;
+   deprecate instead, and remove with the next ABI version (2.5).
 
 `bindings/rust/pier-sys-rs` is the reference implementation of those four steps. A binding
 for a new language goes in `bindings/<language>/` and not in the unconditional include list

@@ -12,7 +12,7 @@
  * than a runtime enum so that adding a dimension kind needs no change here. This package is an
  * object package compiled into the host and exports no symbol, so there is no export macro. No
  * id-by-name function forwarding to VanillaDimensions::fromString may be added either: that route
- * reads back garbage for a custom dimension, for the reason rt/Bridge.cpp gives. / */
+ * reads back garbage for a custom dimension, for the reason rt/Bridge.cpp gives. */
 
 #include <concepts>
 #include <optional>
@@ -25,7 +25,7 @@
 #include "mc/world/level/dimension/DimensionType.h"
 
 class Dimension;
-class DerivedDimensionArguments;
+struct DerivedDimensionArguments; // A struct in the engine headers; MSVC mangles the key
 
 namespace pier::dimensions
 {

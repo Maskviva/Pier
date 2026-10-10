@@ -44,6 +44,7 @@ pub(super) fn parse(text: &str) -> Result<NbtValue, ParseError> {
     let mut p = Parser {
         s: text.as_bytes(),
         i: 0,
+        depth: 0,
     };
     p.ws();
     let v = p.value()?;
@@ -54,9 +55,17 @@ pub(super) fn parse(text: &str) -> Result<NbtValue, ParseError> {
     Ok(v)
 }
 
+/// The deepest nesting of compounds and lists accepted, the same cap Minecraft puts on NBT.
+///
+/// Each level is a stack frame of the recursive descent below, and running out of stack
+/// aborts the process instead of unwinding, so no `catch_unwind` fence can stop it. A
+/// payload nested deeper than this is refused as malformed.
+const MAX_DEPTH: usize = 512;
+
 struct Parser<'a> {
     s: &'a [u8],
     i: usize,
+    depth: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -98,11 +107,25 @@ impl<'a> Parser<'a> {
         self.ws();
         match self.peek() {
             None => Err(self.err("the input ended in the middle of a value")),
-            Some(b'{') => self.compound(),
-            Some(b'[') => self.array_or_list(),
+            Some(b'{') => self.nested(Self::compound),
+            Some(b'[') => self.nested(Self::array_or_list),
             Some(b'"') | Some(b'\'') => Ok(NbtValue::String(self.quoted()?)),
             _ => self.scalar(),
         }
+    }
+
+    /// Runs one level of nesting under the [`MAX_DEPTH`] budget.
+    fn nested(
+        &mut self,
+        parse: fn(&mut Self) -> Result<NbtValue, ParseError>,
+    ) -> Result<NbtValue, ParseError> {
+        if self.depth >= MAX_DEPTH {
+            return Err(self.err(format!("nested deeper than {MAX_DEPTH} levels")));
+        }
+        self.depth += 1;
+        let out = parse(self);
+        self.depth -= 1;
+        out
     }
 
     fn compound(&mut self) -> Result<NbtValue, ParseError> {
@@ -380,5 +403,24 @@ fn utf8_len(b: u8) -> usize {
         2
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse, MAX_DEPTH};
+
+    #[test]
+    fn nesting_past_the_cap_is_an_error_and_not_a_stack_overflow() {
+        assert!(parse(&"[".repeat(100_000)).is_err());
+        assert!(parse(&"{a:".repeat(100_000)).is_err());
+    }
+
+    #[test]
+    fn nesting_up_to_the_cap_parses() {
+        let ok = format!("{}{}", "[".repeat(MAX_DEPTH), "]".repeat(MAX_DEPTH));
+        assert!(parse(&ok).is_ok());
+        let over = format!("{}{}", "[".repeat(MAX_DEPTH + 1), "]".repeat(MAX_DEPTH + 1));
+        assert!(parse(&over).is_err());
     }
 }

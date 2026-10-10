@@ -9,7 +9,7 @@
  * on hook 2, a NormalTransaction with exactly one action from a ContainerInventory, separates
  * throwing a stack on the ground from the other inventory moves flowing through the same virtual.
  * Payload {eventId, x, y, z, dim, item, randomly, viaInventoryUi, _player:{...}}. x, y and z are
- * truncated to integers, because LL reflection serializes a Vec3 as a JSON array. / */
+ * truncated to integers, because LL reflection serializes a Vec3 as a JSON array. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>

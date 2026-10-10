@@ -25,13 +25,8 @@ resolver = "2"
 members = [
     "bindings/rust/pier-sys-rs",
     "bindings/rust/pier-rs",
-    "examples/hello-pier",
+    "examples/hello-pier-rs",
 ]
-
-[workspace.package]
-version = "1.0.0"
-edition = "2021"
-license = "Apache-2.0"
 
 [profile.release]
 lto = "thin"

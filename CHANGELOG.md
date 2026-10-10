@@ -8,7 +8,247 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
 
 ## [Unreleased]
 
+## [26.51.2]
+
+Built for BDS 1.26.51 and LeviLamina 26.51.5, like 26.51.1. `PIER_ABI_VERSION` stays at 2 and
+no slot moved: a mod built against 26.51.1 loads unchanged. pier-sys-rs is 26.51.2 and
+pier-rs 2.1.0; nothing public was removed from either (contract §2.5). The Go and Zig
+bindings are new in this release.
+
+### Added
+
+- **The documentation site runs on MkDocs Material and lives on GitHub Pages.** It is laid
+  out as the LegacyScriptEngine documentation is: navigation tabs, a section tree on the
+  left, every entry of the page on the right. The pages under Common tasks, in the
+  Tutorials tab, document one function per entry, with its call form in Rust, Go and Zig,
+  its parameters, return value and type, its slot, and an example in each language, in
+  English and Chinese; their overview page maps the data types between the languages. The
+  home page follows the layout of levimc.org, in Pier's orange: LeviLamina is the green
+  leaves and Pier the fruit. The English and Chinese sites build separately, `mkdocs build
+  --strict` refusing a broken link, and `docs.yml` publishes both to GitHub Pages whenever a
+  release is published.
+- **The API tab lists every public interface of each binding, generated from its source.**
+  One part per binding: the `levilamina` crate, 792 functions, methods and macros, 117
+  types and 76 constants; the Go package, 628 functions and methods, 173 of them on
+  `Raw`, one per slot without a callback, with 62 types and 316 constants; the Zig module,
+  305 functions and methods; and `sdk/abi.h` for C++ mods compiled with the Pier SDK, its
+  201 slots and 6 macros with every constant table and type. An entry gives the
+  declaration, the source comment, the parameters and return type, and the slots of abi.h
+  the interface reaches, found by following its body through the calls whose target the
+  text names; each slot on the C++ pages lists its callers in Rust, Go and Zig.
+  `tools/gen-api-docs.py` writes the pages and the API section of both navigations, and the
+  `api-docs-current` check fails when a binding changes and the pages are not generated
+  again. Links in both sites are checked down to the heading they name, so a renamed
+  interface fails `mkdocs build --strict`. The Chinese site translates every description:
+  1541 units in `docs/i18n/zh/api/`, each quoting the English comment it translates and
+  keyed by that comment's fingerprint, and the same check fails when a comment has no unit
+  or a unit's English has left the source. Reading the Go comments against abi.h on the
+  way corrected three that named constants abi.h does not have, and Raw methods that had
+  taken a section note in place of their slot's own comment.
+- **Documentation and comments describe what happens.** Headings, slogans and closing
+  metaphors that handed over a verdict were rewritten to show the process instead, in the
+  READMEs, the design and why pages, the API pages and the binding comments.
+  COMMENTS.md section 9 says why, and the `prose-tells` check fails on the recognizable
+  constructions in every Markdown file and comment.
+- **The Zig binding**, for Zig 0.15.2: the package `pier` in `bindings/zig`, exporting the
+  module `levilamina`, with the example `examples/hello-pier-zig`. translate-c reads `abi.h` itself, and `levilamina.slot("name")` is
+  any slot's function pointer behind both gates of contract §10, so the whole table is
+  reachable from the start. On it: the lifecycle through `exportMod`, logging, mod-owned
+  tasks, events, commands, services and the bus under the same rules as the Rust and Go
+  bindings, one method per property and verb on `Player`, `Entity`, `BlockAt` and `Item`,
+  and an SNBT parser with the same rules and depth cap. `zig build test` makes the compiler
+  analyze every function of the binding against the header and runs the parser's tests; a
+  `zig` job in build.yml runs it, checks the formatting and cross-compiles the example to a
+  Windows DLL. `tools/gen-zig-api.py` writes the property methods and the package's copy of
+  `abi.h`, and the `zig-binding` check fails when either is stale or a slot or constant
+  the sources name does not exist. Documented in English and Chinese.
+- **The Go binding**, imported as `github.com/Maskviva/pier/bindings/go/levilamina` and
+  written `levilamina.…` in code, with the example
+  `examples/hello-pier-go`. cgo includes `abi.h` itself, so the table is laid out by the C
+  compiler and not mirrored by hand, and every slot is reached through a generated C
+  function that applies both gates of contract §10. Its API is within reach of the Rust
+  binding's: every slot without a callback is a typed method of `pier.Raw`, every property
+  and verb of the constant tables is a generated method of `Player`, `Entity`, `BlockAt` or
+  `Item`, and hand-written functions cover the server, world, events with payload parsing,
+  commands with typed overloads, containers, key-value stores, the economy, forms, packet
+  and connection hooks, region scans, bulk block writes, simulated players, custom and
+  supplied-terrain dimensions and client keys, with an SNBT parser of the same rules as the
+  Rust one. Every slot is reachable but the two of lanes, which pair only mods of one
+  toolchain. Its services and bus topics follow the same rules as the Rust binding's, a veto is `true` and a provider's error text reaches the caller
+  unchanged, so it calls and answers mods of any language and native plugins through the
+  bridge. Built with `go build
+  -buildmode=c-shared` and a MinGW-w64 gcc. Documented in English and Chinese.
+- **`tools/gen-go-slots.py` and the `go-binding` check.** The generator writes the
+  per-slot C functions and the Go module's copy of `abi.h`; the check fails when either is
+  stale, when Go calls a C function nothing declares, or when the glue hands the host a
+  callback no Go file exports. A `go` job in build.yml formats, vets and builds the binding
+  and the example on Windows.
+- **Rust: `try_` variants for every call that answered "cannot tell" with a value.**
+  `Host::try_pending_tasks`, `Host::try_is_wine`, `World::try_villages`,
+  `World::try_structures_near`, `money::try_history`, `money::try_ranking`,
+  `money::try_clear_history`, `sim::try_list`, `SimPlayer::try_is_simulated` and
+  `KvDb::try_get` return a `Result`, so a host without the slot is an `Err` and no longer the
+  same answer as an empty list, a 0 or a false. The old functions stay, deprecated, with the
+  behavior they had (contract §2.5); `KvDb::get` is not deprecated, since `try_get` cannot
+  tell a closed database from a missing key either.
+- **The documentation is organized by reader**, the way LeviLamina's is: a user guide, a
+  developer guide split into tutorials, how-to guides, FAQ, architecture and API reference,
+  a maintainer guide, and the supported versions. New pages: troubleshooting, FAQ, and an
+  event payload reference, which documents the attacker fields of death events among the
+  rest. Every existing page keeps its address.
+- **Contract §2.5: a binding removes nothing while the ABI version stays the same.** It
+  applies to every binding in every language: an item to retire is deprecated through the
+  language's own mechanism, and removed only in the release whose ABI version changes. The
+  adding-a-language guide states it for binding authors.
+- **The `abi-values` check** keeps every released `PIER_*` constant and enum member at its
+  value, against the baseline `tools/abi-v2.values`. A renumbering done in `abi.h` and the
+  mirror together passed every check before.
+- **`comment-style` applies the English rule to Rust, Python, TOML and xmake comments**,
+  where Chinese documentation had been sitting unseen.
+- **The `synthetic-names` check** compares the SDK's `ALL_SYNTHETIC` with the events the
+  host registers, in both directions. The list had drifted by one entry with nothing to see
+  it.
+- **A watchdog over mod code, on by default.** Every place Pier runs a mod's code is
+  watched: loading and unloading its DLL, `pier_main`, the lifecycle callbacks and every
+  event, command, task, form, bus, service, packet and hook callback. A mod holding a thread
+  past `watchdog.warn_ms` (2000) is named in a warning with the entry and the thread; past
+  `watchdog.hang_ms` (30000), or `watchdog.shutdown_ms` (10000) once shutdown has begun, the
+  process is ended with exit code 70 so a supervisor can restart it. A server that froze on
+  a mod, or never finished stopping, now says which mod and comes back. `watchdog.enabled`
+  turns it off; a limit of 0 turns that one step off. Nothing is ended while a debugger is
+  attached.
+- **`pier_bridge_call_sink` and `pier_bridge_list_sink`.** The bridge hands a reply over
+  whole, so the provider runs once. `pier-bridge.h` uses them when present and reports
+  through `Client::runsOnce()` whether it can. The bridge ABI stays at 1.
+- **`registry_list`**: the engine's block, item and entity registries, one JSON object per
+  entry. A block carries its creative category, solidity, shape families, block entity,
+  destroy speed, resistance and light; an item its rarity, stack size, creative category and
+  whether commands hide it; an entity its spawn egg, summonability, experiment gate and actor
+  type bits. In Rust: `registry::blocks()`, `registry::items()`, `registry::entities()`. A mod
+  that hands out random content picks by rules over the game's own content instead of keeping
+  a list of names.
+
+### Changed
+
+- **Every binding is written `levilamina` in code**, while its package names Pier: the Rust
+  package `pier-rs` exposes the crate `levilamina`, the Go package
+  `github.com/Maskviva/pier/bindings/go/levilamina` is `levilamina`, the Zig package `pier`
+  exports the module `levilamina`, and `pier-bridge.h` puts its classes in
+  `levilamina::bridge`. `pier::bridge` remains as a deprecated alias of the new namespace
+  (contract §2.5), so a native plugin written against it still builds, with a warning under
+  MSVC and clang.
+- **The Rust example is `examples/hello-pier-rs`**, beside `hello-pier-go`,
+  `hello-pier-zig` and `hello-pier-cpp`. Its manifest name is `hello-pier-rs` and its entry
+  `hello_pier_rs.dll`; a server with the old example installed keeps a `hello-pier` folder
+  that the new build does not replace.
+- **The Rust mod template is `pier-mod-template`**, formerly `pier-rs-mod-template`. It holds
+  one Rust mod, to start from with GitHub's *Use this template* or `cargo generate`; the
+  documentation of the other languages starts from their examples.
+- **Rust: `sys::PierMoneyEvent` is a transparent `i32` newtype** with `PIER_MONEY_*`
+  constants. It was a Rust `enum` receiving whatever the economy backend sent, which is
+  undefined behavior for an unlisted value, so it is the soundness exception of contract
+  §2.5 and changed at once. `PierMoneyEvent::Set`, `Add`, `Reduce` and `Trans` still compile,
+  as deprecated constants, and `MoneyEvent::kind` keeps its type; the new
+  `MoneyEvent::kind_checked()` returns a `MoneyEventKind` with an `Unknown(i32)` arm. What
+  still breaks: a `match` on the old enum with no wildcard arm, which is now non-exhaustive,
+  and `as i32` on a value, which is `.0` now.
+- **An event payload carries `"partial":1` when a field could not be read**, in
+  `ExplosionEvent`, `FarmlandDecayEvent`, `SpawnItemActorEvent`, `ChestPairEvent` and
+  `PistonPushEvent`. The fields kept their defaults before, such as `sourceIsPlayer:0` or an
+  empty `attached` list, which read as answers. The field is absent when every read
+  succeeded, so a payload that was complete is unchanged.
+- **Rust: `World::sleep_status` is an `Err` when a field is missing**, instead of reporting
+  nobody asleep. **`EventPayload::check_complete` is false for a payload that did not
+  parse**, which it called complete, and `dim()` says that the payload could not be parsed.
+- **`kvdb_is_empty` answers false for a handle that is not open**, like every other
+  `kvdb_*` slot, instead of reporting a closed database as empty.
+- **`PlayerAttackTargetEvent` and `PlayerInteractEntityEvent` carry `targetKnown`.** When
+  the target cannot be read it is 0 and `targetIsPlayer` is 1, so a PvP rule refuses. It
+  was `targetIsPlayer:0`, which let the attack through.
+- **Four slots that always failed are NULL**: `edit_spawn_entity_nbt`, `level_find_path`,
+  `item_set_enchants` and `client_get_screen_name`. A binding now reports them as not
+  provided instead of as a failed call.
+
 ### Fixed
+
+- **The documentation put Pier mods in `mods/`.** They live in `plugins/`, beside Pier
+  itself, where LeviLamina looks for every mod; a mod placed in `mods/` was never loaded.
+  `/pier load` now names the real path when a manifest is missing.
+- **The `typed-storage` surrogate runs clean against real LeviLamina headers.** It reported
+  seven correct sites, through two faults of its own: a type written `X const` was judged
+  by the word `const`, and any name held by several classes was skipped even when every
+  spelling got the same verdict, which left members such as `mCause` unchecked. Names that a
+  class template or Pier itself declares as plain members are now ambiguous instead of
+  misattributed. It judges 10446 members, up from 9559, and Pier passes.
+- **Kill, hurt and death events name the attacker.** `MobDieEvent`, `ActorHurtEvent` and
+  `PlayerDieEvent` carried only the damage cause. The source now has `attackerUid` and
+  `attacker`, and for a projectile `projectileUid` and `projectile` too; the attacker of a
+  projectile is the actor that fired it, as LegacyScriptEngine and iListenAttentively
+  resolve it. Every described actor carries `uid`, and a player also `xuid` and
+  `realName`.
+- **`SpawnItemActorEvent` fires again.** It hooked `Spawner::spawnItem`, while the level's
+  spawner is a `BedrockSpawner` that overrides that function, so the detour installed and
+  never ran. `spawnMob` and `spawnProjectile` are inherited, not overridden, so the hooks on
+  them were right and stay on `Spawner`.
+- **`PlayerChangeGameModeEvent` hooks `ServerPlayer::setPlayerGameType`**, the override every
+  server-side player goes through, as iListenAttentively does.
+- **`player_set_num` works.** Level, experience, hunger, saturation and exhaustion always
+  failed; they are written through the attribute map, and a level through `addLevels`, the
+  way LegacyScriptEngine does on this engine version.
+- **A failed detour install is reported.** The profiler, tick control and TPS statistics
+  recorded a failed install as done, so `profile_begin` and `tick_freeze` returned true
+  while nothing was measured or frozen.
+- **An economy event of a type Pier does not know reaches no listener** and is logged once,
+  and an exception from a listener counts as a veto instead of unwinding into LegacyMoney.
+- **Registering a supplied-terrain dimension no longer races chunk generation**: the
+  terrain table is locked.
+- **A wrongly typed field in a dimension spec is reported.** `"seed":"123"` became seed 0
+  silently; it now leaves a warning naming the field.
+- **A volume pack whose palette passes 65536 entries no longer hangs the server** in a loop
+  whose counter wrapped.
+- **Rust: deeply nested SNBT is an error and not a stack overflow.** The parser stops at 512
+  levels; running out of stack aborted the process, past every panic fence.
+- **Rust: `Invocation::origin()` keeps the name on a `register` command.** A plain name is
+  itself valid SNBT, so it parsed and came back empty.
+- **Rust: `Player::last_death_pos` reports an unreadable dimension** instead of answering
+  the overworld.
+- **Rust: eight slot reads check the table length first.** `host` and `dimensions` read
+  fields such as `gaming_status` and `md_pack_inspect` straight from the table, past its end
+  on a host older than the SDK. They go through `opt_slot!`, which applies the gate.
+- **A dimension whose definition shape cannot be aligned is refused**, as the line it logs
+  says entering it is not safe; it used to be registered anyway.
+- **`/pier unload a b` is refused** instead of unloading `a` and reporting success.
+- **The chunk trace summary counts transitions and loads**; both counters were never
+  incremented and always read 0.
+- **`send_message_typed` logs a type outside 0..11** once, before sending it as raw text.
+- **Documentation that disagreed with the code**: the protocol-version and `md_is_available`
+  comments of `abi.h`, the key unregister and money listener slots, the MoreDimensions note of
+  `native_dimensions.h`, the file names and counts in `MIGRATION.md`, the mirror comments of
+  pier-sys-rs, and the README and installation pages, which still named LeviLamina 26.40.0.
+- **A bridge call with a reply over 2 KiB no longer runs the service twice** on a host that
+  has the sink form. The buffer form fetched a long reply by calling again, and a service
+  that changes state did so twice.
+- **A service provider can no longer be unloaded in the middle of a call from another
+  thread.** Service calls were not counted as callbacks in flight, so an unload on the
+  server thread could unmap a provider still running on a bridge caller's or a worker's
+  thread. Bus, packet and connection dispatch from other threads now recheck after being
+  counted, and the counter and the unloading flag use sequentially consistent ordering:
+  with release and acquire, x64 may reorder each side's store with its following load and
+  both sides miss each other.
+- **An exception out of `pier_main`, `on_enable`, `on_disable` or `on_unload` is caught and
+  reported as a refusal** instead of unwinding through the loader.
+- **The vtable handshake keeps the append-only promise.** The host required `struct_size`
+  to be at least its own `sizeof(PierModVTable)`, so appending a lifecycle callback would
+  have refused every mod already built, and a mod built after such an append would have
+  written past the host's struct. `pier_main` now writes into 512 zeroed bytes, the host
+  copies the prefix it knows, and any `struct_size` that covers `on_unload` is accepted.
+- **Nine `PierApi` slots declared with `()` now say `(void)`.** In C, `()` declares no
+  prototype, which `-Wstrict-prototypes` warns about and which a C translator such as
+  Zig's turns into a variadic function. The calling convention is unchanged.
+- **`examples/hello-bridge` builds against LeviLamina 26.51.5**, the version the host is
+  built against, instead of 26.40.0.
+- **The C++ example and pages** stop exceptions at every callback, check the host's ABI
+  version and target before filling the vtable, and include `<cstddef>` for `offsetof`.
 
 - **A block container query no longer logs "Access violation - no RTTI data!"** for a block
   entity that carries no RTTI. `resolveContainer` reached a block's container through
@@ -22,19 +262,6 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
   itself. Building the nether or the end on first use handed the detour 1 or 2, which it read
   as an address. The detour now takes the `ushort` the engine passes and is installed by
   address; the host's own call that registers a custom dimension passes the value the same way.
-
-### Added
-
-- **`registry_list`**: the engine's block, item and entity registries, one JSON object per
-  entry. A block carries its creative category, solidity, shape families, block entity,
-  destroy speed, resistance and light; an item its rarity, stack size, creative category and
-  whether commands hide it; an entity its spawn egg, summonability, experiment gate and actor
-  type bits. In Rust: `registry::blocks()`, `registry::items()`, `registry::entities()`. A mod
-  that hands out random content picks by rules over the game's own content instead of keeping
-  a list of names.
-
-### Fixed
-
 - **The money guard no longer asks LeviLamina's symbol resolver for `LLMoney_Get`.** With
   LeviLamina 26.51 and LegacyMoney 0.22 installed and enabled, that lookup came back empty,
   every `money::*` entry point stayed inert for the session and the log said the export
@@ -550,8 +777,8 @@ built against 26.40.0 keeps working without a rebuild, though see the note on
   because entering such a dimension took the server down every time it was tried. That
   reason was wrong: the fault was this host destroying a `Dimension` the engine was still
   using, a void dimension died at the same instruction with no generator involved, and it
-  is fixed. What the fallback cost meanwhile was the whole point of those three templates,
-  which arrived as empty voids. `engine_terrain: 0b` in a dimension's terrain turns the
+  is fixed. Until then the fallback had cost those three templates their terrain: they
+  arrived as empty voids. `engine_terrain: 0b` in a dimension's terrain turns the
   engine generator off again, for an operator who meets a fault in engine code this host
   cannot repair and still needs the dimension to open. A dimension that generated void
   chunks under the old default keeps them; only ground it has not reached yet comes out as
@@ -1146,7 +1373,7 @@ mods written for the loader do not carry over. See **Migrating from the loader**
 - **19 machine checks**, run by `python3 tools/run-checks.py` on every push. Each states
   what it covers and what it cannot see.
 - **Documentation** at `docs/`, and
-  [pier-mod-template](https://github.com/Maskviva/pier-rs-mod-template) as a working starting
+  [pier-mod-template](https://github.com/Maskviva/pier-mod-template) as a working starting
   point.
 
 ### Design decisions worth knowing
@@ -1223,6 +1450,7 @@ The ABI is not compatible and no attempt is made to load a loader mod.
   could free it lives in a library that may already be unloaded. Cleanup that has to
   happen does not belong in a form callback.
 
+[26.51.2]: https://github.com/Maskviva/pier/releases/tag/26.51.2
 [26.32.1]: https://github.com/Maskviva/pier/releases/tag/26.32.1
 [26.32.0]: https://github.com/Maskviva/pier/releases/tag/26.32.0
 [26.20.2]: https://github.com/Maskviva/pier/releases/tag/26.20.2

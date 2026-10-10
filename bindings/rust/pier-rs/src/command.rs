@@ -103,6 +103,7 @@ pub struct CommandOrigin {
     /// The player name, or the name of the console.
     pub name: String,
     /// The `CommandOriginType`, where 0 is a player and 7 is the dedicated server console.
+    /// -1 when the host did not say, which is always the case for a `register` command.
     pub kind: i32,
     /// Where the origin is. A console has no position and gives `None`.
     pub at: Option<(i32, f64, f64, f64)>,
@@ -159,12 +160,17 @@ impl Invocation<'_> {
         unsafe { (self.out_error)(self.ctx, s(msg)) };
     }
 
-    /// The origin. A failed parse falls back to an origin carrying only a name, with a
-    /// warning: a command handler usually only wants to know who sent it, and failing the
-    /// whole command over one position field is not worth it.
+    /// The origin.
+    ///
+    /// A command from [`CommandBuilder`] carries `{name,type,dim,x,y,z}`. One from
+    /// `register` carries only the name, so `kind` is -1 there and [`CommandOrigin::is_console`]
+    /// and [`CommandOrigin::player_name`] cannot tell who sent it; a command that needs to
+    /// know is registered through `CommandBuilder`. The two shapes are told apart by
+    /// structure: a bare word such as `Steve` is itself valid SNBT, so a successful parse
+    /// alone does not mean the structured form.
     pub fn origin(&self) -> CommandOrigin {
         match NbtValue::parse(self.origin_raw) {
-            Ok(v) => CommandOrigin {
+            Ok(v) if v.opt_str("name").is_some() => CommandOrigin {
                 name: v.opt_str("name").unwrap_or_default().to_owned(),
                 kind: v.opt_i32("type").unwrap_or(-1),
                 at: match (
@@ -177,9 +183,7 @@ impl Invocation<'_> {
                     _ => None,
                 },
             },
-            // The plain-text route, where `register` carries a name rather than SNBT, comes
-            // through here as a normal shape and is not warned about.
-            Err(_) => CommandOrigin {
+            _ => CommandOrigin {
                 name: self.origin_raw.to_owned(),
                 kind: -1,
                 at: None,
@@ -336,16 +340,16 @@ impl OverloadBuilder {
 
 /// A command with typed overloads.
 ///
+/// Each overload parses a different input: two that accept the same words leave the engine
+/// to pick one, and the handler cannot rely on which (contract §6.1). Sibling words with the
+/// same arguments are one enum parameter; a word with arguments of its own is a literal.
+///
 /// ```ignore
-/// command::builder("plot", "plot management", CommandPermission::Any)
-///     .overload(|o| o.required("action", ParamType::String))
-///     .overload(|o| o.required("action", ParamType::String).optional("who", ParamType::Player))
-///     .register(|inv| {
-///         match inv.arg_str("action") {
-///             Some("info") => inv.success("……"),
-///             _ => inv.error("unrecognized subcommand"),
-///         }
-///     })?;
+/// command::register_enum("plot_simple", &[("menu", 0), ("help", 1), ("status", 2)])?;
+/// command::builder("plot", "Plots", CommandPermission::Any)
+///     .overload(|o| o.required_enum("simple", ParamType::Enum, "plot_simple"))
+///     .overload(|o| o.text("verb", "rate").required("score", ParamType::Int))
+///     .register(handler)?;
 /// ```
 pub struct CommandBuilder {
     name: String,

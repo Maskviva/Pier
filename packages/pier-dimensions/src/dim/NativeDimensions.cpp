@@ -46,7 +46,7 @@ namespace pier::dimensions
          *
          * It is not persisted: dimension_config.json holds the seed and the layout, the dimension
          * definition is rebuilt on every boot, a change can simply be changed back, and blocks in
-         * the save are unaffected. / */
+         * the save are unaffected. */
         std::pair<int, int> advertisedRange(int minY, int maxY)
         {
             static auto const override_ = []() -> std::optional<std::pair<int, int>>
@@ -642,7 +642,13 @@ namespace pier::dimensions
                 bindFactory();
                 // Before the instance is built: the Dimension takes its height from the
                 // spec and the engine takes it from here, and they have to be one shape.
-                alignDefinitionShape(mgr, name, suggested, advertised.first, advertised.second, gen);
+                // A shape that cannot be aligned is refused here: the line it logs says
+                // entering the dimension is not safe, and registering it anyway would let
+                // a player in.
+                if (!alignDefinitionShape(mgr, name, suggested, advertised.first, advertised.second, gen))
+                {
+                    return std::nullopt;
+                }
             }
             catch (std::exception const& e)
             {
@@ -727,7 +733,7 @@ namespace pier::dimensions
 
         /** The dimension this host registered under an id, null when there is none.
          *
-         *  Held and not merely pointed at. A weak reference here answers empty the moment
+         *  A strong reference. A weak one here answers empty the moment
          *  the registry lets go, and every path that reads it treats empty as permission
          *  to build: a live server built one dimension twice within a millisecond that
          *  way, and the second registration destroyed the object the first one had

@@ -1,8 +1,10 @@
+/** snbt.h: assembling SNBT text for event and slot payloads. */
 #pragma once
 // Minimal helpers for assembling SNBT. Every composite payload that crosses a
 // boundary, such as event data and player summaries, is SNBT text. There is exactly
 // one set of helpers, because two escaping rules that disagree are an injection
 // point.
+#include <cmath>
 #include <format>
 #include <limits>
 #include <string>
@@ -33,7 +35,7 @@ namespace pier
             // "1e+21" past 2^53 and "inf" for the non-finite values, both of which
             // the parser on the far side refuses, taking every later field with them.
             double d = static_cast<double>(v);
-            if (!(d == d) || d == std::numeric_limits<double>::infinity()
+            if (std::isnan(d) || d == std::numeric_limits<double>::infinity()
                 || d == -std::numeric_limits<double>::infinity())
             {
                 d = 0.0;
@@ -62,7 +64,7 @@ namespace pier
     {
         static_assert(std::is_arithmetic_v<T>, "snbtDouble takes numbers only");
         double d = static_cast<double>(v);
-        if (!(d == d) || d == std::numeric_limits<double>::infinity()
+        if (std::isnan(d) || d == std::numeric_limits<double>::infinity()
             || d == -std::numeric_limits<double>::infinity())
         {
             d = 0.0;

@@ -1,9 +1,9 @@
 [package]
 name = "pier-rs"
-version = "2.0.2"
+version = "2.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Writing LeviLamina mods in safe Rust. Pier ABI v2 / BDS 1.26.40 / LeviLamina 26.40.0."
+description = "Writing LeviLamina mods in safe Rust. Pier ABI v2 / BDS 1.26.51 / LeviLamina 26.51.5."
 readme = "../../../README.md"
 repository = "https://github.com/Maskviva/Pier"
 keywords = ["levilamina", "minecraft", "bedrock", "mod", "bds"]
@@ -28,24 +28,12 @@ path = "src/lib.rs"
 # is optional and business code enables it itself.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-pier-sys-rs = { version = "26.51.1", path = "../pier-sys-rs", default-features = false }
+pier-sys-rs = { version = "26.51.2", path = "../pier-sys-rs", default-features = false }
 
-# One feature remains and it changes no layout.
-#
-# There used to be `server`, `client` and `more_dimensions`, where the first two were
-# mutually exclusive and the third added and removed fields of `PierApi`. From ABI v1 that
-# whole arrangement is void:
-#
-#   * the layout is identical on every target (contract §2.1), leaving no room for a
-#     dimension feature, since the dimension capability is decided at runtime by
-#     `md_is_available()` and an empty slot;
-#   * `server` and `client` no longer trim the API surface mutually exclusively. The
-#     client-only group of slots is simply NULL on a server host, and calling one gives an
-#     Err saying the host does not provide it rather than a compile error.
-#
-# The only purpose of keeping `client` is to have `register_mod!` set bit 0 in the
-# `mod_flags` of the vtable, on which the host refuses a mod loaded onto the wrong target.
-# It adds and removes no API at all.
+# One feature, `client`, and it changes no layout: it makes `register_mod!` set bit 0 of the
+# vtable's `mod_flags`, on which the host refuses a mod loaded onto the wrong target. The
+# layout is the same on every target (contract §2.1): a client-only slot is NULL on a server
+# host and calling it returns an Err, and the dimension capability is decided at runtime.
 [features]
 default = []
 client = ["pier-sys-rs/client"]
