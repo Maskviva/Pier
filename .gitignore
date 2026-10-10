@@ -3,6 +3,7 @@
 /bin/
 /target/
 /.xmake/
+/site/
 Cargo.lock
 
 # Tool runtime

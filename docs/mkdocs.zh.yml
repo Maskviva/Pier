@@ -1,6 +1,9 @@
 # 中文站点。英文站点是 mkdocs.yml，构建到 site/；页头的语言切换器连接两者。
 site_name: Pier
 site_description: 用 Rust、C++、Go、Zig 写 LeviLamina 模组
+# Where the site is published, which is what the canonical links and sitemap.xml name. The
+# Docs workflow sets DOCS_SITE_URL from the repository; the default is this project's site.
+site_url: !ENV [DOCS_SITE_URL, "https://maskviva.github.io/Pier/"]
 repo_url: https://github.com/Maskviva/pier
 repo_name: Maskviva/pier
 edit_uri: edit/main/docs/zh/
