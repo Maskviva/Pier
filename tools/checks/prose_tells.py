@@ -40,7 +40,9 @@ EN = [
     (r"\bnot just\b[^.\n]{1,60}\bbut\b|\bisn'?t just\b", "not just X, but Y"),
 ]
 COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/|^\s*#[^\n]*", re.S | re.M)
-SKIP_DIRS = {"node_modules", ".git", "target", ".zig-cache", "zig-cache", "__pycache__", "dist", "cache"}
+SKIP_DIRS = {"node_modules", ".git", "target", ".zig-cache", "zig-cache", "__pycache__", "dist", "cache",
+             "venv", "zig-out", "build", "bin", ".xmake", ".idea", ".vs", ".vscode"}
+
 # This file and the comment standard quote the tells in order to name them.
 SKIP_FILES = {os.path.join("tools", "checks", "prose_tells.py"), "COMMENTS.md"}
 

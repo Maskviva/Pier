@@ -497,7 +497,7 @@ func (RawAPI) GetDifficulty() (int32, bool, error)
 
 GetDifficulty calls the `get_difficulty` slot.
 
-`Level::getDifficulty`
+Server / world-level settings.
 
 - Return type: `(int32, bool, error)`
 - Slots: [`get_difficulty`](../cpp/world.md#get_difficulty)
@@ -509,8 +509,6 @@ func (RawAPI) SetDifficulty(d int32) (bool, error)
 ```
 
 SetDifficulty calls the `set_difficulty` slot.
-
-native `Level::setDifficulty`
 
 - Parameters:
     - d : `int32`
@@ -524,8 +522,6 @@ func (RawAPI) GetSeed() (int64, bool, error)
 ```
 
 GetSeed calls the `get_seed` slot.
-
-`Level::getLevelSeed64`
 
 - Return type: `(int64, bool, error)`
 - Slots: [`get_seed`](../cpp/world.md#get_seed)
@@ -552,8 +548,6 @@ func (RawAPI) GameRuleSet(name string, value string) (bool, error)
 ```
 
 GameRuleSet calls the `game_rule_set` slot.
-
-/gamerule
 
 - Parameters:
     - name : `string`
@@ -622,6 +616,8 @@ func (RawAPI) LevelGetBiome(dim int32, x int32, y int32, z int32) ([]string, boo
 ```
 
 LevelGetBiome calls the `level_get_biome` slot.
+
+Level: biome, spawn, save, weather, path, sleep (dedicated fns)
 
 - Parameters:
     - dim : `int32`
@@ -1175,6 +1171,8 @@ func (RawAPI) PlayerGetCarriedItem(sel PlayerSel) ([]string, bool, error)
 
 PlayerGetCarriedItem calls the `player_get_carried_item` slot.
 
+Player: equipment, cooldown, network (dedicated fns)
+
 - Parameters:
     - sel : `PlayerSel`
 - Return type: `([]string, bool, error)`
@@ -1276,7 +1274,7 @@ func (RawAPI) PlayerSendTitle(sel PlayerSel, typeArg int32, text string, fadeInT
 
 PlayerSendTitle calls the `player_send_title` slot.
 
-`PACT_SET_TITLE` (`player_action` opcode 6) reaches the client by running the console command `title "<name>" title <text>`. Three things are wrong with that and none of them are theoretical: - the text is pasted into a command line unquoted, so a plot named `He said "hi"` truncates the command; - `title`'s text parameter is a `message`, which expands selectors — a plot named `@e` is a command injection, not a name; - `/title` has no way to set fade/stay for the same call, so timing is whatever the client last stored. This slot builds a real SetTitlePacket instead. No wire format crosses the FFI (the packet is constructed field-by-field on this side), so it survives protocol bumps the way `spawn_particle_for` does.
+Titles `PACT_SET_TITLE` (`player_action` opcode 6) reaches the client by running the console command `title "<name>" title <text>`. Three things are wrong with that and none of them are theoretical: - the text is pasted into a command line unquoted, so a plot named `He said "hi"` truncates the command; - `title`'s text parameter is a `message`, which expands selectors — a plot named `@e` is a command injection, not a name; - `/title` has no way to set fade/stay for the same call, so timing is whatever the client last stored. This slot builds a real SetTitlePacket instead. No wire format crosses the FFI (the packet is constructed field-by-field on this side), so it survives protocol bumps the way `spawn_particle_for` does.
 
 - Parameters:
     - sel : `PlayerSel`
@@ -1392,6 +1390,8 @@ func (RawAPI) ActorGetVehicle(id ActorID) (ActorID, bool, error)
 ```
 
 ActorGetVehicle calls the `actor_get_vehicle` slot.
+
+Actor: relationships, equipment, effects, geometry (dedicated fns)
 
 - Parameters:
     - id : `ActorID`
@@ -1588,6 +1588,8 @@ func (RawAPI) BlockGetNum(dim int32, x int32, y int32, z int32, prop int32) (flo
 
 BlockGetNum calls the `block_get_num` slot.
 
+§D blocks & block entities
+
 - Parameters:
     - dim : `int32`
     - x : `int32`
@@ -1658,6 +1660,8 @@ func (RawAPI) BlockGetState(dim int32, x int32, y int32, z int32, stateName stri
 
 BlockGetState calls the `block_get_state` slot.
 
+Block: state get/set, collision shape (dedicated fns)
+
 - Parameters:
     - dim : `int32`
     - x : `int32`
@@ -1710,6 +1714,8 @@ func (RawAPI) ItemGetNum(itemSnbt string, prop int32) (float64, bool, error)
 ```
 
 ItemGetNum calls the `item_get_num` slot.
+
+§E items (SNBT value objects) & containers
 
 - Parameters:
     - itemSnbt : `string`
@@ -1917,6 +1923,8 @@ func (RawAPI) ScoreboardOp(op int32, a string, b string, n int64) ([]string, boo
 ```
 
 ScoreboardOp calls the `scoreboard_op` slot.
+
+§F scoreboard
 
 - Parameters:
     - op : `int32`

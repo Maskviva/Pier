@@ -20,7 +20,9 @@ where
 {
     let v = <f64 as serde::Deserialize>::deserialize(d)?;
     if !v.is_finite() || v.fract() != 0.0 {
-        return Err(serde::de::Error::custom(format!("{v} is not a whole number")));
+        return Err(serde::de::Error::custom(format!(
+            "{v} is not a whole number"
+        )));
     }
     T::try_from(v as i64).map_err(|_| serde::de::Error::custom(format!("{v} is out of range")))
 }

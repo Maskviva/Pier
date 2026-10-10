@@ -126,7 +126,9 @@ fn ok(done: bool, what: &str, xuid: &str) -> Result<()> {
 /// without the history slot, which an empty list would hide.
 pub fn try_history(xuid: &str, seconds: i32) -> Result<Vec<String>> {
     let f = crate::require_slot!(money_get_hist, "reading the transaction history");
-    Ok(collect_strs(|ctx, sink| unsafe { f(s(xuid), seconds, ctx, sink) }))
+    Ok(collect_strs(|ctx, sink| unsafe {
+        f(s(xuid), seconds, ctx, sink)
+    }))
 }
 
 /// The transactions of the last `seconds` seconds, and an empty list when the host cannot

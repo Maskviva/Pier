@@ -502,7 +502,7 @@ func (RawAPI) GetDifficulty() (int32, bool, error)
 
 调用 `get_difficulty` 槽位。
 
-取自 `Level::getDifficulty`
+服务器和世界级别的设置。
 
 - 返回值类型：`(int32, bool, error)`
 - 对应槽位：[`get_difficulty`](../cpp/world.md#get_difficulty)
@@ -514,8 +514,6 @@ func (RawAPI) SetDifficulty(d int32) (bool, error)
 ```
 
 调用 `set_difficulty` 槽位。
-
-原生调用 `Level::setDifficulty`
 
 - 参数：
     - d : `int32`
@@ -529,8 +527,6 @@ func (RawAPI) GetSeed() (int64, bool, error)
 ```
 
 调用 `get_seed` 槽位。
-
-取自 `Level::getLevelSeed64`
 
 - 返回值类型：`(int64, bool, error)`
 - 对应槽位：[`get_seed`](../cpp/world.md#get_seed)
@@ -557,8 +553,6 @@ func (RawAPI) GameRuleSet(name string, value string) (bool, error)
 ```
 
 调用 `game_rule_set` 槽位。
-
-等同于 `/gamerule`
 
 - 参数：
     - name : `string`
@@ -627,6 +621,8 @@ func (RawAPI) LevelGetBiome(dim int32, x int32, y int32, z int32) ([]string, boo
 ```
 
 调用 `level_get_biome` 槽位。
+
+关卡：生物群系、出生点、保存、天气、寻路、睡眠（专用函数）
 
 - 参数：
     - dim : `int32`
@@ -1182,6 +1178,8 @@ func (RawAPI) PlayerGetCarriedItem(sel PlayerSel) ([]string, bool, error)
 
 调用 `player_get_carried_item` 槽位。
 
+玩家：装备、冷却、网络（专用函数）
+
 - 参数：
     - sel : `PlayerSel`
 - 返回值类型：`([]string, bool, error)`
@@ -1282,6 +1280,8 @@ func (RawAPI) PlayerSendTitle(sel PlayerSel, typeArg int32, text string, fadeInT
 ```
 
 调用 `player_send_title` 槽位。
+
+标题
 
 `PACT_SET_TITLE`（`player_action` 的第 6 号操作）是通过执行控制台命令 `title "<name>" title <text>` 送到客户端的。这样做有三个问题，三个都会真的发生：
 
@@ -1405,6 +1405,8 @@ func (RawAPI) ActorGetVehicle(id ActorID) (ActorID, bool, error)
 ```
 
 调用 `actor_get_vehicle` 槽位。
+
+实体：关系、装备、效果、几何（专用函数）
 
 - 参数：
     - id : `ActorID`
@@ -1601,6 +1603,8 @@ func (RawAPI) BlockGetNum(dim int32, x int32, y int32, z int32, prop int32) (flo
 
 调用 `block_get_num` 槽位。
 
+§D 方块与方块实体
+
 - 参数：
     - dim : `int32`
     - x : `int32`
@@ -1671,6 +1675,8 @@ func (RawAPI) BlockGetState(dim int32, x int32, y int32, z int32, stateName stri
 
 调用 `block_get_state` 槽位。
 
+方块：读写状态、碰撞形状（专用函数）
+
 - 参数：
     - dim : `int32`
     - x : `int32`
@@ -1723,6 +1729,8 @@ func (RawAPI) ItemGetNum(itemSnbt string, prop int32) (float64, bool, error)
 ```
 
 调用 `item_get_num` 槽位。
+
+§E 物品（SNBT 值对象）与容器
 
 - 参数：
     - itemSnbt : `string`
@@ -1930,6 +1938,8 @@ func (RawAPI) ScoreboardOp(op int32, a string, b string, n int64) ([]string, boo
 ```
 
 调用 `scoreboard_op` 槽位。
+
+§F 计分板
 
 - 参数：
     - op : `int32`

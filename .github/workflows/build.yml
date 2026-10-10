@@ -126,12 +126,26 @@ jobs:
       CGO_ENABLED: "1"
     steps:
       - uses: actions/checkout@v7
+      - name: Disable CRLF conversion
+        run: git config core.autocrlf false
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
       - name: Format
         shell: bash
-        run: test -z "$(gofmt -l bindings/go examples/hello-pier-go)"
+        run: |
+          unformatted=$(gofmt -l bindings/go examples/hello-pier-go)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted:"
+            echo "$unformatted"
+            echo ""
+            echo "Formatting differences:"
+            for file in $unformatted; do
+              echo "=== $file ==="
+              gofmt -d "$file" | head -100
+            done
+            exit 1
+          fi
       - name: Vet the binding
         working-directory: bindings/go
         run: go vet ./...

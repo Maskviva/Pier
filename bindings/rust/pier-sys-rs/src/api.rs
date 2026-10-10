@@ -85,7 +85,6 @@ pub struct PierApi {
     pub get_time: Option<unsafe extern "C" fn(*mut i64) -> bool>,
 
     // The append area: append only, never reorder.
-
     pub set_time: Option<unsafe extern "C" fn(i64) -> bool>,
     pub set_weather: Option<unsafe extern "C" fn(i32) -> bool>,
     // ── §B player management
@@ -263,7 +262,6 @@ pub struct PierApi {
     pub actor_get_owner: Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
 
     // Appended: API gap fill, gated by struct_size.
-
     pub actor_get_target: Option<unsafe extern "C" fn(PierActorId, *mut PierActorId) -> bool>,
     pub actor_get_equipped_item:
         Option<unsafe extern "C" fn(PierActorId, i32, *mut c_void, PierStrSink) -> bool>,
@@ -369,7 +367,6 @@ pub struct PierApi {
         Option<unsafe extern "C" fn(PierModHandle, PierStr, PierServiceCb, *mut c_void) -> u64>,
 
     // The tail of the append area, gated by struct_size.
-
     pub service_unregister: Option<unsafe extern "C" fn(PierModHandle, u64) -> bool>,
     pub service_call: Option<
         unsafe extern "C" fn(PierModHandle, PierStr, PierStr, *mut c_void, PierStrSink) -> i32,

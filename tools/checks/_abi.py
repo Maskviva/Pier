@@ -9,6 +9,7 @@ as the silent fallback contract §5 forbids.
 
 import os
 import re
+import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ABI_H = os.path.join(ROOT, "packages", "pier-abi", "include", "sdk", "abi.h")
@@ -162,6 +163,7 @@ class Result:
         self.notes.append(msg)
 
     def report(self):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         for n in self.notes:
             print("    · %s" % n)
         for f in self.failures:

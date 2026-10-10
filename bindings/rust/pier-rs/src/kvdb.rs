@@ -73,7 +73,9 @@ impl KvDb {
     /// the table at a larger offset, and the first being covered does not imply the second is.
     pub fn try_get(&self, key: &str) -> Result<Option<String>> {
         let f = crate::require_slot!(kvdb_get, "reading a key-value store");
-        Ok(call_out_str(|ctx, sink| unsafe { f(self.handle, s(key), ctx, sink) }))
+        Ok(call_out_str(|ctx, sink| unsafe {
+            f(self.handle, s(key), ctx, sink)
+        }))
     }
 
     /// Reads one key, with `None` for every case [`KvDb::try_get`] keeps apart.

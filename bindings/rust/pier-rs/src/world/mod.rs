@@ -323,7 +323,9 @@ impl World {
         let missing = |name: &str| Error(format!("the sleep status has no `{name}`: {text}"));
         Ok(SleepStatus {
             sleeping: v.opt_bool("sleeping").ok_or_else(|| missing("sleeping"))?,
-            total_players: v.opt_i32("total_players").ok_or_else(|| missing("total_players"))?,
+            total_players: v
+                .opt_i32("total_players")
+                .ok_or_else(|| missing("total_players"))?,
             active_sleeping: v
                 .opt_i32("active_sleeping")
                 .ok_or_else(|| missing("active_sleeping"))?,
@@ -428,7 +430,8 @@ impl World {
         z: i32,
         radius: i32,
     ) -> Vec<StructureInfo> {
-        self.try_structures_near(dim, x, y, z, radius).unwrap_or_default()
+        self.try_structures_near(dim, x, y, z, radius)
+            .unwrap_or_default()
     }
 
     // Chunks and save keys

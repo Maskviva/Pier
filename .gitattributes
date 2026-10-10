@@ -1,0 +1,2 @@
+# Go source files must use LF line endings for gofmt
+*.go text eol=lf

@@ -1702,8 +1702,9 @@ Go 模组要实现的生命周期。两步都在服务器线程上运行；返�
 
 四个 `*_get_num` 槽位遵守同一个约定。返回值表示宿主有没有答案，`*out` 是答案；返回 false 时 `*out` 不会被改动。
 
-## f000c5e15e
+## 994a2bdaf0
 
+> Titles
 > `PACT_SET_TITLE` (player_action opcode 6) reaches the client by running
 > the console command `title "<name>" title <text>`. Three things are
 > wrong with that and none of them are theoretical:
@@ -1716,6 +1717,8 @@ Go 模组要实现的生命周期。两步都在服务器线程上运行；返�
 > This slot builds a real SetTitlePacket instead. No wire format crosses
 > the FFI (the packet is constructed field-by-field on this side), so it
 > survives protocol bumps the way `spawn_particle_for` does.
+
+标题
 
 `PACT_SET_TITLE`（`player_action` 的第 6 号操作）是通过执行控制台命令 `title "<name>" title <text>` 送到客户端的。这样做有三个问题，三个都会真的发生：
 

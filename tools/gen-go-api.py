@@ -101,11 +101,25 @@ GO_WORDS = {"break", "case", "chan", "const", "continue", "default", "defer", "e
 
 
 def docs_and_names(src):
-    """Slot name -> (the first paragraph of its abi.h comment, its parameter names)."""
+    """Slot name -> (the first paragraph of its abi.h comment, its parameter names).
+
+    A slot's comment is the one that closes right above its declaration and opens on a
+    line of its own. A section comment further up, or a trailing comment after the
+    previous `;`, belongs to something else.
+    """
     body = src[src.index("typedef struct PierApi"):src.index("} PierApi;")]
     out = {}
-    for m in re.finditer(r"(?:/\*\*?(?P<doc>(?:(?!\*/).)*)\*/\s*)?[^;{}]*?\(\s*\*\s*(?P<name>\w+)\s*\)\s*\((?P<params>[^;]*?)\)\s*;", body, re.S):
-        doc = m.group("doc") or ""
+    decl = re.compile(r"^[ \t]*[^;{}/\n]*?\(\s*\*\s*(?P<name>\w+)\s*\)\s*\((?P<params>[^;]*?)\)\s*;", re.M)
+    for m in decl.finditer(body):
+        doc = ""
+        before = body[:m.start()].rstrip()
+        if before.endswith("*/"):
+            start = before.rfind("/*")
+            line = before[before.rfind("\n", 0, start) + 1:start]
+            if not line.strip():
+                doc = before[start + 2:-2]
+                if doc.startswith("*"):
+                    doc = doc[1:]
         lines = [re.sub(r"^\s*\*\s?", "", l).rstrip() for l in doc.splitlines()]
         para = []
         for l in lines:

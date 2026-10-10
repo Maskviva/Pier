@@ -236,7 +236,9 @@ impl Player {
         // send a death in a custom dimension to the wrong world (contract §5.1).
         let dim_text = self.text(sys::PIER_PSTR_LAST_DEATH_DIMENSION)?;
         let dim = dim_text.trim().parse::<i32>().map_err(|_| {
-            Error(format!("the last death dimension {dim_text:?} is not a dimension id"))
+            Error(format!(
+                "the last death dimension {dim_text:?} is not a dimension id"
+            ))
         })?;
         Ok(Some((
             (v.get_f64("x")?, v.get_f64("y")?, v.get_f64("z")?),

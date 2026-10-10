@@ -1660,35 +1660,17 @@ SNBT `{r,g,b}`，取自 `ItemStackBase::getColor`
 
 调用 `Level::explode`。`source` 可以为 0，表示没有来源实体。
 
-## f735ab32f3
+## bad8569811
 
-> Level::getDifficulty
+> Server / world-level settings.
 
-取自 `Level::getDifficulty`
-
-## 627bd9a371
-
-> native Level::setDifficulty
-
-原生调用 `Level::setDifficulty`
-
-## 046f78ca75
-
-> Level::getLevelSeed64
-
-取自 `Level::getLevelSeed64`
+服务器和世界级别的设置。
 
 ## dee116820d
 
 > out sink receives SNBT {type:"bool"|"int"|"float", value:…}; false if unknown rule.
 
 输出回调收到 SNBT `{type:"bool"|"int"|"float", value:…}`；规则不存在时返回 false。
-
-## 381a72dfba
-
-> /gamerule
-
-等同于 `/gamerule`
 
 ## 8265d4506c
 
@@ -1718,6 +1700,12 @@ SNBT `{r,g,b}`，取自 `ItemStackBase::getColor`
 > read-only query never force-loads.
 
 以 (x,y,z) 为中心的一个半径内，所在区块与之相交的硬编码生成区：下界要塞、女巫小屋、海底神殿、掠夺者前哨站。每一项是 `{type, bounds:{min,max}}`。只检查**已加载**的区块，这个只读查询从不强制加载区块。
+
+## 9b074132b3
+
+> Level: biome, spawn, save, weather, path, sleep (dedicated fns)
+
+关卡：生物群系、出生点、保存、天气、寻路、睡眠（专用函数）
 
 ## 61e4bd6ad5
 
@@ -1854,6 +1842,12 @@ SNBT `{nodes:[{x,y,z},…], reached:1b/0b}`。当前所有宿主上这个槽位�
 
 给一名玩家发送指定 `TextPacketType` 的消息（追加的槽位，受 `struct_size` 约束）。`type` 是 `TextPacketType` 的值：0 Raw · 1 Chat · 2 Translate · 3 Popup · 4 JukeboxPopup · 5 Tip · 6 SystemMessage · 7 Whisper · 8 Announcement · 9 TextObjectWhisper · 10 TextObject · 11 TextObjectAnnouncement。超出范围时按 Raw 处理。消息体只有一个字符串（和 LSE 的 tell 一样）：需要作者或参数的类型（Chat、Whisper、Translate）收到的是纯文本。普通的 `player_send_message` 仍然是发 Raw 或 Chat 消息的便捷路径。
 
+## b09f2c42bc
+
+> Player: equipment, cooldown, network (dedicated fns)
+
+玩家：装备、冷却、网络（专用函数）
+
 ## f1d91d625c
 
 > All equipment as SNBT: [{slot, item_snbt},…] slot: 0=mainhand 1=offhand 2-5=armor
@@ -1877,6 +1871,12 @@ SNBT `{nodes:[{x,y,z},…], reached:1b/0b}`。当前所有宿主上这个槽位�
 > Spawn a mob (Spawner::spawnMob); on success *out = its ActorUniqueID.
 
 生成一个生物（`Spawner::spawnMob`）；成功时 `*out` 是它的 `ActorUniqueID`。
+
+## 3dee7721fb
+
+> Actor: relationships, equipment, effects, geometry (dedicated fns)
+
+实体：关系、装备、效果、几何（专用函数）
 
 ## 4efeeac9b6
 
@@ -1908,11 +1908,29 @@ SNBT `{type:"entity"|"block"|"none", pos:[x,y,z], entity_id?, block_name?}`
 
 SNBT `{min:[x,y,z], max:[x,y,z]}`
 
+## 265ef68060
+
+> §D blocks & block entities
+
+§D 方块与方块实体
+
 ## d61f0ab2cf
 
 > BlockActor::save (with default SaveContext) as SNBT; false if none there.
 
 `BlockActor::save`（使用默认的 `SaveContext`）的结果，以 SNBT 给出；那个位置没有方块实体时返回 false。
+
+## 1f2268a2d2
+
+> Block: state get/set, collision shape (dedicated fns)
+
+方块：读写状态、碰撞形状（专用函数）
+
+## 072acab6d4
+
+> §E items (SNBT value objects) & containers
+
+§E 物品（SNBT 值对象）与容器
 
 ## 35bbb3d128
 
@@ -1948,6 +1966,12 @@ SNBT `[{id, level},…]`
 > transaction path.
 
 把玩家自己的容器（`which` 为 0 到 3）重新发给它的主人。方块容器（`which == 4`）返回 false：箱子没有唯一的主人可以重发，正在看它的玩家由引擎自己的容器事务流程刷新。
+
+## 4692eaf9f0
+
+> §F scoreboard
+
+§F 计分板
 
 ## 5e9ba1160a
 
@@ -2753,12 +2777,6 @@ bool pier_main(const PierApi* api, PierModHandle self,
 
 追加：刻的统计
 
-## bad8569811
-
-> Server / world-level settings.
-
-服务器和世界级别的设置。
-
 ## e4f5de8e98
 
 >
@@ -2818,12 +2836,6 @@ bool pier_main(const PierApi* api, PierModHandle self,
 > §C actors (players resolve here too, via player_resolve)
 
 §C 实体（玩家也可以经 `player_resolve` 解析到这里）
-
-## 9b074132b3
-
-> Level: biome, spawn, save, weather, path, sleep (dedicated fns)
-
-关卡：生物群系、出生点、保存、天气、寻路、睡眠（专用函数）
 
 ## 6741517677
 
@@ -2933,6 +2945,30 @@ bool pier_main(const PierApi* api, PierModHandle self,
 > Read one block: sink called once with (x,y,z, type name, full SNBT).
 
 读取一个方块：输出回调被调用一次，传入 (x,y,z, 类型名, 完整的 SNBT)。
+
+## f735ab32f3
+
+> Level::getDifficulty
+
+取自 `Level::getDifficulty`
+
+## 627bd9a371
+
+> native Level::setDifficulty
+
+原生调用 `Level::setDifficulty`
+
+## 046f78ca75
+
+> Level::getLevelSeed64
+
+取自 `Level::getLevelSeed64`
+
+## 381a72dfba
+
+> /gamerule
+
+等同于 `/gamerule`
 
 ## f0ecb76b7a
 
@@ -3125,12 +3161,6 @@ bool pier_main(const PierApi* api, PierModHandle self,
 
 §B 玩家管理
 
-## b09f2c42bc
-
-> Player: equipment, cooldown, network (dedicated fns)
-
-玩家：装备、冷却、网络（专用函数）
-
 ## a116f7255e
 
 > Titles
@@ -3243,12 +3273,6 @@ false 和「值为零」是两种结果，调用方不能把它们合成一种�
 
 `player_action` 的动作。参数是 (sarg, a, b, c)，用不到的参数会被忽略。注明了有结果的动作，`out`（不为 NULL 时）会收到一个结果字符串。
 
-## 3dee7721fb
-
-> Actor: relationships, equipment, effects, geometry (dedicated fns)
-
-实体：关系、装备、效果、几何（专用函数）
-
 ## d9af4d1d26
 
 > Enumerate live actors; dim = -1 for all dimensions.
@@ -3273,18 +3297,6 @@ false 和「值为零」是两种结果，调用方不能把它们合成一种�
 
 `actor_action` 的动作。参数是 (sarg, a, b, c)；注明了有结果的动作，`out` 会收到结果。
 
-## 265ef68060
-
-> §D blocks & block entities
-
-§D 方块与方块实体
-
-## 1f2268a2d2
-
-> Block: state get/set, collision shape (dedicated fns)
-
-方块：读写状态、碰撞形状（专用函数）
-
 ## 15f2d7b1c0
 
 > block_get_num keys.
@@ -3302,12 +3314,6 @@ false 和「值为零」是两种结果，调用方不能把它们合成一种�
 > block_action verbs.
 
 `block_action` 的动作。
-
-## 072acab6d4
-
-> §E items (SNBT value objects) & containers
-
-§E 物品（SNBT 值对象）与容器
 
 ## 75316f8574
 
@@ -3443,12 +3449,6 @@ false 和「值为零」是两种结果，调用方不能把它们合成一种�
 > sarg=SNBT list         ItemStackBase::setCanPlaceOn
 
 `sarg` 为 SNBT 列表，调用 `ItemStackBase::setCanPlaceOn`
-
-## 4692eaf9f0
-
-> §F scoreboard
-
-§F 计分板
 
 ## fc99e5aa46
 

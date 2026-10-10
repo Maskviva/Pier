@@ -1046,3 +1046,5 @@ fixture is compared cell by cell with a line-for-line port of the 26.20.2 `PlotG
 | `tools/pier-pack/cpp_check/vol_main.cpp` | the driver the volume equivalence test compiles |
 | `tools/pier-pack/pierpack/from_datapack.py` | assembles a volume source from a Java datapack directory: dimension, noise settings, density functions, noises, biome temperatures |
 | `tools/pier-pack/README.md` | how to build, inspect and convert packs, and how to run the tests |
+| `docs/i18n/zh/api` | the Chinese catalog of the API reference: one unit per English comment of a binding, keyed by its fingerprint, which tools/gen-api-docs.py reads to write docs/zh/api |
+| `.gitattributes` | forces LF line endings for Go source files so gofmt sees consistent formatting across platforms |

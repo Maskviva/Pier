@@ -300,4 +300,3 @@ func UpdateSoftEnum(name string, op SoftEnumOp, values []string) error {
 	ok, err := Raw.UpdateCommandSoftEnum(name, int32(op), text)
 	return okOr(ok, err, "soft enum "+name)
 }
-

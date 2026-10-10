@@ -399,6 +399,8 @@ func (RawAPI) Explode(dim int32, x float64, y float64, z float64, radius float32
 }
 
 // BlockGetNum calls the block_get_num slot.
+//
+// §D blocks & block entities
 func (RawAPI) BlockGetNum(dim int32, x int32, y int32, z int32, prop int32) (float64, bool, error) {
 	if api == nil || !bool(C.piergo_has_block_get_num(api)) {
 		return 0, false, notProvided("block_get_num")
@@ -447,6 +449,8 @@ func (RawAPI) BlockEntitySnbt(dim int32, x int32, y int32, z int32) ([]string, b
 }
 
 // ItemGetNum calls the item_get_num slot.
+//
+// §E items (SNBT value objects) & containers
 func (RawAPI) ItemGetNum(itemSnbt string, prop int32) (float64, bool, error) {
 	if api == nil || !bool(C.piergo_has_item_get_num(api)) {
 		return 0, false, notProvided("item_get_num")
@@ -543,6 +547,8 @@ func (RawAPI) ContainerClear(ref ContainerRef) (bool, error) {
 }
 
 // ScoreboardOp calls the scoreboard_op slot.
+//
+// §F scoreboard
 func (RawAPI) ScoreboardOp(op int32, a string, b string, n int64) ([]string, bool, error) {
 	if api == nil || !bool(C.piergo_has_scoreboard_op(api)) {
 		return nil, false, notProvided("scoreboard_op")
@@ -715,7 +721,7 @@ func (RawAPI) SysIsWine() (bool, error) {
 
 // GetDifficulty calls the get_difficulty slot.
 //
-// Level::getDifficulty
+// Server / world-level settings.
 func (RawAPI) GetDifficulty() (int32, bool, error) {
 	if api == nil || !bool(C.piergo_has_get_difficulty(api)) {
 		return 0, false, notProvided("get_difficulty")
@@ -726,8 +732,6 @@ func (RawAPI) GetDifficulty() (int32, bool, error) {
 }
 
 // SetDifficulty calls the set_difficulty slot.
-//
-// native Level::setDifficulty
 func (RawAPI) SetDifficulty(d int32) (bool, error) {
 	if api == nil || !bool(C.piergo_has_set_difficulty(api)) {
 		return false, notProvided("set_difficulty")
@@ -737,8 +741,6 @@ func (RawAPI) SetDifficulty(d int32) (bool, error) {
 }
 
 // GetSeed calls the get_seed slot.
-//
-// Level::getLevelSeed64
 func (RawAPI) GetSeed() (int64, bool, error) {
 	if api == nil || !bool(C.piergo_has_get_seed(api)) {
 		return 0, false, notProvided("get_seed")
@@ -763,8 +765,6 @@ func (RawAPI) GameRuleGet(name string) ([]string, bool, error) {
 }
 
 // GameRuleSet calls the game_rule_set slot.
-//
-// /gamerule
 func (RawAPI) GameRuleSet(name string, value string) (bool, error) {
 	if api == nil || !bool(C.piergo_has_game_rule_set(api)) {
 		return false, notProvided("game_rule_set")
@@ -1089,6 +1089,8 @@ func (RawAPI) MoneyRanking(num uint16) ([]string, error) {
 }
 
 // PlayerGetCarriedItem calls the player_get_carried_item slot.
+//
+// Player: equipment, cooldown, network (dedicated fns)
 func (RawAPI) PlayerGetCarriedItem(sel PlayerSel) ([]string, bool, error) {
 	if api == nil || !bool(C.piergo_has_player_get_carried_item(api)) {
 		return nil, false, notProvided("player_get_carried_item")
@@ -1168,6 +1170,8 @@ func (RawAPI) PlayerGetNetworkStatus(sel PlayerSel) ([]string, bool, error) {
 }
 
 // ActorGetVehicle calls the actor_get_vehicle slot.
+//
+// Actor: relationships, equipment, effects, geometry (dedicated fns)
 func (RawAPI) ActorGetVehicle(id ActorID) (ActorID, bool, error) {
 	if api == nil || !bool(C.piergo_has_actor_get_vehicle(api)) {
 		return 0, false, notProvided("actor_get_vehicle")
@@ -1313,6 +1317,8 @@ func (RawAPI) ActorClone(id ActorID, dim int32, x float64, y float64, z float64)
 }
 
 // BlockGetState calls the block_get_state slot.
+//
+// Block: state get/set, collision shape (dedicated fns)
 func (RawAPI) BlockGetState(dim int32, x int32, y int32, z int32, stateName string) ([]string, bool, error) {
 	if api == nil || !bool(C.piergo_has_block_get_state(api)) {
 		return nil, false, notProvided("block_get_state")
@@ -1397,6 +1403,8 @@ func (RawAPI) ItemGetUserData(itemSnbt string) ([]string, bool, error) {
 }
 
 // LevelGetBiome calls the level_get_biome slot.
+//
+// Level: biome, spawn, save, weather, path, sleep (dedicated fns)
 func (RawAPI) LevelGetBiome(dim int32, x int32, y int32, z int32) ([]string, bool, error) {
 	if api == nil || !bool(C.piergo_has_level_get_biome(api)) {
 		return nil, false, notProvided("level_get_biome")
@@ -1675,6 +1683,7 @@ func (RawAPI) ContainerRefresh(ref ContainerRef) (bool, error) {
 
 // PlayerSendTitle calls the player_send_title slot.
 //
+// Titles
 // `PACT_SET_TITLE` (player_action opcode 6) reaches the client by running
 // the console command `title "<name>" title <text>`. Three things are
 // wrong with that and none of them are theoretical:

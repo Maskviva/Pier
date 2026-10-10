@@ -621,7 +621,9 @@ func DimensionID(name string) (int32, error) {
 func ListDimensions() ([]string, error) { return Raw.MdListDimensions() }
 
 // SetDimensionRule sets one rule, a PIER_DIMRULE_* value, for one dimension.
-func SetDimensionRule(dim, rule int32, allow bool) error { return Raw.MdSetDimensionRule(dim, rule, allow) }
+func SetDimensionRule(dim, rule int32, allow bool) error {
+	return Raw.MdSetDimensionRule(dim, rule, allow)
+}
 
 // DimensionRule reads one rule; set is false when the dimension follows vanilla for it,
 // which a host older than the rule also answers.

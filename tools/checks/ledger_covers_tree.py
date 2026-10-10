@@ -41,7 +41,10 @@ LEDGER = os.path.join(ROOT, "MIGRATION.md")
 # `bin` is where the mod packer writes and `.idea` / `.vs` / `.vscode` are IDE state. Neither
 # is a migrated capability, and the same reasoning already exempts `build` and `target`.
 SKIP_DIRS = {".git", "target", "build", "bin", ".xmake", "node_modules", "__pycache__",
-             ".idea", ".vs", ".vscode"}
+             ".idea", ".vs", ".vscode",
+             "venv",        # `.gitignore` line: docs/venv
+             ".zig-cache",  # `.gitignore` line: .zig-cache/
+             "zig-out"}     # `.gitignore` line: examples/hello-pier-zig/zig-out
 
 # Exempt: these files inherently do not belong in an old-repository to new-repository
 # migration ledger.
@@ -50,6 +53,9 @@ EXEMPT_EXACT = {
     ".gitignore",
     "Cargo.lock",
     "docs/pnpm-lock.yaml",  # `.gitignore` line: a lockfile the docs site resolves, not a migrated capability
+    "docs/pnpm-lock.yaml",  # `.gitignore` line: a lockfile the docs site resolves, not a migrated capability
+    "compile_commands.json",                     # `.gitignore` line: compile_commands.json
+    "examples/hello-pier-go/hello_pier_go.dll",  # `.gitignore` line: the go example's build output
 }
 EXEMPT_PREFIX = (
     "tools/",             # The checks and surrogates came with the new architecture and have no old counterpart
