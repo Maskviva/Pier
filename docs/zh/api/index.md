@@ -4,12 +4,12 @@ Pier 的接口按四个绑定分别列出。
 
 | 绑定 | 引用方式 | 函数和方法 | 类型 | 常量 |
 |---|---|---|---|---|
-| [Rust](rust/index.md) | `use levilamina::...` | 792 | 117 | 76 |
-| [Go](go/index.md) | `import "github.com/Maskviva/pier/bindings/go/levilamina"` | 628 | 62 | 316 |
-| [Zig](zig/index.md) | `@import("levilamina")` | 305 | 23 | 3 |
-| [C++](cpp/index.md) | `#include "sdk/abi.h"` | 207 | 42 | 323 |
+| [Rust](rust/index.md) | `use levilamina::...` | 793 | 117 | 76 |
+| [Go](go/index.md) | `import "github.com/Maskviva/pier/bindings/go/levilamina"` | 629 | 62 | 316 |
+| [Zig](zig/index.md) | `@import("levilamina")` | 306 | 23 | 3 |
+| [C++](cpp/index.md) | `#include "sdk/abi.h"` | 208 | 42 | 323 |
 
-C++ 一行的函数数是 abi.h 的 201 个槽位加上 6 个宏。
+C++ 一行的函数数是 abi.h 的 202 个槽位加上 6 个宏。
 
 ## 一个条目怎么读
 

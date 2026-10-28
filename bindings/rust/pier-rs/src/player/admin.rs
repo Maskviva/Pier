@@ -1,4 +1,5 @@
-//! Kicking, changing the game mode, teleporting, ability bits and permissions.
+//! Kicking, changing the game mode, teleporting, ability bits, permissions and running a
+//! command as the player.
 //!
 //! What they share is changing the player's own state, and almost all of them need server
 //! permission.
@@ -7,7 +8,7 @@ use crate::entity::Entity;
 use crate::item::ItemStack;
 use crate::player::Player;
 use crate::rt::error::{Error, Result};
-use crate::rt::ffi::{call_out_str, s};
+use crate::rt::ffi::{call_out_str, cmd_sink, s, CmdOut};
 use crate::sys;
 use crate::types::{Ability, AbilityValue, GameMode, PlayerPermission};
 
@@ -25,6 +26,45 @@ impl Player {
                 self.sel
             )))
         }
+    }
+
+    /// Runs `cmd` as this player and returns what it printed. Server thread only.
+    ///
+    /// The player is the origin of the command: `@s` is the player, relative coordinates are
+    /// the player's position, and the permission level the engine sees is the player's own,
+    /// where [`Host::execute_command`](crate::Host::execute_command) runs at the console's.
+    /// `cmd` is the command without the slash; one leading slash is accepted and dropped.
+    ///
+    /// The `Err` cases are told apart by their message: the host is too old to have the slot,
+    /// the player is offline or the level is not ready so nothing ran, and the command itself
+    /// failed, where the message carries the engine's output.
+    pub fn execute_command(&self, cmd: &str) -> Result<String> {
+        let f = crate::require_slot!(player_execute_command, "running a command as a player");
+        let mut out = CmdOut {
+            success: false,
+            text: String::new(),
+        };
+        let ok = unsafe {
+            f(
+                self.sel.raw(),
+                s(cmd),
+                (&mut out as *mut CmdOut).cast(),
+                cmd_sink,
+            )
+        };
+        if !ok {
+            return Err(Error(format!(
+                "command `{cmd}` was not run: player {} is offline or the level is not ready",
+                self.sel
+            )));
+        }
+        if !out.success {
+            return Err(Error(format!(
+                "command `{cmd}` failed for player {}: {}",
+                self.sel, out.text
+            )));
+        }
+        Ok(out.text)
     }
 
     pub fn set_gamemode(&self, mode: GameMode) -> Result<()> {

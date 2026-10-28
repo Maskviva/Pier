@@ -158,3 +158,36 @@ Zig: `levilamina.executeCommand(cmd)`
       ```zig title="Zig"
       try levilamina.executeCommand("time set day");
       ```
+
+#### Running a command as a player
+
+Rust: `Player::by_name(name).execute_command(cmd)`  
+Go: `levilamina.PlayerByName(name).ExecuteCommand(cmd)`  
+Zig: `levilamina.Player.byName(name).executeCommand(cmd)`  
+
+- Parameters:
+    - cmd : string  
+      the command, without the slash; one leading slash is accepted and dropped
+- Return value: the command's output. Zig logs the output at debug level
+- Return type: Rust `Result<String>`, Go `([]CommandOutput, error)`, Zig `levilamina.Error!void`
+    - Server thread only; it returns an error when the player is offline or the level has not loaded.
+    - The player is the origin of the command, so `@s` is the player, relative coordinates are the player's position, and the permission level the engine sees is the player's own. The console version above runs at the console's level.
+- Slot: `player_execute_command`
+- Example:
+    - Rust
+
+      ```rust title="Rust"
+      let output = Player::by_name("Steve").execute_command("tp @s 0 100 0")?;
+      ```
+
+    - Go
+
+      ```go title="Go"
+      lines, err := levilamina.PlayerByName("Steve").ExecuteCommand("tp @s 0 100 0")
+      ```
+
+    - Zig
+
+      ```zig title="Zig"
+      try levilamina.Player.byName("Steve").executeCommand("tp @s 0 100 0");
+      ```

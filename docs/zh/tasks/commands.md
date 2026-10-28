@@ -158,3 +158,36 @@ Zig：`levilamina.executeCommand(cmd)`
       ```zig title="Zig"
       try levilamina.executeCommand("time set day");
       ```
+
+#### 以玩家身份执行一条命令
+
+Rust：`Player::by_name(name).execute_command(cmd)`  
+Go：`levilamina.PlayerByName(name).ExecuteCommand(cmd)`  
+Zig：`levilamina.Player.byName(name).executeCommand(cmd)`  
+
+- 参数：
+    - cmd : 字符串  
+      要执行的命令，不带斜杠；开头的一个斜杠会被接受并去掉
+- 返回值：命令的输出。Zig 把输出以 debug 级别写进日志
+- 返回值类型：Rust `Result<String>`，Go `([]CommandOutput, error)`，Zig `levilamina.Error!void`
+    - 只能在服务器主线程调用；玩家不在线或世界还没加载好时返回错误。
+    - 命令的来源是这个玩家：`@s` 是他，相对坐标是他的位置，引擎看到的权限等级是他自己的。上面以控制台身份执行的版本按控制台的等级运行。
+- 对应槽位：`player_execute_command`
+- 示例：
+    - Rust
+
+      ```rust title="Rust"
+      let output = Player::by_name("Steve").execute_command("tp @s 0 100 0")?;
+      ```
+
+    - Go
+
+      ```go title="Go"
+      lines, err := levilamina.PlayerByName("Steve").ExecuteCommand("tp @s 0 100 0")
+      ```
+
+    - Zig
+
+      ```zig title="Zig"
+      try levilamina.Player.byName("Steve").executeCommand("tp @s 0 100 0");
+      ```

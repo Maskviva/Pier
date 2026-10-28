@@ -16,6 +16,10 @@ bindings/zig/.zig-cache/
 examples/hello-pier-go/hello_pier_go.dll
 examples/hello-pier-zig/.zig-cache
 examples/hello-pier-zig/zig-out
+/examples/hello-pier-cpp/hello_pier_cpp.exp
+/examples/hello-pier-cpp/hello_pier_cpp.dll
+/examples/hello-pier-cpp/hello_pier_cpp.lib
+/examples/hello-pier-cpp/obj/
 
 # Editors
 .vscode/

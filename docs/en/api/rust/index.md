@@ -7,7 +7,7 @@ The crate of the `pier-rs` package is named `levilamina`. Each module has a page
 | Page | Functions and methods | Types | Constants |
 |---|---|---|---|
 | [crate root](root.md) | 25 | 7 | 0 |
-| [player](player.md) | 118 | 4 | 0 |
+| [player](player.md) | 119 | 4 | 0 |
 | [entity](entity.md) | 95 | 4 | 0 |
 | [world](world.md) | 46 | 11 | 1 |
 | [block](block.md) | 60 | 2 | 0 |

@@ -3,15 +3,16 @@
  * A Bedrock gamerule is one value for the whole server: keeping mobs out of a creative
  * plot world means doMobSpawning=false, which also empties the survival world on the
  * same server. The functions that do the work are hooked instead, such as
- * Spawner::spawnMob and Level::explode. Each carries a BlockSource that yields a
- * dimension id, so the decision really is per dimension.
+ * Spawner::spawnMob and Explosion::explode. Each reaches a BlockSource, directly or
+ * through the object it works on, that yields a dimension id, so the decision really is
+ * per dimension.
  * The rule table is sparse by dimension id and a miss goes straight to origin(). These
  * hooks are installed globally and must never change the behavior of an unmanaged
  * dimension, so a caller enables nothing for the vanilla dimensions.
- * Eight hook points cover twelve rules. SpawnMonster, SpawnAnimal and SpawnSpawner
- * share Spawner::spawnMob, ExplodeBlocks and MobGriefing share Level::explode, and
- * PistonPush and PistonCrossPlot share PistonBlockActor::_checkAttachedBlocks.
- * EntityCrossPlot is not in this file; CellConfine.cpp implements it on its own hook.
+ * Eleven hook points cover twelve rules. SpawnMonster, SpawnAnimal and SpawnSpawner
+ * share Spawner::spawnMob, ExplodeBlocks and MobGriefing share Explosion::explode,
+ * PistonPush and PistonCrossPlot share PistonBlockActor::_checkAttachedBlocks, and
+ * FireSpread has four. EntityCrossPlot is in CellConfine.cpp, on its own hook.
  */
 #include "pier/dimensions/dim/dimension_rules.h"
 
@@ -20,22 +21,27 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "ll/api/base/ScopedValue.h"
 #include "ll/api/memory/Hook.h"
 
 #include "mc/deps/core/math/IRandom.h"
 #include "mc/deps/core/math/Vec3.h"
+#include "mc/legacy/ActorUniqueID.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorCategory.h"
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
 #include "mc/world/actor/Mob.h"
 #include "mc/world/level/BlockPos.h"
 #include "mc/world/level/BlockSource.h"
+#include "mc/world/level/Explosion.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/Spawner.h"
 #include "mc/world/level/block/FarmBlock.h"
 #include "mc/world/level/block/FireBlock.h"
 #include "mc/world/level/block/LiquidBlock.h"
 #include "mc/world/level/block/actor/PistonBlockActor.h"
+#include "mc/world/level/block/block_events/BlockPlaceEvent.h"
+#include "mc/world/level/block/block_events/BlockQueuedTickEvent.h"
 
 #include "sdk/abi.h"
 
@@ -342,85 +348,102 @@ namespace pier::dimensions
         //  Explosions
 
         /*
-         * The key trade: the explosion is not cancelled, only its block-breaking bit is
-         * turned off. Level::explode takes a breaksBlocks parameter, and false means it
-         * still bangs and still hurts but leaves no crater. Cancelling the whole thing
-         * would also eat the damage and the particles, and a player would conclude the
-         * creeper is broken.
+         * The explosion is not cancelled, only its block-breaking bit is turned off. With
+         * mBreaking false it still bangs and still hurts but leaves no crater. Cancelling
+         * the whole thing would also eat the damage and the particles, and a player would
+         * conclude the creeper is broken.
          * ExplodeBlocks = false stops any explosion from breaking blocks, TNT included.
          * MobGriefing = false stops only mob-caused explosions, while TNT a player lit
          * still breaks blocks. With both set, either one forbidding is enough.
-         * Only the overload carrying a BlockSource is hooked. The Explosion passed to
-         * $explode(Explosion&) has no BlockSource member, only mPos and mSourceID, so the
-         * dimension cannot be obtained there.
+         * Explosion::explode is the hook point and not a Level::explode overload: every
+         * explosion runs it, whichever overload or component built the Explosion, and the
+         * Explosion carries its own BlockSource in mRegion and its cause in mSourceID.
          */
+
+        /** The actor an explosion came from, or null when it has none or it is gone. The
+         *  lookup includes actors marked removed, whose category MobGriefing still reads. */
+        ::Actor* sourceOf(::Explosion const& explosion)
+        {
+            ::ActorUniqueID const& id = explosion.mSourceID.get();
+            if (id == ::ActorUniqueID::INVALID_ID())
+            {
+                return nullptr;
+            }
+            return explosion.mRegion.getLevel().fetchEntity(id, true);
+        }
+
+        /** Whether a mob and not a player caused the explosion. A source that cannot be
+         *  read counts as no mob, which leaves ExplodeBlocks as the only rule applied. */
+        bool causedByMob(::Explosion const& explosion)
+        {
+            try
+            {
+                ::Actor* const source = sourceOf(explosion);
+                return source != nullptr && source->hasCategory(::ActorCategory::Mob)
+                    && !source->hasCategory(::ActorCategory::Player);
+            }
+            catch (...)
+            {
+                return false;
+            }
+        }
+
         LL_TYPE_INSTANCE_HOOK(
             DimRuleExplodeHook,
             ll::memory::HookPriority::Normal,
-            Level,
-            &Level::$explode,
+            Explosion,
+            &Explosion::explode,
             bool,
-            ::BlockSource& region,
-            ::Actor* source,
-            ::Vec3 const& pos,
-            float explosionRadius,
-            bool fire,
-            bool breaksBlocks,
-            float maxResistance,
-            bool allowUnderwater
+            ::IRandom& random
         )
         {
-            int const dim = dimOf(region);
-            if (dim < 0 || !anyRuleFor(dim) || !breaksBlocks)
+            int const dim = this->mBreaking ? dimOf(this->mRegion) : -1;
+            if (dim < 0 || !anyRuleFor(dim))
             {
-                return origin(
-                    region, source, pos, explosionRadius, fire, breaksBlocks, maxResistance, allowUnderwater
-                );
+                return origin(random);
             }
 
             bool allowBreak = allowed(dim, DimRule::ExplodeBlocks);
-
-            // A mob-caused explosion is additionally subject to MobGriefing. TNT lit by
-            // a player is not: with source null, meaning the TNT block itself, or a
-            // player, only ExplodeBlocks applies.
-            if (allowBreak && source != nullptr)
+            if (allowBreak && !allowed(dim, DimRule::MobGriefing) && causedByMob(*this))
             {
-                bool isMob = false;
-                try
-                {
-                    isMob = source->hasCategory(::ActorCategory::Mob)
-                        && !source->hasCategory(::ActorCategory::Player);
-                }
-                catch (...)
-                {
-                    // An undecidable category counts as not a mob. That path only lets
-                    // the explosion break blocks as it otherwise would, applying no extra
-                    // MobGriefing, which is the more conservative side of the two rules
-                    // since ExplodeBlocks still governs it.
-                    isMob = false;
-                }
-                if (isMob && !allowed(dim, DimRule::MobGriefing))
-                {
-                    allowBreak = false;
-                }
+                allowBreak = false;
             }
-
-            return origin(
-                region, source, pos, explosionRadius, fire, allowBreak, maxResistance, allowUnderwater
-            );
+            if (!allowBreak)
+            {
+                this->mBreaking = false;
+            }
+            return origin(random);
         }
 
         //  Fire spread
 
         /*
-         * `FireBlock::checkBurn` is the step where fire spreads to a neighbor. Blocking
-         * it leaves an already burning fire burning, still consuming its own cell, while
-         * it no longer creeps sideways. That is what fire spread should mean, rather than
-         * fire not existing.
-         *
-         * This is a const member function. A const hook is known to work in this project;
-         * the packet hooks in ChunkTrace are const too.
+         * Fire spreads in two steps. `FireBlock::checkBurn` is the step where fire burns
+         * or ignites a neighbor. Blocking it leaves an already burning fire burning, still
+         * consuming its own cell, while it no longer creeps sideways. The second step is
+         * the new fire a ticking fire block places in the cells around it. That placement
+         * runs `FireBlock::onPlace`, which asks `FireBlock::mayPlace`, the sequence
+         * LeviLamina's FireSpreadEvent is built on. Refusing the answer inside a tick
+         * removes the new fire, and the cell the tick belongs to is exempt so the fire
+         * keeps aging in place. A fire placed outside a tick, with flint and steel for
+         * one, is never refused.
          */
+
+        /** The fire block that is ticking in a dimension forbidding FireSpread, and
+         *  whether an onPlace is running inside that tick. Server thread only. */
+        struct FireWindow
+        {
+            bool ticking = false;
+            bool placing = false;
+            int x = 0;
+            int y = 0;
+            int z = 0;
+        };
+
+        thread_local FireWindow gFireWindow;
+
+        // This is a const member function. A const hook is known to work in this project;
+        // the packet hooks in ChunkTrace are const too.
         LL_TYPE_INSTANCE_HOOK(
             DimRuleFireSpreadHook,
             ll::memory::HookPriority::Normal,
@@ -441,6 +464,62 @@ namespace pier::dimensions
                 return;
             }
             origin(region, pos, chance, random, age, firePos);
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimRuleFireTickHook,
+            ll::memory::HookPriority::Normal,
+            FireBlock,
+            &FireBlock::tick,
+            void,
+            ::BlockEvents::BlockQueuedTickEvent& eventData
+        )
+        {
+            int const dim = dimOf(eventData.mRegion);
+            if (dim < 0 || !anyRuleFor(dim) || allowed(dim, DimRule::FireSpread))
+            {
+                return origin(eventData);
+            }
+            ::BlockPos const& at = eventData.mPos.get();
+            ll::ScopedValue window{gFireWindow, FireWindow{true, false, at.x, at.y, at.z}};
+            origin(eventData);
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimRuleFirePlaceHook,
+            ll::memory::HookPriority::Normal,
+            FireBlock,
+            &FireBlock::onPlace,
+            void,
+            ::BlockEvents::BlockPlaceEvent& eventData
+        )
+        {
+            if (!gFireWindow.ticking)
+            {
+                return origin(eventData);
+            }
+            FireWindow inside = gFireWindow;
+            inside.placing = true;
+            ll::ScopedValue window{gFireWindow, inside};
+            origin(eventData);
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimRuleFireMayPlaceHook,
+            ll::memory::HookPriority::Normal,
+            FireBlock,
+            &FireBlock::$mayPlace,
+            bool,
+            ::BlockSource& region,
+            ::BlockPos const& pos
+        )
+        {
+            bool const placeable = origin(region, pos);
+            if (!placeable || !gFireWindow.placing)
+            {
+                return placeable;
+            }
+            return pos.x == gFireWindow.x && pos.y == gFireWindow.y && pos.z == gFireWindow.z;
         }
 
         //  Liquid spread
@@ -618,6 +697,9 @@ namespace pier::dimensions
             DimRuleSpawnProjectileHook,
             DimRuleExplodeHook,
             DimRuleFireSpreadHook,
+            DimRuleFireTickHook,
+            DimRuleFirePlaceHook,
+            DimRuleFireMayPlaceHook,
             DimRuleLiquidFlowHook,
             DimRuleFarmlandHook,
             DimRulePistonHook,
@@ -631,10 +713,10 @@ namespace pier::dimensions
         if (gInstalled) return;
         DimRuleHookReg::hook();
         gInstalled = true;
-        // The counts are stated exactly: 8 hook points covering 12 rules, with the 13th,
+        // The counts are stated exactly: 11 hook points covering 12 rules, with the 13th,
         // EntityCrossPlot, in CellConfine.cpp. A log line whose numbers do not add up
         // sends whoever reads it counting in the wrong place.
-        hostLogger().debug("[dim] per-dimension behavior rules enabled: 8 hook points covering 12 rules");
+        hostLogger().debug("[dim] per-dimension behavior rules enabled: 11 hook points covering 12 rules");
     }
 
     void unregisterDimensionRuleHooks()

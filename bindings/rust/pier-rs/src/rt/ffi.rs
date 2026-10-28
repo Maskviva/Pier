@@ -126,6 +126,20 @@ pub(crate) fn call_out_str(
     }
 }
 
+/// What a command slot sinks: whether the command succeeded, and the text it printed.
+pub(crate) struct CmdOut {
+    pub(crate) success: bool,
+    pub(crate) text: String,
+}
+
+/// # Safety
+/// `ctx` must be a valid `*mut CmdOut`.
+pub(crate) unsafe extern "C" fn cmd_sink(ctx: *mut c_void, success: bool, output: sys::PierStr) {
+    let out = &mut *ctx.cast::<CmdOut>();
+    out.success = success;
+    out.text = r_owned(output);
+}
+
 /// Calls a slot that writes zero or more times into the sink and collects every write into
 /// a Vec.
 pub(crate) fn collect_strs(f: impl FnOnce(*mut c_void, sys::PierStrSink)) -> Vec<String> {

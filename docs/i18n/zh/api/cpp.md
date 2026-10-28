@@ -3206,6 +3206,12 @@ bool pier_main(const PierApi* api, PierModHandle self,
 
 时长的单位是**刻**。对 2、3、4，三个时长都 >= 0 时会先发一个 Times 包，计时是确定的，不沿用客户端上一次存下的值；三个都传 -1 则保留客户端当前的计时。混着传（有的是 -1，有的 >= 0）会被拒绝，不去猜：只指定一部分的时长没有合理的含义。只能在服务器线程调用。
 
+## 958c15a214
+
+> Commands as a player
+
+以玩家身份执行命令
+
 ## a9ef8ef453
 
 > The four *_get_num slots share one convention. The return is whether the host has
@@ -3252,6 +3258,28 @@ false 和「值为零」是两种结果，调用方不能把它们合成一种�
 返回连接 id；玩家不在线，或者拿不到它的网络标识时返回 0。
 
 纯追加：`PIER_ABI_VERSION` 不变，由 `struct_size` 把关。
+
+## e30bfe9e66
+
+> Runs one command as an online player and collects what it printed through `sink`, the
+>  way execute_command does for the console. Server thread only.
+>
+>  The player is the origin of the command: `@s` is the player, relative coordinates
+>  are the player's position, and the permission level the engine sees is the player's
+>  own, not the console's. `cmd` is the command without the slash; one leading slash
+>  is accepted and dropped, since that is how a player types it.
+>
+>  `sink` is called once, with the success flag and the output text, whether the
+>  command succeeded or the engine refused it; a null `sink` discards the output.
+>  Returns false, and sinks nothing, when the player is not online or the level is
+>  not ready: the host did not run the command, which is not the same as the command
+>  failing.
+
+以一个在线玩家的身份运行一条命令，并通过 `sink` 收集它输出的内容，做法和 `execute_command` 对控制台所做的一样。只能在服务器线程调用。
+
+命令的来源是这个玩家：`@s` 是他，相对坐标是他的位置，引擎看到的权限等级是他自己的，不是控制台的。`cmd` 是不带斜杠的命令；开头的一个斜杠会被接受并去掉，因为玩家就是这样输入的。
+
+`sink` 只调用一次，带着成功标志和输出文字，命令成功或被引擎拒绝都一样；`sink` 为空则丢弃输出。玩家不在线或世界还没就绪时返回 false，并且不调用 `sink`：这表示宿主没有运行命令，和命令执行失败不是一回事。
 
 ## 52f789bb05
 

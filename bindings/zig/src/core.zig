@@ -467,6 +467,19 @@ pub fn serviceCaller(allocator: std.mem.Allocator) Error!?[]u8 {
     return caller;
 }
 
+/// Runs cmd as one player, named by a selector, with that player's own permission level.
+/// Server thread only. The output lines are logged at debug level; a false from the host, a
+/// player who is offline or a level that is not ready, is Refused.
+pub fn executeCommandAs(player: c.PierPlayerSel, cmd: []const u8) Error!void {
+    const exec = slot("player_execute_command") orelse return error.NotProvided;
+    const Out = struct {
+        fn line(_: ?*anyopaque, _: bool, output: c.PierStr) callconv(.c) void {
+            log(.debug, view(output));
+        }
+    };
+    if (!exec(player, str(cmd), null, &Out.line)) return error.Refused;
+}
+
 /// Runs cmd as the console. Server thread only. The output lines are logged at debug level;
 /// a false from the host, a level that is not ready, is Refused.
 pub fn executeCommand(cmd: []const u8) Error!void {

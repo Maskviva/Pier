@@ -50,6 +50,19 @@ pub fn cSel(self: Player) core.c.PierPlayerSel
 
 - Return type: `core.c.PierPlayerSel`
 
+### `Player.executeCommand` {#Player.executeCommand}
+
+```zig
+pub fn executeCommand(self: Player, cmd: []const u8) core.Error!void
+```
+
+Runs cmd as this player, with the player's own permission level. Server thread only. The output lines are logged at debug level; a false from the host, a player who is offline or a level that is not ready, is Refused.
+
+- Parameters:
+    - cmd : `[]const u8`
+- Return type: `core.Error!void`
+- Slots: [`player_execute_command`](../cpp/player.md#player_execute_command), [`log`](../cpp/core.md#log)
+
 ### `Player.gameType` {#Player.gameType}
 
 ```zig

@@ -688,6 +688,14 @@ Go 模组要实现的生命周期。两步都在服务器线程上运行；返�
 
 一名玩家，由选择器指定。它的大部分方法由 abi.h 的常量表生成，每个属性和动作一个；其余是手写的方法。
 
+## 6f7ed8029a
+
+> ExecuteCommand runs cmd as this player, with the player's own permission level, and returns
+> what it printed. Server thread only. An error means the player is offline, the level is not
+> ready, or the host cannot run commands. One leading slash is accepted and dropped.
+
+以这个玩家的身份运行 `cmd`，用他自己的权限等级，返回它输出的内容。只能在服务器线程调用。返回错误表示玩家不在线、世界还没就绪，或者宿主不能运行命令。开头的一个斜杠会被接受并去掉。
+
 ## bcba2a5e95
 
 > Resolve is the player's actor. An error means nobody matches the selector.

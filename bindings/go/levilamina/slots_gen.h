@@ -2017,4 +2017,14 @@ static inline bool piergo_call_registry_list(const PierApi* api, int32_t a0, voi
     return api->registry_list(a0, a1, a2);
 }
 
+static inline bool piergo_has_player_execute_command(const PierApi* api)
+{
+    return api != NULL && api->struct_size >= offsetof(PierApi, player_execute_command) + sizeof(api->player_execute_command)
+        && api->player_execute_command != NULL;
+}
+static inline bool piergo_call_player_execute_command(const PierApi* api, PierPlayerSel a0, PierStr a1, void* a2, PierCmdOutputSink a3)
+{
+    return api->player_execute_command(a0, a1, a2, a3);
+}
+
 #endif /* PIERGO_SLOTS_GEN_H */

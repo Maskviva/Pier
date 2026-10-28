@@ -41,6 +41,22 @@ func ExecuteCommand(cmd string) ([]CommandOutput, error) {
 	return col.lines, nil
 }
 
+// ExecuteCommand runs cmd as this player, with the player's own permission level, and returns
+// what it printed. Server thread only. An error means the player is offline, the level is not
+// ready, or the host cannot run commands. One leading slash is accepted and dropped.
+func (p Player) ExecuteCommand(cmd string) ([]CommandOutput, error) {
+	if api == nil || !bool(C.piergo_has_player_execute_command(api)) {
+		return nil, notProvided("player_execute_command")
+	}
+	col := &outputCollector{}
+	h := cgo.NewHandle(col)
+	defer h.Delete()
+	if !bool(C.piergo_call_player_execute_command(api, p.Sel.c(), str(cmd), handle(uintptr(h)), C.piergo_cmd_output_sink())) {
+		return col.lines, errors.New("the player is offline or the level is not ready, so the command was not run")
+	}
+	return col.lines, nil
+}
+
 // BlockInfo is one block: its cell, its type name and its block state as SNBT.
 type BlockInfo struct {
 	X, Y, Z int32

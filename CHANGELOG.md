@@ -8,6 +8,35 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
 
 ## [Unreleased]
 
+### Added
+
+- **A command can be run as a player.** `player_execute_command` is appended to the end of
+  `PierApi` with `PIER_ABI_VERSION` unchanged (contract §2.2): a mod built against an earlier
+  release loads as before, and a mod built against this one reports a missing slot on an older
+  host rather than calling through a short table. The player is the origin of the command, so
+  `@s` is the player, relative coordinates are the player's position and the permission level
+  the engine sees is the player's own, where `execute_command` keeps running at the console's.
+  One leading slash is accepted and dropped. The output reaches the same kind of sink. The
+  binding methods are `Player::execute_command` in Rust, `Player.ExecuteCommand` in Go and
+  `Player.executeCommand` in Zig, and the commands guide has a section for it in English and
+  Chinese.
+
+### Fixed
+
+- **Explosions are caught wherever they come from.** The `ExplodeBlocks` and `MobGriefing`
+  dimension rules and `ExplosionEvent` hooked the eight-argument `Level::explode` overload
+  only, and a creeper or a lit TNT broke blocks in a dimension that forbade it while no
+  subscriber saw the explosion. Both now hook `Explosion::explode`, which every explosion
+  runs and which carries its own `BlockSource` and source actor. The event's payload and its
+  cancel behavior are unchanged, and the rules still leave the blast, the damage and the
+  particles alone and clear only the block-breaking bit.
+- **`FireSpread` stops new fire as well.** The rule blocked `FireBlock::checkBurn`, the step
+  that burns or ignites a neighbor, and left the fire a ticking fire block places in the
+  cells around it. A fire tick in a dimension that forbids the rule now has
+  `FireBlock::mayPlace` refused for every cell except its own, inside the `onPlace` the
+  placement runs. The fire keeps aging in place, and a fire placed outside a tick, flint
+  and steel included, is not affected. Together the dimension rules use eleven hook points.
+
 ## [26.51.2]
 
 Built for BDS 1.26.51 and LeviLamina 26.51.5, like 26.51.1. `PIER_ABI_VERSION` stays at 2 and

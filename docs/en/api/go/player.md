@@ -108,6 +108,19 @@ type Player struct {
 
 Player is one player, named by a selector. Most of its methods are generated from the constant tables of abi.h, one per property and verb; the rest are below.
 
+### `Player.ExecuteCommand` {#Player.ExecuteCommand}
+
+```go
+func (p Player) ExecuteCommand(cmd string) ([]CommandOutput, error)
+```
+
+ExecuteCommand runs cmd as this player, with the player's own permission level, and returns what it printed. Server thread only. An error means the player is offline, the level is not ready, or the host cannot run commands. One leading slash is accepted and dropped.
+
+- Parameters:
+    - cmd : `string`
+- Return type: `([]CommandOutput, error)`
+- Slots: [`player_execute_command`](../cpp/player.md#player_execute_command)
+
 ### `Player.Resolve` {#Player.Resolve}
 
 ```go

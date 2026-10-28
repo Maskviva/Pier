@@ -36,6 +36,7 @@ function pier_common()
     add_defines("NOMINMAX", "UNICODE", "_HAS_CXX23=1")
     add_cxflags("/utf-8", {tools = {"cl"}})
     set_languages("c++20")
+    add_defines("_HAS_CXX23=1")
     if is_client then
         -- The implementation-side target macro. abi.h does not know it, since the
         -- layout is identical on every target (contract §2.1). It only selects the
@@ -45,19 +46,19 @@ function pier_common()
 end
 
 if is_client then
-    add_requires("levilamina 26.51.5", {configs = {target_type = "client"}})
+    add_requires("levilamina 26.51.7", {configs = {target_type = "client"}})
     add_requires("legacymoney 0.22.0", {configs = {target_type = "client"}})
-    add_requires("bedrockdata 26.51.1-client.6")
+    add_requires("bedrockdata 26.51.1-client.11")
 else
-    add_requires("levilamina 26.51.5", {configs = {target_type = "server"}})
+    add_requires("levilamina 26.51.7", {configs = {target_type = "server"}})
     add_requires("legacymoney 0.22.0", {configs = {target_type = "server"}})
-    add_requires("bedrockdata 26.51.1-server.6")
+    add_requires("bedrockdata 26.51.1-server.11")
     add_requires("snappy")
     add_requires("magic_enum")
 end
 add_requires("prelink 0.8.4")
 add_requires("levibuildscript 0.6.1")
-add_requires("zlib 1.3.1")
+add_requires("zlib 1.3.2")
 
 if not has_config("vs_runtime") then
     set_runtimes("MD")

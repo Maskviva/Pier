@@ -240,7 +240,7 @@ namespace pier
         "hooks.pressure_plate_event.1=[hooks/PressurePlateEvent] a detour failed to install (codes: {} {} {} {}), so the subscription is refused",
         "hooks.block_destroy_event.1=[hooks/BlockDestroyEvent] the Level::$destroyBlock detour failed to install with code={}, so destruction from non-player sources such as endermen, withers, explosions and commands is entirely unprotected",
         "hooks.chest_pair_event.1=[hooks/ChestPairEvent] the ChestBlockActor::_tryToPairWith detour failed to install with code={}",
-        "hooks.explosion_event.1=[hooks/ExplosionEvent] the Level::$explode detour failed to install with code={}, so explosion protection is inactive",
+        "hooks.explosion_event.1=[hooks/ExplosionEvent] the Explosion::explode detour failed to install with code={}, so explosion protection is inactive",
         "hooks.farmland_decay_event.1=[hooks/FarmlandDecayEvent] the FarmBlock::$transformOnFall detour failed to install with code={}",
         "hooks.liquid_flow_event.1=[hooks/LiquidFlowEvent] the LiquidBlock::_trySpreadTo detour failed to install with code={}",
         "hooks.piston_push_event.1=[hooks/PistonPushEvent] the PistonBlockActor::_checkAttachedBlocks detour failed to install with code={}, so cross-plot piston pushes and pulls are unprotected",

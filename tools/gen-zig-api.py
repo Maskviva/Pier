@@ -39,7 +39,7 @@ ZIG_RESERVED = {
     "anyerror", "anyopaque", "noreturn", "isize", "usize", "true", "false", "null", "undefined",
 }
 # Members the fixed part of the file declares; a generated name must differ from them.
-FIXED = {"byName", "byXuid", "byUuid", "cSel", "of", "at", "allocator"}
+FIXED = {"byName", "byXuid", "byUuid", "cSel", "executeCommand", "of", "at", "allocator"}
 
 
 def go_gen():
@@ -107,6 +107,13 @@ pub const Player = struct {
 
     pub fn cSel(self: Player) core.c.PierPlayerSel {
         return .{ .kind = @intFromEnum(self.sel_kind), .value = core.str(self.sel_value) };
+    }
+
+    /// Runs cmd as this player, with the player's own permission level. Server thread only.
+    /// The output lines are logged at debug level; a false from the host, a player who is
+    /// offline or a level that is not ready, is Refused.
+    pub fn executeCommand(self: Player, cmd: []const u8) core.Error!void {
+        return core.executeCommandAs(self.cSel(), cmd);
     }
 ''',
     "Entity": '''

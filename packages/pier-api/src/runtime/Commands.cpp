@@ -43,6 +43,7 @@
 #include "mc/server/commands/CommandSelector.h"
 #include "mc/server/commands/CommandSelectorResults.h"
 #include "mc/server/commands/GenerateMessageResult.h"
+#include "mc/server/commands/PlayerCommandOrigin.h"
 #include "mc/server/commands/RelativeFloat.h"
 #include "mc/server/commands/ServerCommandOrigin.h"
 #include "mc/world/actor/Actor.h"
@@ -91,6 +92,26 @@ namespace pier::api_impl
             return false;
         }
 
+        /** Folds the engine's output into the one text the sink takes: the localized
+         *  message id plus its parameters, which is simple and stable. mSuccessCount
+         *  decides success. */
+        void sinkCommandOutput(CommandOutput const& output, void* ctx, PierCmdOutputSink sink)
+        {
+            if (!sink) return;
+            std::string text;
+            for (auto const& msg : output.mMessages)
+            {
+                if (!text.empty()) text += '\n';
+                text += msg.mMessageId;
+                for (auto const& param : msg.mParams)
+                {
+                    text += ' ';
+                    text += param;
+                }
+            }
+            sink(ctx, output.mSuccessCount > 0, ps(text));
+        }
+
         bool api_execute_command(PierStr cmd, void* ctx, PierCmdOutputSink sink)
         {
             PIER_API_GUARD_BEGIN
@@ -105,24 +126,28 @@ namespace pier::api_impl
                 };
                 auto output =
                     ll::command::CommandRegistrar::getServerInstance().executeCommand(toString(cmd), origin);
-                if (sink)
-                {
-                    // Output is assembled from the localized message id plus its
-                    // parameters, which is simple and stable. mSuccessCount decides
-                    // success.
-                    std::string text;
-                    for (auto const& msg : output.mMessages)
-                    {
-                        if (!text.empty()) text += '\n';
-                        text += msg.mMessageId;
-                        for (auto const& param : msg.mParams)
-                        {
-                            text += ' ';
-                            text += param;
-                        }
-                    }
-                    sink(ctx, output.mSuccessCount > 0, ps(text));
-                }
+                sinkCommandOutput(output, ctx, sink);
+                return true;
+            PIER_API_GUARD_END
+        }
+
+        bool api_player_execute_command(PierPlayerSel sel, PierStr cmd, void* ctx, PierCmdOutputSink sink)
+        {
+            PIER_API_GUARD_BEGIN
+                if (!bridge::levelReady()) return false;
+                Player* player = bridge::resolvePlayer(sel);
+                if (!player) return false;
+
+                // A player types the slash, so one leading slash is accepted; the engine's
+                // parser takes the command without it.
+                std::string text = toString(cmd);
+                if (!text.empty() && text.front() == '/') text.erase(0, 1);
+
+                // The origin carries the player's own permission level, where the console
+                // slot above runs at Owner.
+                PlayerCommandOrigin origin{player->getLevel(), player->getOrCreateUniqueID()};
+                auto output = ll::command::CommandRegistrar::getServerInstance().executeCommand(text, origin);
+                sinkCommandOutput(output, ctx, sink);
                 return true;
             PIER_API_GUARD_END
         }
@@ -871,6 +896,7 @@ namespace pier::api_impl
         void fill(PierApi& api)
         {
             api.execute_command = &api_execute_command;
+            api.player_execute_command = &api_player_execute_command;
             api.register_command = &api_register_command;
             api.register_command_ex = &api_register_command_ex;
             api.register_command_enum = &api_register_command_enum;

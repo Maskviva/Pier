@@ -1,6 +1,6 @@
 # C++ API
 
-A C++ mod compiled with the Pier SDK includes `sdk/abi.h` directly, receives the function table `PierApi` in `pier_main`, and calls `api->slot_name(...)` from then on. The 201 slots of the table are spread over the pages below by subject. Each slot names its section in abi.h and its position in the table, and lists the interfaces of Rust, Go and Zig that call it.
+A C++ mod compiled with the Pier SDK includes `sdk/abi.h` directly, receives the function table `PierApi` in `pier_main`, and calls `api->slot_name(...)` from then on. The 202 slots of the table are spread over the pages below by subject. Each slot names its section in abi.h and its position in the table, and lists the interfaces of Rust, Go and Zig that call it.
 
 Before a slot is called, two things are checked: that `struct_size` reaches the slot, and that the slot is not NULL. The [C++ binding](../../cpp/index.md) page shows how, with a complete mod.
 
@@ -14,7 +14,7 @@ Before a slot is called, two things are checked: that `struct_size` reaches the 
 | [Server, ticks and system information](server.md) | 16 | 0 | 8 |
 | [World](world.md) | 31 | 0 | 0 |
 | [Bulk world editing](edit.md) | 7 | 0 | 0 |
-| [Players](player.md) | 22 | 0 | 74 |
+| [Players](player.md) | 23 | 0 | 74 |
 | [Actors](entity.md) | 19 | 0 | 85 |
 | [Blocks](block.md) | 7 | 0 | 42 |
 | [Items and containers](item.md) | 15 | 0 | 52 |

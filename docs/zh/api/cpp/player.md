@@ -36,6 +36,8 @@
 
     只能在服务器线程调用。
 
+    **以玩家身份执行命令（`Commands as a player`）**
+
 ## 槽位 {#slots}
 
 ### `get_player_position` {#get_player_position}
@@ -480,6 +482,33 @@ uint64_t (*player_conn_id)(PierPlayerSel who);
 - 各绑定里的调用方：
     - Rust：[`Player::conn_id`](../rust/player.md#Player.conn_id)
     - Go：[`Player.ConnID`](../go/player.md#Player.ConnID)、[`Raw.PlayerConnId`](../go/raw.md#Raw.PlayerConnId)
+
+### `player_execute_command` {#player_execute_command}
+
+```c
+bool (*player_execute_command)(PierPlayerSel sel, PierStr cmd, void* ctx,
+                               PierCmdOutputSink sink);
+```
+
+以一个在线玩家的身份运行一条命令，并通过 `sink` 收集它输出的内容，做法和 `execute_command` 对控制台所做的一样。只能在服务器线程调用。
+
+命令的来源是这个玩家：`@s` 是他，相对坐标是他的位置，引擎看到的权限等级是他自己的，不是控制台的。`cmd` 是不带斜杠的命令；开头的一个斜杠会被接受并去掉，因为玩家就是这样输入的。
+
+`sink` 只调用一次，带着成功标志和输出文字，命令成功或被引擎拒绝都一样；`sink` 为空则丢弃输出。玩家不在线或世界还没就绪时返回 false，并且不调用 `sink`：这表示宿主没有运行命令，和命令执行失败不是一回事。
+
+- 调用形式：`api->player_execute_command(sel, cmd, ctx, sink)`
+- 参数：
+    - sel : `PierPlayerSel`
+    - cmd : `PierStr`
+    - ctx : `void*`
+    - sink : `PierCmdOutputSink`
+- 返回值类型：`bool`
+- 所在分节：以玩家身份执行命令（`Commands as a player`）
+- 表内序号：第 201 个槽位（从 0 数起）
+- 各绑定里的调用方：
+    - Rust：[`Player::execute_command`](../rust/player.md#Player.execute_command)
+    - Go：[`Player.ExecuteCommand`](../go/player.md#Player.ExecuteCommand)
+    - Zig：[`Player.executeCommand`](../zig/player.md#Player.executeCommand)
 
 ## `PierPlayerNumProp` {#PierPlayerNumProp}
 

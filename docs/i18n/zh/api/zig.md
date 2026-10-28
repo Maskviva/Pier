@@ -236,6 +236,14 @@ translate-c 从 abi.h 读出来的 ABI：所有的类型、槽位和常量。
 
 一名玩家，由选择器指定。
 
+## dc23afd3a4
+
+> Runs cmd as this player, with the player's own permission level. Server thread only.
+> The output lines are logged at debug level; a false from the host, a player who is
+> offline or a level that is not ready, is Refused.
+
+以这个玩家的身份运行 `cmd`，用他自己的权限等级。只能在服务器线程调用。输出的每一行按 debug 级别记进日志；宿主返回 false（玩家不在线或世界还没就绪）时得到 `Refused`。
+
 ## 2ba58e8287
 
 > How a Player selector names its player. A decision about permissions, money or ownership

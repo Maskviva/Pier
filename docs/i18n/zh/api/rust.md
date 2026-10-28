@@ -312,6 +312,25 @@ levilamina::register_mod!(MyMod);
 
 0 表示不在线，或者拿不到网络标识。在 ABI 上 0 不是有效的连接 id，所以这里如实地把它报告成 `Err`，不交出一个 0。
 
+## a544f70fe6
+
+>  Runs `cmd` as this player and returns what it printed. Server thread only.
+>
+>  The player is the origin of the command: `@s` is the player, relative coordinates are
+>  the player's position, and the permission level the engine sees is the player's own,
+>  where [`Host::execute_command`](crate::Host::execute_command) runs at the console's.
+>  `cmd` is the command without the slash; one leading slash is accepted and dropped.
+>
+>  The `Err` cases are told apart by their message: the host is too old to have the slot,
+>  the player is offline or the level is not ready so nothing ran, and the command itself
+>  failed, where the message carries the engine's output.
+
+以这个玩家的身份运行 `cmd`，返回它输出的内容。只能在服务器线程调用。
+
+命令的来源是这个玩家：`@s` 是他，相对坐标是他的位置，引擎看到的权限等级是他自己的；[`Host::execute_command`](crate::Host::execute_command) 则按控制台的等级运行。`cmd` 是不带斜杠的命令，开头的一个斜杠会被接受并去掉。
+
+几种 `Err` 靠消息区分：宿主太旧，没有这个槽位；玩家不在线或世界还没就绪，命令没有运行；命令本身失败，这时消息里带着引擎的输出。
+
 ## e2fc461deb
 
 >  Teleports. A custom dimension, with an id of 3 or above, goes through here too, and

@@ -108,6 +108,19 @@ type Player struct {
 
 一名玩家，由选择器指定。它的大部分方法由 abi.h 的常量表生成，每个属性和动作一个；其余是手写的方法。
 
+### `Player.ExecuteCommand` {#Player.ExecuteCommand}
+
+```go
+func (p Player) ExecuteCommand(cmd string) ([]CommandOutput, error)
+```
+
+以这个玩家的身份运行 `cmd`，用他自己的权限等级，返回它输出的内容。只能在服务器线程调用。返回错误表示玩家不在线、世界还没就绪，或者宿主不能运行命令。开头的一个斜杠会被接受并去掉。
+
+- 参数：
+    - cmd : `string`
+- 返回值类型：`([]CommandOutput, error)`
+- 对应槽位：[`player_execute_command`](../cpp/player.md#player_execute_command)
+
 ### `Player.Resolve` {#Player.Resolve}
 
 ```go

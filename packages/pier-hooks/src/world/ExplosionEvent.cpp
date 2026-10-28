@@ -1,9 +1,11 @@
 /** world/ExplosionEvent.cpp: the cancellable explosion event.
- * pier-dimensions hooks Level::$explode as well, but that layer answers the coarse
+ * pier-dimensions hooks Explosion::explode as well, but that layer answers the coarse
  * per-dimension question of whether explosions may break blocks there. A plot-level
  * decision needs the coordinates and the radius and can only be made by a mod, so a
  * second hook sits further out at HookPriority::High: the mod sees every explosion first
  * and, without a cancel, the dimension rules apply as usual.
+ * The hook point is Explosion::explode and not a Level::explode overload: every
+ * explosion runs it, whichever overload or component built the Explosion.
  * Cancelling means the explosion does not happen at all, damage and blocks alike. Keeping
  * the damage while saving the blocks uses the dimension rule
  * PIER_DIMRULE_EXPLODE_BLOCKS, or a replay on the mod side with
@@ -17,8 +19,10 @@
 #include "ll/api/memory/Hook.h"
 
 #include "mc/deps/core/math/Vec3.h"
+#include "mc/legacy/ActorUniqueID.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/level/BlockSource.h"
+#include "mc/world/level/Explosion.h"
 #include "mc/world/level/Level.h"
 #include "mc/world/level/dimension/DimensionType.h"
 
@@ -32,33 +36,18 @@ namespace pier::hooks
     {
         HookEventDef& explosionDef(); // Forward declaration
 
-        /** Level::$explode has two overloads, the eight-argument one and the Explosion&
-         *  one. Resolving the identifier against the target type inside the macro would
-         *  disambiguate on its own, but an explicit cast holds either way and states which
-         *  one is hooked. Same as AttackEvent. */
-        using ExplodeFn = bool (Level::*)(
-            ::BlockSource&, ::Actor*, ::Vec3 const&, float, bool, bool, float, bool);
-
         LL_TYPE_INSTANCE_HOOK(
-            LevelExplodeHook,
+            ExplosionExplodeHook,
             ll::memory::HookPriority::High, // Outside the dimension rules: the mod decides first
-            Level,
-            static_cast<ExplodeFn>(&Level::$explode),
+            Explosion,
+            &Explosion::explode,
             bool,
-            ::BlockSource& region,
-            ::Actor* source,
-            ::Vec3 const& pos,
-            float explosionRadius,
-            bool fire,
-            bool breaksBlocks,
-            float maxResistance,
-            bool allowUnderwater)
+            ::IRandom& random)
         {
             auto& def = explosionDef();
             if (!def.live())
             {
-                return origin(region, source, pos, explosionRadius, fire, breaksBlocks, maxResistance,
-                              allowUnderwater);
+                return origin(random);
             }
 
             int dim = -1;
@@ -69,12 +58,17 @@ namespace pier::hooks
             bool readFailed = false;
             try
             {
+                ::BlockSource& region = this->mRegion;
                 dim = static_cast<int>(region.getDimensionId());
-                if (source)
+                ::ActorUniqueID const& id = this->mSourceID.get();
+                if (!(id == ::ActorUniqueID::INVALID_ID()))
                 {
-                    sourceType = source->getTypeName();
-                    sourceIsPlayer = source->isPlayer();
-                    sourceId = source->getOrCreateUniqueID().rawID;
+                    sourceId = id.rawID;
+                    if (::Actor* source = region.getLevel().fetchEntity(id, true))
+                    {
+                        sourceType = source->getTypeName();
+                        sourceIsPlayer = source->isPlayer();
+                    }
                 }
             }
             catch (...)
@@ -83,31 +77,31 @@ namespace pier::hooks
                 readFailed = true;
             }
 
+            ::Vec3 const& pos = this->mPos.get();
             std::string snbt = "{\"eventId\":\"ExplosionEvent\""
                 ",\"x\":" + snbtDouble(pos.x)
                 + ",\"y\":" + snbtDouble(pos.y)
                 + ",\"z\":" + snbtDouble(pos.z)
                 + ",\"dim\":" + snbtNum(dim)
-                + ",\"radius\":" + snbtDouble(explosionRadius)
-                + ",\"maxResistance\":" + snbtDouble(maxResistance)
-                + ",\"fire\":" + (fire ? "1" : "0")
-                + ",\"breaksBlocks\":" + (breaksBlocks ? "1" : "0")
-                + ",\"underwater\":" + (allowUnderwater ? "1" : "0")
+                + ",\"radius\":" + snbtDouble(this->mRadius)
+                + ",\"maxResistance\":" + snbtDouble(this->mMaxResistance)
+                + ",\"fire\":" + (this->mFire ? "1" : "0")
+                + ",\"breaksBlocks\":" + (this->mBreaking ? "1" : "0")
+                + ",\"underwater\":" + (this->mAllowUnderwater ? "1" : "0")
                 + ",\"sourceIsPlayer\":" + (sourceIsPlayer ? "1" : "0")
                 + ",\"sourceId\":" + snbtNum(sourceId) + "L"
                 + ",\"source\":\"" + snbtEscape(sourceType) + "\""
                 + (readFailed ? ",\"partial\":1" : "") + "}";
 
             if (dispatchHookEventCancellable(def, snbt)) return false;
-            return origin(region, source, pos, explosionRadius, fire, breaksBlocks, maxResistance,
-                          allowUnderwater);
+            return origin(random);
         }
 
         HookEventDef gDef{
             "ExplosionEvent",
             []
             {
-                int const r = LevelExplodeHook::hook();
+                int const r = ExplosionExplodeHook::hook();
                 if (r != 0)
                 {
                     hostLogger().error(

@@ -65,7 +65,7 @@ Log a message through the mod's own LeviLamina logger. level: -1=Off, 0=Fatal, 1
 - Position in the table: slot 0, counting from 0
 - Callers in each binding:
     - Go: [`ListPlayers`](../go/player.md#ListPlayers), [`Logger.Error`](../go/core.md#Logger.Error), [`Logger.Warn`](../go/core.md#Logger.Warn), [`Logger.Info`](../go/core.md#Logger.Info), [`Logger.Debug`](../go/core.md#Logger.Debug), [`Raw.Log`](../go/raw.md#Raw.Log)
-    - Zig: [`log`](../zig/core.md#log), [`logf`](../zig/core.md#logf), [`Context.info`](../zig/core.md#Context.info), [`Context.warn`](../zig/core.md#Context.warn), [`Context.err`](../zig/core.md#Context.err), [`exportMod`](../zig/core.md#exportMod) and more, 7 in all
+    - Zig: [`log`](../zig/core.md#log), [`logf`](../zig/core.md#logf), [`Context.info`](../zig/core.md#Context.info), [`Context.warn`](../zig/core.md#Context.warn), [`Context.err`](../zig/core.md#Context.err), [`exportMod`](../zig/core.md#exportMod) and more, 8 in all
 
 ### `gaming_status` {#gaming_status}
 

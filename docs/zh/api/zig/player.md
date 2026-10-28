@@ -50,6 +50,19 @@ pub fn cSel(self: Player) core.c.PierPlayerSel
 
 - 返回值类型：`core.c.PierPlayerSel`
 
+### `Player.executeCommand` {#Player.executeCommand}
+
+```zig
+pub fn executeCommand(self: Player, cmd: []const u8) core.Error!void
+```
+
+以这个玩家的身份运行 `cmd`，用他自己的权限等级。只能在服务器线程调用。输出的每一行按 debug 级别记进日志；宿主返回 false（玩家不在线或世界还没就绪）时得到 `Refused`。
+
+- 参数：
+    - cmd : `[]const u8`
+- 返回值类型：`core.Error!void`
+- 对应槽位：[`player_execute_command`](../cpp/player.md#player_execute_command)、[`log`](../cpp/core.md#log)
+
 ### `Player.gameType` {#Player.gameType}
 
 ```zig

@@ -12,7 +12,7 @@ Module `github.com/Maskviva/pier/bindings/go`, package `levilamina`. The pages a
 | [Server, ticks and system information](server.md) | 16 | 0 | 8 |
 | [World](world.md) | 17 | 4 | 0 |
 | [Bulk world editing](edit.md) | 2 | 0 | 0 |
-| [Players](player.md) | 103 | 5 | 77 |
+| [Players](player.md) | 104 | 5 | 77 |
 | [Actors](entity.md) | 94 | 3 | 85 |
 | [Blocks](block.md) | 50 | 2 | 42 |
 | [Items and containers](item.md) | 52 | 4 | 44 |

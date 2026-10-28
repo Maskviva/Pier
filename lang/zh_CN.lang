@@ -215,7 +215,7 @@ hooks.item_frame_event.1=[hooks/ItemFrameEvent] ItemFrameBlock::$attack 绕道�
 hooks.pressure_plate_event.1=[hooks/PressurePlateEvent] 有绕道安装失败（code：{} {} {} {}），订阅被拒绝
 hooks.block_destroy_event.1=[hooks/BlockDestroyEvent] Level::$destroyBlock 绕道安装失败，code={}，末影人、凋灵、爆炸、命令这些非玩家来源的破坏完全不受保护
 hooks.chest_pair_event.1=[hooks/ChestPairEvent] ChestBlockActor::_tryToPairWith 绕道安装失败，code={}
-hooks.explosion_event.1=[hooks/ExplosionEvent] Level::$explode 绕道安装失败，code={}，爆炸保护不生效
+hooks.explosion_event.1=[hooks/ExplosionEvent] Explosion::explode 绕道安装失败，code={}，爆炸保护不生效
 hooks.farmland_decay_event.1=[hooks/FarmlandDecayEvent] FarmBlock::$transformOnFall 绕道安装失败，code={}
 hooks.liquid_flow_event.1=[hooks/LiquidFlowEvent] LiquidBlock::_trySpreadTo 绕道安装失败，code={}
 hooks.piston_push_event.1=[hooks/PistonPushEvent] PistonBlockActor::_checkAttachedBlocks 绕道安装失败，code={}，跨地皮的活塞推拉不受保护

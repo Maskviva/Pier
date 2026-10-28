@@ -310,6 +310,28 @@ pub fn disconnect(&self, reason: &str) -> Result<()>
 - Return type: `Result<()>`
 - Slots: [`player_disconnect`](../cpp/player.md#player_disconnect)
 
+### `Player::execute_command` {#Player.execute_command}
+
+```rust
+pub fn execute_command(&self, cmd: &str) -> Result<String>
+```
+
+Runs `cmd` as this player and returns what it printed. Server thread only.
+
+The player is the origin of the command: `@s` is the player, relative coordinates are
+the player's position, and the permission level the engine sees is the player's own,
+where [`Host::execute_command`](host.md#Host.execute_command) runs at the console's.
+`cmd` is the command without the slash; one leading slash is accepted and dropped.
+
+The `Err` cases are told apart by their message: the host is too old to have the slot,
+the player is offline or the level is not ready so nothing ran, and the command itself
+failed, where the message carries the engine's output.
+
+- Parameters:
+    - cmd : `&str`
+- Return type: `Result<String>`
+- Slots: [`player_execute_command`](../cpp/player.md#player_execute_command)
+
 ### `Player::set_gamemode` {#Player.set_gamemode}
 
 ```rust

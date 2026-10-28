@@ -2617,6 +2617,24 @@ typedef struct PierApi
      *  list it maintains. Returns false for an unknown kind, a null sink, or a registry
      *  that does not exist yet; nothing is sunk then. */
     bool (*registry_list)(int32_t kind, void* ctx, PierStrSink sink);
+
+    /*  Commands as a player  */
+
+    /** Runs one command as an online player and collects what it printed through `sink`, the
+     *  way execute_command does for the console. Server thread only.
+     *
+     *  The player is the origin of the command: `@s` is the player, relative coordinates
+     *  are the player's position, and the permission level the engine sees is the player's
+     *  own, not the console's. `cmd` is the command without the slash; one leading slash
+     *  is accepted and dropped, since that is how a player types it.
+     *
+     *  `sink` is called once, with the success flag and the output text, whether the
+     *  command succeeded or the engine refused it; a null `sink` discards the output.
+     *  Returns false, and sinks nothing, when the player is not online or the level is
+     *  not ready: the host did not run the command, which is not the same as the command
+     *  failing. */
+    bool (*player_execute_command)(PierPlayerSel sel, PierStr cmd, void* ctx,
+                                   PierCmdOutputSink sink);
 } PierApi;
 
 /**

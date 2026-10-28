@@ -294,6 +294,23 @@ pub fn disconnect(&self, reason: &str) -> Result<()>
 - 返回值类型：`Result<()>`
 - 对应槽位：[`player_disconnect`](../cpp/player.md#player_disconnect)
 
+### `Player::execute_command` {#Player.execute_command}
+
+```rust
+pub fn execute_command(&self, cmd: &str) -> Result<String>
+```
+
+以这个玩家的身份运行 `cmd`，返回它输出的内容。只能在服务器线程调用。
+
+命令的来源是这个玩家：`@s` 是他，相对坐标是他的位置，引擎看到的权限等级是他自己的；[`Host::execute_command`](host.md#Host.execute_command) 则按控制台的等级运行。`cmd` 是不带斜杠的命令，开头的一个斜杠会被接受并去掉。
+
+几种 `Err` 靠消息区分：宿主太旧，没有这个槽位；玩家不在线或世界还没就绪，命令没有运行；命令本身失败，这时消息里带着引擎的输出。
+
+- 参数：
+    - cmd : `&str`
+- 返回值类型：`Result<String>`
+- 对应槽位：[`player_execute_command`](../cpp/player.md#player_execute_command)
+
 ### `Player::set_gamemode` {#Player.set_gamemode}
 
 ```rust

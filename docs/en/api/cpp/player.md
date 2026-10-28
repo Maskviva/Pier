@@ -47,6 +47,8 @@
 
     Server thread only.
 
+    **Commands as a player**
+
 ## Slots {#slots}
 
 ### `get_player_position` {#get_player_position}
@@ -503,6 +505,33 @@ Pure append: `PIER_ABI_VERSION` is unchanged, `struct_size` is the gate.
 - Callers in each binding:
     - Rust: [`Player::conn_id`](../rust/player.md#Player.conn_id)
     - Go: [`Player.ConnID`](../go/player.md#Player.ConnID), [`Raw.PlayerConnId`](../go/raw.md#Raw.PlayerConnId)
+
+### `player_execute_command` {#player_execute_command}
+
+```c
+bool (*player_execute_command)(PierPlayerSel sel, PierStr cmd, void* ctx,
+                               PierCmdOutputSink sink);
+```
+
+Runs one command as an online player and collects what it printed through `sink`, the way `execute_command` does for the console. Server thread only.
+
+The player is the origin of the command: `@s` is the player, relative coordinates are the player's position, and the permission level the engine sees is the player's own, not the console's. `cmd` is the command without the slash; one leading slash is accepted and dropped, since that is how a player types it.
+
+`sink` is called once, with the success flag and the output text, whether the command succeeded or the engine refused it; a null `sink` discards the output. Returns false, and sinks nothing, when the player is not online or the level is not ready: the host did not run the command, which is not the same as the command failing.
+
+- Call: `api->player_execute_command(sel, cmd, ctx, sink)`
+- Parameters:
+    - sel : `PierPlayerSel`
+    - cmd : `PierStr`
+    - ctx : `void*`
+    - sink : `PierCmdOutputSink`
+- Return type: `bool`
+- Section of abi.h: Commands as a player
+- Position in the table: slot 201, counting from 0
+- Callers in each binding:
+    - Rust: [`Player::execute_command`](../rust/player.md#Player.execute_command)
+    - Go: [`Player.ExecuteCommand`](../go/player.md#Player.ExecuteCommand)
+    - Zig: [`Player.executeCommand`](../zig/player.md#Player.executeCommand)
 
 ## `PierPlayerNumProp` {#PierPlayerNumProp}
 

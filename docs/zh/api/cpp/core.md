@@ -65,7 +65,7 @@ void (*log)(PierModHandle mod, int32_t level, PierStr msg);
 - 表内序号：第 0 个槽位（从 0 数起）
 - 各绑定里的调用方：
     - Go：[`ListPlayers`](../go/player.md#ListPlayers)、[`Logger.Error`](../go/core.md#Logger.Error)、[`Logger.Warn`](../go/core.md#Logger.Warn)、[`Logger.Info`](../go/core.md#Logger.Info)、[`Logger.Debug`](../go/core.md#Logger.Debug)、[`Raw.Log`](../go/raw.md#Raw.Log)
-    - Zig：[`log`](../zig/core.md#log)、[`logf`](../zig/core.md#logf)、[`Context.info`](../zig/core.md#Context.info)、[`Context.warn`](../zig/core.md#Context.warn)、[`Context.err`](../zig/core.md#Context.err)、[`exportMod`](../zig/core.md#exportMod) 等，共 7 个
+    - Zig：[`log`](../zig/core.md#log)、[`logf`](../zig/core.md#logf)、[`Context.info`](../zig/core.md#Context.info)、[`Context.warn`](../zig/core.md#Context.warn)、[`Context.err`](../zig/core.md#Context.err)、[`exportMod`](../zig/core.md#exportMod) 等，共 8 个
 
 ### `gaming_status` {#gaming_status}
 

@@ -459,6 +459,9 @@ pub struct PierApi {
     >,
     pub md_set_dimension_cells: Option<unsafe extern "C" fn(i32, i32, i32) -> bool>,
     pub registry_list: Option<unsafe extern "C" fn(i32, *mut c_void, PierStrSink) -> bool>,
+    pub player_execute_command: Option<
+        unsafe extern "C" fn(PierPlayerSel, PierStr, *mut c_void, PierCmdOutputSink) -> bool,
+    >,
 }
 
 impl PierApi {

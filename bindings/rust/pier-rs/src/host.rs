@@ -8,7 +8,7 @@
 use core::ffi::c_void;
 
 use crate::rt::error::{Error, Result};
-use crate::rt::ffi::{call_out_str, collect_strs, r_owned, s};
+use crate::rt::ffi::{call_out_str, cmd_sink, collect_strs, s, CmdOut};
 use crate::rt::logger::Logger;
 use crate::rt::runtime::{rt, TaskId};
 use crate::sys;
@@ -343,7 +343,7 @@ impl Host {
     }
 }
 
-// The two trampolines crossing extern "C".
+// The trampoline crossing extern "C".
 
 /// # Safety
 /// `user` must come from `Box<Box<dyn FnOnce() + Send>>::into_raw` and be called once.
@@ -359,17 +359,4 @@ unsafe extern "C" fn task_trampoline(user: *mut c_void) {
         Logger::get()
             .error("a scheduled task panicked. It was caught here and the task was discarded.");
     }
-}
-
-struct CmdOut {
-    success: bool,
-    text: String,
-}
-
-/// # Safety
-/// `ctx` must be a valid `*mut CmdOut`.
-unsafe extern "C" fn cmd_sink(ctx: *mut c_void, success: bool, output: sys::PierStr) {
-    let out = &mut *ctx.cast::<CmdOut>();
-    out.success = success;
-    out.text = r_owned(output);
 }

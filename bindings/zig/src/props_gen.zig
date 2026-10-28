@@ -29,6 +29,13 @@ pub const Player = struct {
         return .{ .kind = @intFromEnum(self.sel_kind), .value = core.str(self.sel_value) };
     }
 
+    /// Runs cmd as this player, with the player's own permission level. Server thread only.
+    /// The output lines are logged at debug level; a false from the host, a player who is
+    /// offline or a level that is not ready, is Refused.
+    pub fn executeCommand(self: Player, cmd: []const u8) core.Error!void {
+        return core.executeCommandAs(self.cSel(), cmd);
+    }
+
     /// PIER_PPROP_GAME_TYPE: (G) Player::getPlayerGameType; write via player_set_gamemode
     pub fn gameType(self: Player) core.Error!f64 {
         const slot_fn = core.slot("player_get_num") orelse return error.NotProvided;
