@@ -8,7 +8,7 @@ a few minutes.
 | | Version |
 |---|---|
 | Server | Bedrock Dedicated Server (BDS) 1.26.51 |
-| Loader | LeviLamina 26.51.5 |
+| Loader | LeviLamina 26.51.7 |
 | Optional | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney), only for the economy functions |
 
 !!! tip "LegacyMoney really is optional"

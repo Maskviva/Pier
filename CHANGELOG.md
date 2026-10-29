@@ -8,6 +8,12 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
 
 ## [Unreleased]
 
+## [26.51.3]
+
+Built for BDS 1.26.51 and LeviLamina 26.51.7. `PIER_ABI_VERSION` stays at 2 and no slot moved,
+new ones only went on the end: a mod built against 26.51.2 loads unchanged. pier-sys-rs is 26.51.3
+and pier-rs 2.2.0; nothing public was removed from either (contract §2.5).
+
 ### Added
 
 - **A command can be run as a player.** `player_execute_command` is appended to the end of
@@ -20,6 +26,94 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
   binding methods are `Player::execute_command` in Rust, `Player.ExecuteCommand` in Go and
   `Player.executeCommand` in Zig, and the commands guide has a section for it in English and
   Chinese.
+- **A caller can ask whether a player has finished joining, and list the engine's commands.**
+  `PIER_PPROP_IS_INITIALIZED` (36) is appended to the properties of `player_get_num`, and
+  `PIER_REGISTRY_COMMANDS` (3) to the kinds of `registry_list`. Both are values appended to
+  existing enumerations: no slot was added or moved, `PIER_ABI_VERSION` is unchanged, and a
+  mod built against an earlier release loads as before. A host older than this one answers
+  false for either value. The property reads 1 for a player whose client has finished
+  joining, the moment from which an ability can be written, and for a simulated player, which
+  has no client to wait for; it is the same test the ability write guard applies. A command
+  entry carries the name, the description, the permission level, the raw flag bits, whether
+  the command is hidden from players, and its aliases, and every registered command is
+  listed whichever mod registered it. The binding methods are `Player::is_initialized` and
+  `registry::commands` in Rust, `Player.IsInitialized` in Go and `Player.isInitialized` in
+  Zig.
+- **A spawn payload names its entity without the initialization event and carries the engine's
+  own type number.** The `_identifier` object of an event gains `canonical`, the
+  `namespace:name` without the `<event>` that `full` can carry after it, and `type`, the
+  actor type number the engine gives that name. The bits of `type` say whether the entity is a
+  mob, a monster, an animal or a water animal, as in an entity entry of `registry_list`, so a
+  consumer decides whether a spawn is a monster from the engine and keeps no list of names. A
+  spawn whose identifier LeviLamina writes as plain text gets the same object. The existing
+  fields are unchanged.
+- **Twelve events the engine and LeviLamina have no event for are raised by the host.** Each is
+  cancellable unless noted, and each is named in `ALL_SYNTHETIC`. `HopperSearchItemEvent` and
+  `HopperPushOutEvent` ask before a hopper or a hopper minecart moves an item, and unlike
+  `HopperTransferEvent` they carry the dimension. `DispenseItemEvent` asks before a dispenser
+  ejects an item and `CommandBlockExecuteEvent` before a command block or its minecart runs a
+  command, neither of which has a player. `WitherDestroyEvent` asks before a wither breaks the
+  blocks around it. `RespawnAnchorExplodeEvent` and `PlayerUseRespawnAnchorEvent` ask before a
+  charged anchor explodes outside the nether or becomes a spawn point inside it.
+  `PlayerAttackBlockEvent` asks before mining starts, earlier than the observation-only
+  `PlayerStartDestroyBlockEvent`. `PlayerUseBucketPlaceEvent` and `PlayerUseBucketTakeEvent` ask
+  before a bucket puts a liquid down or takes one up. `PlayerConsumeTotemEvent` asks before a
+  totem saves a player. `PlayerStopSleepEvent` is the observation-only other half of
+  `PlayerSleepEvent`. The hook points follow LegacyScriptEngine and iListenAttentively, and the
+  acknowledgements page lists which reference each came from.
+- **Eighteen more events are raised by the host, and `PlayerRequestItemActionEvent` is no longer a
+  name nothing raises.** Cancellable: `ExplosionBlocksEvent`, `BlockInteractedEvent`,
+  `NpcCommandEvent`, `PlayerPullFishingHookEvent`, `PortalSpawnPigZombieEvent`,
+  `ActorGetEffectEvent`, `PlayerSetArmorEvent`, `PlayerOpenInventoryEvent`,
+  `PlayerOpenContainerScreenEvent` and `PlayerRequestItemActionEvent`, which hooks the three item
+  stack request handlers and answers a refusal with the engine's own error result, so the client
+  puts its screen back. Observation only, because the engine tells a mod after the change:
+  `PlayerCloseContainerEvent`, `ContainerChangeEvent`, `PlayerInventoryChangeEvent`,
+  `ScoreChangedEvent`, `ActorRemoveEffectEvent`, `ProjectileHitEntityEvent`,
+  `ProjectileHitBlockEvent` and `ActorTransformEvent`. The hook points follow
+  LegacyScriptEngine and iListenAttentively. Two events of the latter are left out on purpose,
+  the enderman's block events and the redstone update, because they write the engine's own logic
+  out a second time inside the detour.
+- **Seven more events cover what no player does.** All are cancellable. `ActorDestroyBlockEvent`
+  and `ActorPickupItemEvent` ask before a mob changes a block and before any actor picks an item
+  up, through the engine's own listener, where a refusal is its Cancel. `ActorChangeDimensionEvent`
+  asks before an actor that is not a player goes to another dimension. `DragonEggTeleportEvent`,
+  `BlockFallEvent`, `SculkBlockGrowthEvent` and `DragonRespawnEvent` ask before a dragon egg
+  jumps, before a block that lost its support falls, before a sculk charge is spent, and before
+  the end fight makes the dragon again. The hook points are iListenAttentively's. Its falling
+  block and dragon egg events write the engine's logic out a second time inside the detour,
+  which these do not.
+- **`ExplosionBlocksEvent` lets a subscriber keep chosen blocks out of an explosion.** It is asked
+  after the engine has the set of blocks a blast reaches and before it reads the set back, with
+  the cells in the payload, and the reply may carry `keep:[[x,y,z],...]`. `ExplosionEvent` can
+  only refuse the whole blast, so a plot that wants the bang and its own blocks standing now has
+  the finer event. The host reads the reply with a new `dispatchHookEventKeeping`, which takes the
+  union of what every subscriber keeps and logs an element it cannot read.
+- **The `MobGriefing` dimension rule also stops what mobs do to blocks outside an explosion.**
+  It stopped only mob-caused explosions, so an enderman kept picking blocks up and putting them
+  down and a wither kept breaking walls in a dimension that forbade it. Every mob that asks the
+  engine's listener before changing a block is now refused with the engine's own Cancel, which is
+  `EventCoordinatorPimpl<ActorEventListener>::_processEvent`. The enderman's two goals are
+  refused at `canUse` as well, where a refused goal never starts, and the wither at
+  `WitherBoss::_destroyBlocks`. Together the dimension rules use fifteen hook points, and
+  nothing changes for a dimension nobody set a rule for.
+- **The READMEs and the documentation thank the projects Pier learned from.** LeviLamina,
+  LegacyScriptEngine, iListenAttentively, MoreDimensions and LegacyMoney each have a section in
+  both READMEs and a page of the guide, with the hook points and behavior each one is the
+  reference for.
+
+### Changed
+
+- **The host builds with clang-cl, and `cl` no longer builds it.** LeviLamina 26.51.7 declares
+  `EventCoordinatorPimpl::_processEvent` as an inline member template marked `MCAPI`. `cl` stops on
+  it with C2491 wherever a coordinator is instantiated, and `ActorGameplayEvents.cpp` and
+  `DimensionRules.cpp` hook that function by address: with `MCAPI` emptied to get past the error,
+  the address would be the header's own body, which only returns a default, and the hooks would
+  install and never fire. `xmake.lua` now selects clang-cl for every target, `build.bat` and the
+  three workflows pass `--toolchain=clang-cl`, the workflows' cache key names the toolchain because
+  the levilamina package installs to a different directory under it, and the two hooking files
+  stop with an `#error` under any other compiler. All 137 translation units compile and the host
+  links. Whether those two hooks fire needs a server.
 
 ### Fixed
 
@@ -35,7 +129,43 @@ BDS 1.26.20. The ABI carries its own version, currently v2, which moves far more
   cells around it. A fire tick in a dimension that forbids the rule now has
   `FireBlock::mayPlace` refused for every cell except its own, inside the `onPlace` the
   placement runs. The fire keeps aging in place, and a fire placed outside a tick, flint
-  and steel included, is not affected. Together the dimension rules use eleven hook points.
+  and steel included, is not affected.
+- **The dimension rules are enforced on a server with no custom dimension.** The hooks
+  that carry out `md_set_dimension_rule` were installed when the dimension manager was
+  constructed, and that happens when the first custom dimension is registered. On a server
+  whose worlds are all vanilla every rule was accepted and none was enforced: liquid kept
+  flowing, pistons kept pushing, fire kept spreading and explosions kept breaking blocks.
+  The first `md_set_dimension_rule` now installs them. Each hook is installed on its own,
+  and one that does not take is logged with the engine function it was for, where
+  `HookRegistrar` returned nothing and a failed hook left no line.
+- **Two events that share a detour no longer refuse the second subscription.**
+  `PlayerRideEvent` with `ActorRideEvent`, and `PlayerStepOnPressurePlateEvent` with
+  `ActorStepOnPressurePlateEvent`, each ran `hook()` on the same detour from its own
+  installer, and the event subscribed second was refused with the native-detour line. Both
+  events of a pair now call one installer that installs once. The `hook-install-once` check
+  reads `pier-hooks` for a detour named twice in one file.
+- **Two files include the types their objects own.** `SpecDimension.cpp` builds
+  `OverworldGeneratorMultinoise` and `TheEndGenerator`, whose defaulted destructors delete a
+  `Cavifier`, a `ChunkBlender`, a `ChunkBlenderFactory` and a `SimplexNoise`, and a `ChunkBlender`
+  holds a vector of `ChunkBlenderUtil::AttenuationData`; the headers only forward-declare them and
+  clang-cl reports an incomplete type in `std::default_delete`. `TransformEvent.cpp` named
+  `OwnerPtr<EntityContext>` without `GameRefsEntity.h`, which defines the `GameRefs<EntityContext>`
+  it derives from. Both files now include what they use.
+- **The docs named LeviLamina 26.51.5 as the requirement while `xmake.lua` pins 26.51.7.** The
+  README badge and text, the installation table, the compatibility table, `manifest.json` and the
+  pier-rs package metadata now say 26.51.7, and the compatibility table has a row for this release.
+- **The `ledger-covers-tree` check no longer reports the C++ example's build output.**
+  `hello_pier_cpp.dll`, `.exp`, `.lib` and `obj/` were ignored by `.gitignore` and not by the check's
+  exemption lists, which have to be kept level with it by hand.
+- **Comments and docs that disagreed with the code now agree with it.** The guide pages and
+  the Rust events page said Pier synthesizes 29 events where it registers 69. The payload docs
+  of five events (`ExplosionEvent`, `FarmlandDecayEvent`, `PistonPushEvent`, `ChestPairEvent`,
+  `SpawnItemActorEvent`) left out the `partial` field the hook writes when a read fails, and
+  the headers of five hook files did the same. The ride and pressure-plate headers named only
+  the player event and left out the actor event registered beside it. Several comments named a
+  function, file, type or test that does not exist, and two claimed a guarantee the code does
+  not give: the assertions in `numberOf` do not reject a collapsed cast, and the profiler
+  detours are unpatched again when one of the five fails to attach. No behavior changed.
 
 ## [26.51.2]
 
@@ -1479,6 +1609,7 @@ The ABI is not compatible and no attempt is made to load a loader mod.
   could free it lives in a library that may already be unloaded. Cleanup that has to
   happen does not belong in a form callback.
 
+[26.51.3]: https://github.com/Maskviva/pier/releases/tag/26.51.3
 [26.51.2]: https://github.com/Maskviva/pier/releases/tag/26.51.2
 [26.32.1]: https://github.com/Maskviva/pier/releases/tag/26.32.1
 [26.32.0]: https://github.com/Maskviva/pier/releases/tag/26.32.0

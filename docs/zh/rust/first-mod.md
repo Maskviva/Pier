@@ -32,7 +32,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.2" }
+pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.3" }
 ```
 
 `crate-type = ["cdylib"]` 让 cargo 编出一个 DLL，服务器加载的就是它。

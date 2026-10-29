@@ -1,9 +1,9 @@
 [package]
 name = "pier-rs"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Writing LeviLamina mods in safe Rust. Pier ABI v2 / BDS 1.26.51 / LeviLamina 26.51.5."
+description = "Writing LeviLamina mods in safe Rust. Pier ABI v2 / BDS 1.26.51 / LeviLamina 26.51.7."
 readme = "../../../README.md"
 repository = "https://github.com/Maskviva/Pier"
 keywords = ["levilamina", "minecraft", "bedrock", "mod", "bds"]
@@ -11,7 +11,7 @@ categories = ["game-development", "api-bindings"]
 
 [package.metadata.minecraft]
 bds_version = "1.26.51"
-levilamina_version = "26.51.5"
+levilamina_version = "26.51.7"
 abi_version = 2
 lane_protocol = 1
 
@@ -28,7 +28,7 @@ path = "src/lib.rs"
 # is optional and business code enables it itself.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-pier-sys-rs = { version = "26.51.2", path = "../pier-sys-rs", default-features = false }
+pier-sys-rs = { version = "26.51.3", path = "../pier-sys-rs", default-features = false }
 
 # One feature, `client`, and it changes no layout: it makes `register_mod!` set bit 0 of the
 # vtable's `mod_flags`, on which the host refuses a mod loaded onto the wrong target. The

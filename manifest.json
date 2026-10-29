@@ -3,12 +3,12 @@
     "entry": "Pier.dll",
     "type": "native",
     "platform": "server",
-    "version": "26.51.2",
+    "version": "26.51.3",
     "author": "Maskviva",
     "description": "Loads LeviLamina mods written in other languages through one C ABI.",
     "minecraft": {
         "bds_version": "1.26.51",
-        "levilamina_version": "26.51.5",
+        "levilamina_version": "26.51.7",
         "abi_version": 2
     }
 }

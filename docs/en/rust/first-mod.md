@@ -35,7 +35,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.2" }
+pier-rs = { git = "https://github.com/Maskviva/pier", tag = "26.51.3" }
 ```
 
 `crate-type = ["cdylib"]` makes cargo build a DLL, which is what the server loads.

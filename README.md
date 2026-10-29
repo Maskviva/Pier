@@ -9,7 +9,7 @@
   <a href="https://github.com/Maskviva/pier/releases"><img src="https://img.shields.io/github/v/release/Maskviva/pier?color=334155" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/BDS-1.26.51-62B47A" alt="BDS 1.26.51">
-  <img src="https://img.shields.io/badge/LeviLamina-26.51.5-8B5CF6" alt="LeviLamina 26.51.5">
+  <img src="https://img.shields.io/badge/LeviLamina-26.51.7-8B5CF6" alt="LeviLamina 26.51.7">
 </p>
 
 <p align="center">
@@ -198,16 +198,20 @@ lip install github.com/Maskviva/Pier
 
 Or unpack the release archive into `plugins/pier/`.
 
-Pier needs LeviLamina 26.51.5 on BDS 1.26.51.
+Pier needs LeviLamina 26.51.7 on BDS 1.26.51.
 [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) is optional: it is delay-loaded, so
 a server without it starts normally and only the economy calls return failure values.
 
 ## Building from source
 
 ```bash
-xmake f --target_type=server && xmake   # the host, pier.dll
-cargo build --release                    # the Rust binding and the examples
+xmake f --toolchain=clang-cl --target_type=server && xmake   # the host, pier.dll
+cargo build --release                                        # the Rust binding and the examples
 ```
+
+The host builds with `clang-cl` (CI installs LLVM 21.1.8), and `xmake.lua` selects it for every
+target. MSVC's `cl` stops on LeviLamina's `EventCoordinatorPimpl.h` with C2491, and the two files
+that hook that function end in an `#error` under any other compiler.
 
 The two build lines share no build dependency, only the header, so they can be fixed
 separately.
@@ -221,6 +225,32 @@ python3 tools/run-checks.py   # the machine checks of contract §9
 Read [`CONTRACT.md`](CONTRACT.md) first; code that conflicts with it is the side that
 changes. A new language binding is welcome and does not need anything in this repository
 to change.
+
+## Acknowledgements
+
+Pier stands on other people's work, and these projects deserve more than a line in a
+dependency list.
+
+- **[LeviLamina](https://github.com/LiteLDev/LeviLamina)** is the platform. Pier is a
+  LeviLamina mod, and it runs on LeviLamina's hooks, event bus, commands, services and SDK.
+  Without it there would be nowhere to load a mod.
+- **[LegacyScriptEngine](https://github.com/LiteLDev/LegacyScriptEngine)** (LSE) showed what a
+  server event should mean. Many of Pier's events hook the same engine function as LSE's
+  same-named event, and most of the events added since, from hoppers and dispensers to the
+  scoreboard, were added by following where LSE places them.
+- **[iListenAttentively](https://github.com/LiteLDev/iListenAttentively)** (ILA, by
+  MiracleForest) is the event library LSE itself builds on, and Pier's second reference for
+  where to hook. Pier's events were checked against it one by one, and the attack-on-a-block,
+  wither and wake-up events and the mob-griefing hook points follow its choices.
+- **[MoreDimensions](https://github.com/LiteLDev/MoreDimensions)** is where custom dimensions
+  come from. Pier registers a dimension with the engine the way it does, and learned from the
+  places it had to hook.
+- **[LegacyMoney](https://github.com/LiteLDev/LegacyMoney)** (LLMoney) is the economy backend
+  behind Pier's money functions, and their documented semantics follow its source.
+
+Thank you to everyone who maintains them. Each keeps its own license; the links have the terms,
+and the [acknowledgements page](docs/en/guide/acknowledgements.md) lists which event came from
+which reference.
 
 ## License
 

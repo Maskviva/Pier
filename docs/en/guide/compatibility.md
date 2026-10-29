@@ -7,6 +7,7 @@ name the BDS the release was built for and the third counts releases against it.
 
 | Pier    | BDS     | LeviLamina | Notes       |
 |---------|---------|------------|-------------|
+| 26.51.3 | 1.26.51 | 26.51.7    |             |
 | 26.51.2 | 1.26.51 | 26.51.5    |             |
 | 26.51.1 | 1.26.51 | 26.51.5    |             |
 | 26.40.3 | 1.26.40 | 26.40.0    |             |

@@ -7,7 +7,7 @@
 | | 版本 |
 |---|---|
 | 服务端 | 基岩版专用服务器（BDS）1.26.51 |
-| 装载器 | LeviLamina 26.51.5 |
+| 装载器 | LeviLamina 26.51.7 |
 | 可选 | [LegacyMoney](https://github.com/LiteLDev/LegacyMoney)，用到经济功能时才需要 |
 
 !!! tip "LegacyMoney 真的是可选的"

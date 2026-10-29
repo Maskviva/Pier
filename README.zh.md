@@ -9,7 +9,7 @@
   <a href="https://github.com/Maskviva/pier/releases"><img src="https://img.shields.io/github/v/release/Maskviva/pier?color=334155" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0"></a>
   <img src="https://img.shields.io/badge/BDS-1.26.51-62B47A" alt="BDS 1.26.51">
-  <img src="https://img.shields.io/badge/LeviLamina-26.51.5-8B5CF6" alt="LeviLamina 26.51.5">
+  <img src="https://img.shields.io/badge/LeviLamina-26.51.7-8B5CF6" alt="LeviLamina 26.51.7">
 </p>
 
 <p align="center">
@@ -207,16 +207,19 @@ lip install github.com/Maskviva/Pier
 
 或者把发布压缩包解压到 `plugins/pier/`。
 
-Pier 需要 BDS 1.26.51 上的 LeviLamina 26.51.5。
+Pier 需要 BDS 1.26.51 上的 LeviLamina 26.51.7。
 [LegacyMoney](https://github.com/LiteLDev/LegacyMoney) 是可选的：它走延迟加载，
 没装的服务器照常启动，只有经济相关的调用返回失败值。
 
 ## 从源码构建
 
 ```bash
-xmake f --target_type=server && xmake   # 宿主本体 pier.dll
-cargo build --release                    # Rust 绑定与示例
+xmake f --toolchain=clang-cl --target_type=server && xmake   # 宿主本体 pier.dll
+cargo build --release                                        # Rust 绑定与示例
 ```
+
+宿主用 `clang-cl` 构建（CI 安装的是 LLVM 21.1.8），`xmake.lua` 给每个目标都选了它。MSVC 的 `cl` 会在
+LeviLamina 的 `EventCoordinatorPimpl.h` 上报 C2491，hook 这个函数的两个文件在其他编译器下会直接 `#error`。
 
 两条构建线之间没有构建依赖，只有那份头文件，所以它们可以分别修。
 
@@ -228,6 +231,24 @@ python3 tools/run-checks.py   # 契约第九节的机器检查
 
 先读 [`CONTRACT.md`](CONTRACT.md)；和它冲突的代码是要改的那一方。
 欢迎新的语言绑定，而且它不需要这个仓库改任何东西。
+
+## 致谢
+
+Pier 站在别人的工作上，这几个项目值得的不只是依赖列表里的一行。
+
+- **[LeviLamina](https://github.com/LiteLDev/LeviLamina)** 是整个平台。Pier 本身是一个 LeviLamina 模组，
+  用的是它的钩子、事件总线、命令、服务和 SDK。没有它，就没有可以装模组的地方。
+- **[LegacyScriptEngine](https://github.com/LiteLDev/LegacyScriptEngine)**（LSE）让我们知道一个服务端事件该是什么意思。
+  Pier 的许多事件钩的是和 LSE 同名事件相同的引擎函数，后来补上的大部分事件，从漏斗、发射器到计分板，
+  是照着 LSE 的挂点补上的。
+- **[iListenAttentively](https://github.com/LiteLDev/iListenAttentively)**（ILA，作者 MiracleForest）是 LSE 自己所依赖的事件库，
+  也是 Pier 判断该钩哪里的第二份参照。Pier 的事件逐个和它对照过，其中攻击方块、凋零破坏、起床和生物破坏方块的钩点沿用了它的选择。
+- **[MoreDimensions](https://github.com/LiteLDev/MoreDimensions)** 是自定义维度的来源。Pier 向引擎注册维度的方式沿用它，
+  也从它不得不钩的那些地方学到了东西。
+- **[LegacyMoney](https://github.com/LiteLDev/LegacyMoney)**（LLMoney）是 Pier 经济函数背后的后端，这些函数文档里写明的语义以它的源码为准。
+
+感谢每一位维护者。它们各自保留自己的许可证，条款见各自的仓库；哪个事件参照了哪一个项目，
+见[致谢页](docs/zh/guide/acknowledgements.md)。
 
 ## 许可
 
