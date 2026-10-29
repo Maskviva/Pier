@@ -321,7 +321,7 @@ namespace pier::dimensions
         }
         // A value from a caller is never trusted: a negative gapWidth makes cell zero
         // or negative, and cell is the divisor of the modulus. The same reason
-        // TerrainSpec::clamp gives.
+        // DimensionSpec::clamp gives.
         if (gapWidth < 0) gapWidth = 0;
         if (cellSize > 512) cellSize = 512;
         if (gapWidth > 64) gapWidth = 64;

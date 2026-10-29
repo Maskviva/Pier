@@ -184,11 +184,8 @@ namespace pier::api_impl
                 }
                 if (verb == "look_at")
                 {
-                    // Three overloads exist: (Vec3&), (Vec3&, LookDuration) and one
-                    // taking a BlockPos. A bare Vec3 is ambiguous between the first
-                    // two. Passing LookDuration explicitly pins the Vec3 overload, and
-                    // Instant carries the same turn-immediately meaning as the version
-                    // without a duration.
+                    // The Vec3 overload takes LookDuration with a default, so passing
+                    // Instant states the turn-immediately meaning instead of relying on it.
                     sim->simulateLookAt(
                         Vec3{
                             (float)argD(args, "x", 0),

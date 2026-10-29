@@ -123,7 +123,7 @@ namespace pier
 
     /** PierModHandle to HostedMod*. The handle is the pointer itself. Its lifetime
      *  is guaranteed by the ModHost table, which runs every Teardown step before it
-     *  erases the entry (see mod_host.cpp). */
+     *  erases the entry (see ModHost.cpp). */
     [[nodiscard]] inline HostedMod* asMod(PierModHandle h) noexcept
     {
         return static_cast<HostedMod*>(h);

@@ -4,8 +4,8 @@
  * on the actor side, so everything right-clicking a mob can do is unprotected: shearing,
  * dyeing, milking, leashing, name tags, saddling, opening a horse or llama inventory,
  * villager trading, feeding and breeding. The hook point is
- * Player::interact(Actor&, Vec3 const&), which sits above
- * Actor::interactPreventDefault and therefore also catches interactions handled entirely
+ * Player::interact(Actor&, Vec3 const&), which sits above the actor's own interaction
+ * handling and therefore also catches interactions handled entirely
  * inside mob component code, where shearing lives. Cancelling returns
  * InteractionResult{false, true}: the interaction did not succeed while the arm still
  * swings, because a refusal that eats the animation too looks like packet loss to a

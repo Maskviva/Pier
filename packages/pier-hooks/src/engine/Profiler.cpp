@@ -3,8 +3,8 @@
  * profile_begin(ticks) arms a sampling window of N level ticks and profile_take() polls
  * for the finished report as SNBT. Five timing detours cover level_tick, dimension_tick,
  * redstone, chunk_blocks and block_entities, and all follow the lifetime rules of
- * hook_events.h: installed together on the first profile_begin, never unpatched, and
- * taking a fast-path branch while unarmed.
+ * hook_events.h: installed together on the first profile_begin, unpatched again as a set
+ * only when one of the five fails to attach, and taking a fast-path branch while unarmed.
  *
  * The times are inclusive wall-clock times from steady_clock: dimension_tick runs inside
  * level_tick, and the redstone and chunk buckets run inside dimension_tick. They are

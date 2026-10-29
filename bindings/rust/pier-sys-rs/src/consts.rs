@@ -2,7 +2,7 @@
 //!
 //! The split is for reading only and is not a semantic boundary: everything is flattened
 //! under `levilamina_sys::` through `pub use`, and a caller need not know which file
-//! `PIER_PPROP_HEALTH` lives in.
+//! `PIER_APROP_HEALTH` lives in.
 //!
 //! The agreement of the three modules is guarded by the `sys-mirrors-abi` check: every
 //! `enum` member in `abi.h` needs a constant of the same name and value here. Reality

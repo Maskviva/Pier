@@ -5,8 +5,7 @@
  * kind with a second generator, it is turned into the pack the tool would have built
  * and handed to the same code, so the chunk fill, the layout expansion and the
  * confinement hook underneath are the ones the pack path uses and the ones the tests
- * cover. `tools/pier-pack from-layers` performs the identical mapping offline, and
- * `equivalent_to_the_tool` holds the two together.
+ * cover. `tools/pier-pack from-layers` performs the identical mapping offline.
  *
  * The inline spec names concrete numbers, so every expression the pack carries is a
  * constant and the parameter table is empty. That is the whole reason this can be built

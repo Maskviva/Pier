@@ -43,7 +43,7 @@ in the design prefers it, and a Go or Zig binding needs no change here to exist.
 | World | Time, weather, difficulty, game rules, biomes, chunk save keys, region scans |
 | Blocks | Reads and writes by coordinate, block states, block entities, the liquid layer |
 | Actors | Snapshots, relations, effects, status flags, ray casts, spawning from NBT |
-| Events | The LeviLamina registry, plus 29 events Pier synthesizes with native detours |
+| Events | The LeviLamina registry, plus 69 events Pier synthesizes with native detours |
 | Commands | Raw-text commands and typed overloads with client-side completion |
 | Cross-mod | A named service channel, a broadcast bus, and a same-toolchain fast lane |
 | Dimensions | Registering a custom dimension, per-dimension rules, cell confinement |

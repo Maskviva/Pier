@@ -1,7 +1,7 @@
 /** world/PistonPushEvent.cpp: a piston is about to push or pull a set of blocks.
  * A piston is the classic cross-plot griefing tool: the machine is built on the owner's own
  * ground and the arm reaches into a neighbor's to move their blocks away. The
- * PISTON_CROSS_PLOT rule in pier-dimensions decides sameness of area from the grid, and
+ * PISTON_CROSS_CELL rule in pier-dimensions decides sameness of area from the grid, and
  * this event hands the decision to the mod, because who actually owns a plot and who is
  * authorized on it is known only there.
  * The payload carries the piston position, its facing and the list of blocks attached

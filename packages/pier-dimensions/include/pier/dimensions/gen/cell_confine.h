@@ -5,7 +5,7 @@
 /** cell_confine.h: whether two coordinates count as the same grid cell. DimRule::PistonPush
  * applies to a whole dimension, while keeping flying machines, pistons and actors inside one cell
  * needs a decision by boundary: pushing inside a cell is fine and only crossing is blocked. A plot
- * world is one use of this and not its definition, the same way GridSpec in dimension_spec.h is: a
+ * world is one use of this and not its definition, the same way Grid in dimension_spec.h is: a
  * showcase world confining each exhibit and a city world confining each block want the same rule.
  * The grid convention is the one dimension_spec.h states, and the two must agree for a dimension
  * that has both, since a confinement boundary that does not fall on a visible gap is invisible.

@@ -38,8 +38,8 @@ or let the script look in the usual places itself.
 
 The compiler always reports this, so by the criterion of §9 it does not belong in that
 table. Its value is reporting everything at once: the compiler reports only the first
-failing TU, while this script verifies all 30 `.get()` call sites in the repository
-together.
+failing TU, while this script verifies every `.get()` call on a member in the
+repository together.
 """
 
 import glob

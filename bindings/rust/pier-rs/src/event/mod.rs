@@ -128,7 +128,7 @@ impl<'a> Event<'a> {
         self.value().ok()
     }
 
-    /* Typed access, absorbing what payload.rs used to do */
+    /* Typed access to the fields of the payload */
 
     /// Reads a string by path. A missing key and a type mismatch both name the key.
     pub fn str_at(&mut self, path: &str) -> Result<&str> {
