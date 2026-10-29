@@ -206,9 +206,9 @@ false 和「值为零」是两种结果，调用方不能把它们合成一种�
 - 所在分节：§B 玩家管理（`§B player management`）
 - 表内序号：第 28 个槽位（从 0 数起）
 - 各绑定里的调用方：
-    - Rust：[`Player::num`](../rust/player.md#Player.num)、[`Player::game_type`](../rust/player.md#Player.game_type)、[`Player::permission_level`](../rust/player.md#Player.permission_level)、[`Player::dimension`](../rust/player.md#Player.dimension)、[`Player::level`](../rust/player.md#Player.level)、[`Player::experience`](../rust/player.md#Player.experience) 等，共 36 个
-    - Go：[`Player.GameType`](../go/player.md#Player.GameType)、[`Player.Level`](../go/player.md#Player.Level)、[`Player.Experience`](../go/player.md#Player.Experience)、[`Player.Hunger`](../go/player.md#Player.Hunger)、[`Player.Saturation`](../go/player.md#Player.Saturation)、[`Player.Exhaustion`](../go/player.md#Player.Exhaustion) 等，共 37 个
-    - Zig：[`Player.gameType`](../zig/player.md#Player.gameType)、[`Player.level`](../zig/player.md#Player.level)、[`Player.experience`](../zig/player.md#Player.experience)、[`Player.hunger`](../zig/player.md#Player.hunger)、[`Player.saturation`](../zig/player.md#Player.saturation)、[`Player.exhaustion`](../zig/player.md#Player.exhaustion) 等，共 36 个
+    - Rust：[`Player::num`](../rust/player.md#Player.num)、[`Player::game_type`](../rust/player.md#Player.game_type)、[`Player::permission_level`](../rust/player.md#Player.permission_level)、[`Player::dimension`](../rust/player.md#Player.dimension)、[`Player::level`](../rust/player.md#Player.level)、[`Player::experience`](../rust/player.md#Player.experience) 等，共 37 个
+    - Go：[`Player.GameType`](../go/player.md#Player.GameType)、[`Player.Level`](../go/player.md#Player.Level)、[`Player.Experience`](../go/player.md#Player.Experience)、[`Player.Hunger`](../go/player.md#Player.Hunger)、[`Player.Saturation`](../go/player.md#Player.Saturation)、[`Player.Exhaustion`](../go/player.md#Player.Exhaustion) 等，共 38 个
+    - Zig：[`Player.gameType`](../zig/player.md#Player.gameType)、[`Player.level`](../zig/player.md#Player.level)、[`Player.experience`](../zig/player.md#Player.experience)、[`Player.hunger`](../zig/player.md#Player.hunger)、[`Player.saturation`](../zig/player.md#Player.saturation)、[`Player.exhaustion`](../zig/player.md#Player.exhaustion) 等，共 37 个
 
 ### `player_get_str` {#player_get_str}
 
@@ -552,6 +552,7 @@ bool (*player_execute_command)(PierPlayerSel sel, PierStr cmd, void* ctx,
 | <span id="PIER_PPROP_IS_DEAD"></span>`PIER_PPROP_IS_DEAD` | `33` | (G) `Actor::isDead` |
 | <span id="PIER_PPROP_HAS_DIED_BEFORE"></span>`PIER_PPROP_HAS_DIED_BEFORE` | `34` | (G) `Player::hasDiedBefore` |
 | <span id="PIER_PPROP_DIMENSION"></span>`PIER_PPROP_DIMENSION` | `35` | (G) `Actor::getDimensionId` |
+| <span id="PIER_PPROP_IS_INITIALIZED"></span>`PIER_PPROP_IS_INITIALIZED` | `36` | (G) `Player::isPlayerInitialized`；模拟玩家读到 1 |
 
 ## `PierPlayerStrProp` {#PierPlayerStrProp}
 

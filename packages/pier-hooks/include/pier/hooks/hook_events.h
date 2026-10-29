@@ -13,6 +13,7 @@
  * suffix, and never a substring: find(name) != npos would also match "xxPlayerAttackEventxx". */
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -62,7 +63,12 @@ namespace pier::hooks
         /** Installs the native detours, called once when the first subscriber appears.
          *  Returns whether every primary hook point installed. On failure the
          *  subscription is refused rather than answered with a handle that never
-         *  fires. */
+         *  fires.
+         *
+         *  Two defs that share a detour must share one installer that installs it once and
+         *  answers every caller with that result: a second `hook()` call on the same
+         *  detour is a second registration. The `hook-install-once` check reads the
+         *  sources for the pattern. */
         bool (*install)();
         bool installed = false;
         std::vector<std::unique_ptr<HookSub>> subs;
@@ -143,4 +149,28 @@ namespace pier::hooks
      * arguments are still writable when the dispatch returns.
      */
     Decision dispatchHookEventDecided(HookEventDef& def, std::string const& snbt);
+
+    /** What the subscribers of one dispatch decided about a set of block cells. */
+    struct Keep
+    {
+        bool cancelled = false;
+        /** Every cell a subscriber asked to keep, each as {x, y, z}: the union of all the
+         *  replies, so one subscriber protecting a cell is enough and the outcome does not
+         *  depend on registration order. */
+        std::vector<std::array<int, 3>> cells;
+    };
+
+    /**
+     * As dispatchHookEventCancellable, and additionally reads the optional `keep` field out
+     * of each reply, a list of [x, y, z] cells of integers that the engine must leave out
+     * of what it is about to destroy.
+     *
+     * An element that is not a list of three integers is skipped and reported by name, since
+     * a cell that cannot be read protects nothing. A cancel from any subscriber stays a
+     * cancel and the cells are then of no use.
+     *
+     * Only for hook points where the engine hands over a set it will read back after the
+     * dispatch returns.
+     */
+    Keep dispatchHookEventKeeping(HookEventDef& def, std::string const& snbt);
 } // namespace pier::hooks

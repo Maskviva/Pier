@@ -1,6 +1,6 @@
 # levilamina::registry · 注册表
 
-引擎自己的注册表：正在运行的游戏里的每一种方块、每一种物品和每一种实体，连同按规则从中挑选时需要的信息。
+引擎自己的注册表：正在运行的游戏里的每一种方块、每一种物品、每一种实体和每一条命令，连同按规则从中挑选时需要的信息。
 
 发放「一个随机方块」或者「一个随机稀有物品」的模组，不应该自己维护一份名字列表：游戏里的东西比任何这样的列表都多，而且每个版本都会让列表过时。改为读取这些注册表，按规则（实心的、不是技术性方块、某个稀有度）来挑。比 `registry_list` 槽位旧的宿主会返回错误，永远不会返回一个看起来像是游戏没有任何内容的空列表。
 
@@ -37,6 +37,17 @@ pub fn entities() -> Result<Vec<EntityType>>
 关卡知道的所有实体。
 
 - 返回值类型：`Result<Vec<EntityType>>`
+- 对应槽位：[`registry_list`](../cpp/registry.md#registry_list)
+
+### `registry::commands` {#fn.commands}
+
+```rust
+pub fn commands() -> Result<Vec<CommandType>>
+```
+
+引擎注册表里的每一条命令，不论是哪个模组注册的。服务器建好注册表之前它并不存在，这时调用会返回错误。
+
+- 返回值类型：`Result<Vec<CommandType>>`
 - 对应槽位：[`registry_list`](../cpp/registry.md#registry_list)
 
 ## `EntityType` {#EntityType}
@@ -163,6 +174,35 @@ pub struct ItemType {
 ```
 
 一种物品。
+
+- 实现的 trait：`Debug`、`Clone`、`PartialEq`、`serde::Deserialize`
+
+## `CommandType` {#CommandType}
+
+```rust
+pub struct CommandType {
+    /// The canonical name, without the slash.
+    pub name: String,
+    /// The localization key of the description.
+    #[serde(default)]
+    pub description: String,
+    /// The permission level as the engine numbers it: 0 any, 1 game directors, 2 admin, 3 host,
+    /// 4 owner, 5 internal.
+    #[serde(default, deserialize_with = "whole")]
+    pub permission: i32,
+    /// The raw flag bits of the command.
+    #[serde(default, deserialize_with = "whole")]
+    pub flags: i32,
+    /// Hidden from players: the command is not in the list a player's client shows.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The other names that run this command.
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+```
+
+引擎注册表里的一条命令。
 
 - 实现的 trait：`Debug`、`Clone`、`PartialEq`、`serde::Deserialize`
 

@@ -566,6 +566,15 @@ levilamina::register_mod!(MyMod);
 
 在这个存档里至少死过一次。
 
+## 14e23e5433
+
+>  The client has finished joining. An ability written before that reaches a client that
+>  has not built its ability layers yet, and the write is refused. A timer that reaches
+>  players who may still be loading asks this first. A simulated player has no client
+>  and always answers true.
+
+客户端已经完成加入。在这之前写能力，会写到一个还没建好能力层的客户端上，这次写入会被拒绝。定时器如果会碰到可能还在加载的玩家，应该先问这一项。模拟玩家没有客户端，永远答复为真。
+
 ## d38f8f9a3e
 
 >  How to point at a player.
@@ -2515,16 +2524,17 @@ let wiring = Wiring::new("plots")
 
 载荷：`x` `y` `z` `dim` `dropResources` `block`。注意里面没有「是谁」：引擎在这一层已经丢掉了来源，编一个出来只会误导人。
 
-## 3e1b8708ce
+## e7a2429e70
 
 >  Cancellable. Cancelling means the explosion does not happen at all, damage and blocks
 >  alike.
 >  Payload: `x` `y` `z` `dim` `radius` `maxResistance` `fire` `breaksBlocks`
->  `underwater` `sourceIsPlayer` `sourceId` `source`.
+>  `underwater` `sourceIsPlayer` `sourceId` `source`, and `partial` when a field could
+>  not be read.
 
 可以取消。取消就是这次爆炸完全不发生，伤害和方块都不受影响。
 
-载荷：`x` `y` `z` `dim` `radius` `maxResistance` `fire` `breaksBlocks` `underwater` `sourceIsPlayer` `sourceId` `source`。
+载荷：`x` `y` `z` `dim` `radius` `maxResistance` `fire` `breaksBlocks` `underwater` `sourceIsPlayer` `sourceId` `source`，有字段读不出来时还带 `partial`。
 
 ## 4bf50867e3
 
@@ -2542,51 +2552,54 @@ let wiring = Wiring::new("plots")
 
 这是热路径：液体每刻都在扩散，所以判断必须很快。
 
-## 327e3804b1
+## 94a942a274
 
 >  Cancellable. Something fell from a height and trampled farmland into dirt, needing no
 >  permission and leaving no log.
->  Payload: `x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`, plus `_player` for a player.
+>  Payload: `x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`, plus `_player` for a player,
+>  and `partial` when a field could not be read.
 
 可以取消。有东西从高处落下，把耕地踩回了泥土，不需要任何权限，也不留任何日志。
 
-载荷：`x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`，是玩家时还有 `_player`。
+载荷：`x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`，是玩家时还有 `_player`，有字段读不出来时还带 `partial`。
 
-## 5fc694f145
+## 5b8a499c1d
 
 >  Cancellable. A piston is about to push or pull a set of blocks. It blocks a cross-plot
 >  piston machine.
->  Payload: the piston `x` `y` `z` `dim`, `facing:[x,y,z]` and `attached:[[x,y,z],...]`.
+>  Payload: the piston `x` `y` `z` `dim`, `facing:[x,y,z]` and `attached:[[x,y,z],...]`,
+>  and `partial` when a field could not be read.
 
 可以取消。活塞即将推动或拉回一组方块。用来拦跨地皮的活塞机器。
 
-载荷：活塞的 `x` `y` `z` `dim`，`facing:[x,y,z]` 和 `attached:[[x,y,z],...]`。
+载荷：活塞的 `x` `y` `z` `dim`，`facing:[x,y,z]` 和 `attached:[[x,y,z],...]`，有字段读不出来时还带 `partial`。
 
-## 1a873b5dda
+## e80049c037
 
 >  Cancellable. Two chests are about to pair into a double chest.
 >  A chest placed against the boundary pairs with the neighbor's, and opening the near half
 >  shows everything in theirs. Container protection decides on the cell you clicked, and
 >  that cell really belongs to the placer.
->  Payload: `x` `y` `z` `dim` `otherX` `otherY` `otherZ`.
+>  Payload: `x` `y` `z` `dim` `otherX` `otherY` `otherZ`, and `partial` when a field
+>  could not be read.
 
 可以取消。两个箱子即将合成一个大箱子。
 
 贴着边界放的箱子会和邻居的箱子合并，打开靠自己这边的一半，就能看到对方那边的所有东西。容器保护按你点的那一格做判断，而那一格确实属于放箱子的人。
 
-载荷：`x` `y` `z` `dim` `otherX` `otherY` `otherZ`。
+载荷：`x` `y` `z` `dim` `otherX` `otherY` `otherZ`，有字段读不出来时还带 `partial`。
 
-## b249d90484
+## 616a48af76
 
 >  Cancellable. Cancelling means the drop is not spawned and the item disappears rather
 >  than lying on the ground.
 >  For anti-duplication and drop ownership. Payload: `x` `y` `z` `dim` `item` `count`
 >  `throwTime`
->  `sourceIsPlayer` `source`.
+>  `sourceIsPlayer` `source`, and `partial` when a field could not be read.
 
 可以取消。取消就是不生成这个掉落物，物品直接消失，不会躺在地上。
 
-用于防刷和掉落物归属。载荷：`x` `y` `z` `dim` `item` `count` `throwTime` `sourceIsPlayer` `source`。
+用于防刷和掉落物归属。载荷：`x` `y` `z` `dim` `item` `count` `throwTime` `sourceIsPlayer` `source`，有字段读不出来时还带 `partial`。
 
 ## eb80998645
 
@@ -2655,13 +2668,19 @@ let wiring = Wiring::new("plots")
 
 可以取消。修改一块已经放好的告示牌上的文字。放告示牌属于放方块，早就覆盖了；改文字既不是放置也不是交互。
 
-## 23acb3f180
+## c6f8bd6fe1
 
->  Not raised by this host. The name is kept for mods that already subscribe to it, and
->  [`is_cancellable`] answers `Some(false)` for it so no mod mistakes it for a gate. It is
->  left out of [`ALL_SYNTHETIC`], which lists only what the host registers.
+>  Cancellable. A player's client asks the server to move a stack between slots, to remove
+>  one, or to consume the ingredients of a craft, as item stack requests applied one action
+>  at a time. Cancelling returns the engine's own error result, which makes the client put
+>  its screen back the way the server has it.
+>  Payload: `action` `amount` `srcContainer` `srcSlot` `dstContainer` `dstSlot` `x` `y` `z`
+>  `dim` `_player`. `action` is the engine's action type number and the containers are its
+>  container enum numbers. A removal or a consume has no destination worth reading, and its
+>  `dst` fields are only what the client sent.
 
-这个宿主不会触发它。保留这个名字，是为了已经订阅它的模组；[`is_cancellable`] 对它回答 `Some(false)`，免得有模组把它当成关卡。它没有列在 [`ALL_SYNTHETIC`] 里，那里只列宿主注册的事件。
+可取消。玩家的客户端请求服务端在格子之间移动一叠物品、移除一叠物品，或者消耗合成的材料，这些都是逐个动作执行的物品栈请求。取消会返回引擎自己的错误结果，让客户端把界面恢复成服务端手里的样子。
+载荷：`action` `amount` `srcContainer` `srcSlot` `dstContainer` `dstSlot` `x` `y` `z` `dim` `_player`。`action` 是引擎的动作类型编号，容器是引擎的容器枚举编号。移除或消耗没有值得读的目标，它的 `dst` 字段只是客户端发来的内容。
 
 ## dc975b87ae
 
@@ -2798,6 +2817,380 @@ let wiring = Wiring::new("plots")
 >  Cancellable. A player uses an item on a block, placing it or right-clicking with it.
 
 可以取消。玩家对一个方块使用物品，放置它，或者拿着它右键。
+
+## cd000c52bc
+
+>  Cancellable. A hopper, or a hopper minecart, is about to pull one item, from the container
+>  above it or from a dropped item lying above it. Unlike [`HOPPER_TRANSFER`] it fires before
+>  the move and carries the dimension, and cancelling it makes the engine answer that nothing
+>  moved, so the hopper tries again later. It blocks a hopper on one plot emptying a chest on
+>  the next.
+>  Payload: `x` `y` `z` `dim` `minecart` `fromEntity` `item` `count` `slot` `face`, and
+>  `partial` when a field could not be read. `x` `y` `z` are the block coordinates of the
+>  hopper, and `fromEntity` is 1 for a dropped item.
+
+可取消。漏斗或漏斗矿车即将拉进一个物品，来源是上方的容器，或者落在上方的掉落物。和 [`HOPPER_TRANSFER`] 不同，它在物品移动之前触发，并带着维度；取消它，引擎就当作什么都没移动，漏斗稍后会再试。它能挡住一块地上的漏斗把下一块地上的箱子抽空。
+载荷：`x` `y` `z` `dim` `minecart` `fromEntity` `item` `count` `slot` `face`，有字段读不出来时还带 `partial`。`x` `y` `z` 是漏斗所在的方块坐标，掉落物的 `fromEntity` 为 1。
+
+## 01a89acaa2
+
+>  Cancellable. A hopper, or a hopper minecart, is about to push one item into the container
+>  it faces. The payload is that of [`HOPPER_SEARCH_ITEM`], where `face` names the side the
+>  hopper pushes toward. It blocks a hopper on one plot filling a chest on the next.
+
+可取消。漏斗或漏斗矿车即将把一个物品推进它朝向的容器。载荷和 [`HOPPER_SEARCH_ITEM`] 相同，其中 `face` 是漏斗推向的那一侧。它能挡住一块地上的漏斗把东西塞进下一块地上的箱子。
+
+## 097ce44e3d
+
+>  Cancellable. A dispenser is about to eject an item into the world. Nobody is acting, so
+>  no player event sees it, and a dispenser facing a plot boundary reaches the neighbor's
+>  side. Cancelling leaves the item in the dispenser.
+>  Payload: `x` `y` `z` `dim` `item` `count` `slot` `face`, and `partial` when a field could
+>  not be read.
+
+可取消。发射器即将把一个物品弹到世界里。这不是谁的操作，所以没有玩家事件看得到它，而朝着地界边缘的发射器会够到邻居那一侧。取消后物品留在发射器里。
+载荷：`x` `y` `z` `dim` `item` `count` `slot` `face`，有字段读不出来时还带 `partial`。
+
+## 74093f3a26
+
+>  Cancellable. A command block, or a command block minecart, is about to run its command.
+>  The origin is not a player, so [`EXECUTING_COMMAND`] never reports it. Cancelling means
+>  the command does not run.
+>  Payload: `command` `x` `y` `z` `dim` `minecart`, and `partial` when a field could not be
+>  read.
+
+可取消。命令方块或命令方块矿车即将执行它的命令。来源不是玩家，所以 [`EXECUTING_COMMAND`] 永远不会报告它。取消就是这条命令不执行。
+载荷：`command` `x` `y` `z` `dim` `minecart`，有字段读不出来时还带 `partial`。
+
+## 1dfbc97955
+
+>  Cancellable. A wither is about to break the blocks around its body, which it does when it
+>  spawns, when it is hurt and while it charges. It is neither an explosion nor a player.
+>  Payload: `x` `y` `z` `dim` `range` `attackType` `witherId`.
+
+可取消。凋零即将破坏它身体周围的方块，它在生成时、受伤时和冲撞时都会这样做。这既不是爆炸也不是玩家。
+载荷：`x` `y` `z` `dim` `range` `attackType` `witherId`。
+
+## c857c63e5a
+
+>  Cancellable. A player right-clicks a charged respawn anchor outside the nether, which
+>  makes it explode. Charging it with glowstone raises nothing. Cancelling leaves the anchor
+>  and the player as they were.
+>  Payload: `x` `y` `z` `dim` `charge` `_player`.
+
+可取消。玩家在下界以外右键一个已充能的重生锚，它会爆炸。用荧石充能不会触发任何事件。取消后锚和玩家都保持原样。
+载荷：`x` `y` `z` `dim` `charge` `_player`。
+
+## 21b37d24aa
+
+>  Cancellable. A player right-clicks a charged respawn anchor in the nether, which makes it
+>  the player's spawn point. The payload is that of [`RESPAWN_ANCHOR_EXPLODE`].
+
+可取消。玩家在下界右键一个已充能的重生锚，它会成为玩家的重生点。载荷和 [`RESPAWN_ANCHOR_EXPLODE`] 相同。
+
+## d5987c08c5
+
+>  Cancellable. A player starts hitting a block. It hooks the handler of the start-destroy
+>  request, which runs earlier than [`PLAYER_START_DESTROY_BLOCK`], so cancelling it stops the
+>  mining before the game mode hears of it.
+>  Payload: `x` `y` `z` `dim` `face` `_player`.
+
+可取消。玩家开始击打一个方块。它钩的是“开始破坏”请求的处理函数，比 [`PLAYER_START_DESTROY_BLOCK`] 更早，所以取消它能在游戏模式得知之前就停住挖掘。
+载荷：`x` `y` `z` `dim` `face` `_player`。
+
+## 1808fca8ff
+
+>  Cancellable. A bucket is about to put its liquid into a cell. It is neither a block place
+>  nor a block break, so neither of those events sees it. Cancelling is the engine's answer
+>  of a bucket that did not empty.
+>  Payload: `x` `y` `z` `dim` `face` `item` `block` `byPlayer`, plus `_player` when a player
+>  does it, and `partial` when a field could not be read. `block` is the liquid in the bucket.
+
+可取消。桶即将把它的液体放进一个格子。这既不是放置方块也不是破坏方块，所以那两个事件都看不到它。取消就是引擎对“桶没倒出来”的回答。
+载荷：`x` `y` `z` `dim` `face` `item` `block` `byPlayer`，玩家操作时还带 `_player`，有字段读不出来时带 `partial`。`block` 是桶里的液体。
+
+## 5a538a1308
+
+>  Cancellable. An empty bucket is about to take a liquid or powder snow out of a cell. The
+>  payload is that of [`PLAYER_USE_BUCKET_PLACE`], where `block` is the block aimed at.
+
+可取消。空桶即将从一个格子里取走液体或细雪。载荷和 [`PLAYER_USE_BUCKET_PLACE`] 相同，其中 `block` 是瞄准的方块。
+
+## 1f69873726
+
+>  Cancellable. A totem of undying is about to save a player. Cancelling spends no totem and
+>  the death proceeds, for a game where a hit is final.
+>  Payload: `x` `y` `z` `dim` `_player`.
+
+可取消。不死图腾即将救下一名玩家。取消后不消耗图腾，死亡照常发生，适合一击必死的玩法。
+载荷：`x` `y` `z` `dim` `_player`。
+
+## 8fdcdaec34
+
+>  Observation only, emitted before origin, so a callback still finds the player in bed. The
+>  other half of [`PLAYER_SLEEP`].
+>  Payload: `x` `y` `z` `dim` `forceful` `updateLevelList` `_player`.
+
+只观察，在 origin 之前发出，所以回调看到的玩家还在床上。它是 [`PLAYER_SLEEP`] 的另一半。
+载荷：`x` `y` `z` `dim` `forceful` `updateLevelList` `_player`。
+
+## 80526e4af1
+
+>  Cancellable. An explosion has worked out which blocks it reaches and is about to destroy
+>  them. It is the finer half of [`EXPLOSION`], which can only refuse the whole blast: here a
+>  plot keeps its own blocks and lets the rest go.
+>
+>  Payload: `x` `y` `z` `dim` `radius` `sourceIsPlayer` `sourceId` `source` `count`
+>  `truncated` and `blocks:[[x,y,z],...]`, and `partial` when the source could not be read.
+>  Above 16384 cells `blocks` is empty and `truncated` is 1, and a subscriber that cannot
+>  decide should cancel.
+>
+>  Reply `keep:[[x,y,z],...]` to take those cells out of the blast, or cancel it. The cells
+>  of every subscriber are kept together, so one subscriber protecting a cell is enough. A
+>  cell that is not a list of three integers is skipped and logged.
+
+可取消。爆炸已经算出它会波及哪些方块，正要把它们毁掉。这是 [`EXPLOSION`] 更细的那一半，后者只能拒绝整场爆炸：在这里，地块可以保住自己的方块，其余的照炸。
+
+载荷：`x` `y` `z` `dim` `radius` `sourceIsPlayer` `sourceId` `source` `count` `truncated` 和 `blocks:[[x,y,z],...]`，来源读不出来时还带 `partial`。格子超过 16384 个时 `blocks` 为空、`truncated` 为 1，决定不了的订阅者应当取消。
+
+回复 `keep:[[x,y,z],...]` 把这些格子从爆炸里拿掉，或者取消爆炸。所有订阅者的格子会合在一起保留，所以一个订阅者保护某个格子就够了。不是三个整数组成的列表的元素会被跳过并写进日志。
+
+## 0a6a6a3cd1
+
+>  Cancellable. A player right-clicks a block that does something: a door, a button, a
+>  lever, a container, a crafting table, a bed. It is decided below the held item, which is
+>  why [`PLAYER_USE_ITEM_ON`] does not see a bare hand on a lever.
+>  Payload: `x` `y` `z` `dim` `face` `block` `_player`.
+
+可取消。玩家右键一个会有反应的方块：门、按钮、拉杆、容器、工作台、床。它是在手持物品之下判定的，所以 [`PLAYER_USE_ITEM_ON`] 看不到空手按拉杆。
+载荷：`x` `y` `z` `dim` `face` `block` `_player`。
+
+## b03f6e12ed
+
+>  Cancellable. A player presses a button of an NPC dialogue whose action runs commands, and
+>  this is asked before they run. Which commands is the NPC author's choice and not the
+>  player's. Cancelling means the button does nothing.
+>  Payload: `x` `y` `z` `dim` `npc` `npcId` `actionIndex` `scene` `command` `_player`, and
+>  `partial` when the commands could not be read. `command` is the commands of the action
+>  joined by semicolons.
+
+可取消。玩家按下 NPC 对话里一个会执行命令的按钮，在命令执行之前询问。执行哪些命令是 NPC 作者的决定，不是玩家的。取消就是这个按钮什么也不做。
+载荷：`x` `y` `z` `dim` `npc` `npcId` `actionIndex` `scene` `command` `_player`，命令读不出来时还带 `partial`。`command` 是这个动作的各条命令用分号连起来的文本。
+
+## 78352da1e9
+
+>  Cancellable. A fishing hook is about to drag what it caught toward the angler: an item, a
+>  mob, another player. Cancelling leaves the actor where it is.
+>  Payload: `x` `y` `z` `dim` `pulled` `pulledId` `pulledIsPlayer` `item` `_player`, and
+>  `partial` when the pulled actor could not be read. `item` is set when the pulled actor is
+>  an item on the ground. A hook with no player owner is not reported.
+
+可取消。鱼钩即将把钩到的东西往钓鱼的人拉过去：物品、生物、另一名玩家。取消后那个实体留在原地。
+载荷：`x` `y` `z` `dim` `pulled` `pulledId` `pulledIsPlayer` `item` `_player`，被拉的实体读不出来时还带 `partial`。被拉的是地上的物品时 `item` 有值。没有玩家主人的鱼钩不上报。
+
+## 3f54ce6ae6
+
+>  Cancellable. A nether portal is about to spawn a zombified piglin. Cancelling means it
+>  does not this tick. The frame is the last one the engine measured on the thread, which it
+>  does just before asking.
+>  Payload: `x` `y` `z` `dim` `axis`.
+
+可取消。下界传送门即将生成一只僵尸猪灵。取消就是这一刻不生成。门框是引擎在这个线程上最后量过的那一个，它总是在询问之前刚量过。
+载荷：`x` `y` `z` `dim` `axis`。
+
+## a8798e4460
+
+>  Cancellable. An actor is about to be given an effect, or to have one renewed. Cancelling
+>  leaves it as it was.
+>  Payload: `effect` `effectId` `amplifier` `duration` `updated` `x` `y` `z` `dim` `actor`
+>  `actorId`, plus `_player` for a player, and `partial` when a field could not be read.
+>  `updated` is 1 when the actor already had that effect.
+
+可取消。一个实体即将获得一个效果，或者被续上一个。取消后它保持原样。
+载荷：`effect` `effectId` `amplifier` `duration` `updated` `x` `y` `z` `dim` `actor` `actorId`，玩家还带 `_player`，有字段读不出来时带 `partial`。实体已经有这个效果时 `updated` 为 1。
+
+## 9ee5655b8f
+
+>  Observation only, emitted before origin. An effect is being removed from an actor. The
+>  engine runs it after the effect is gone, and cancelling there would leave the modifiers of
+>  an effect that no longer exists, so to keep an effect, block what removes it. The payload
+>  is that of [`ACTOR_GET_EFFECT`] without `updated`.
+
+只观察，在 origin 之前发出。一个效果正从实体身上被移除。引擎是在效果已经没了之后才运行它的，在这里取消会留下一个已经不存在的效果的修饰值，所以想留住一个效果，就去拦住移除它的来源。载荷和 [`ACTOR_GET_EFFECT`] 相同，只是没有 `updated`。
+
+## c179910638
+
+>  Cancellable. A player's armor slot is about to be set, which covers putting armor on,
+>  taking it off and swapping it. Cancelling leaves the slot as it was.
+>  Payload: `slot` `item` `count` `x` `y` `z` `dim` `_player`, and `partial` when the item
+>  could not be read. `item` is empty when the slot is being emptied.
+
+可取消。玩家的盔甲槽即将被设置，穿上、脱下和替换都算。取消后这个槽保持原样。
+载荷：`slot` `item` `count` `x` `y` `z` `dim` `_player`，物品读不出来时还带 `partial`。槽被清空时 `item` 为空。
+
+## 494fc3cbca
+
+>  Cancellable. A player opens their own inventory screen. [`PLAYER_OPEN_CONTAINER`] covers
+>  a container block and never sees this.
+>  Payload: `x` `y` `z` `dim` `_player`.
+
+可取消。玩家打开自己的背包界面。[`PLAYER_OPEN_CONTAINER`] 管的是容器方块，看不到这个。
+载荷：`x` `y` `z` `dim` `_player`。
+
+## 206d6ed693
+
+>  Cancellable. A container screen is about to open for a player, whoever owns it: a
+>  container block, a minecart chest, a horse. Cancelling means the screen does not open.
+>  Payload: `x` `y` `z` `dim` `owner` `_player`, with `owner` one of `block`, `actor` and
+>  `none`, and `ownerX` `ownerY` `ownerZ` for a block or `ownerId` for an actor.
+
+可取消。一个容器界面即将为玩家打开，不管它属于谁：容器方块、运输矿车里的箱子、马。取消就是界面不打开。
+载荷：`x` `y` `z` `dim` `owner` `_player`，`owner` 是 `block`、`actor`、`none` 之一，方块还带 `ownerX` `ownerY` `ownerZ`，实体还带 `ownerId`。
+
+## 8718d4fd7b
+
+>  Observation only, emitted before origin, so a callback still finds the screen open. A
+>  player stops looking at a container block, by closing the screen, by disconnecting, or
+>  because a piston moved the block. Only a screen owned by a container block is reported.
+>  Payload: `x` `y` `z` `dim` `block` `_player`.
+
+只观察，在 origin 之前发出，所以回调看到的界面还开着。玩家不再看着一个容器方块：关掉界面、断开连接，或者活塞把方块推走了。只上报属于容器方块的界面。
+载荷：`x` `y` `z` `dim` `block` `_player`。
+
+## 2f55daa6e1
+
+>  Observation only. A slot of a container block a player has open changed. It runs after
+>  the slot holds the new stack.
+>  Payload: `x` `y` `z` `dim` `slot` `oldItem` `oldCount` `newItem` `newCount` `_player`, and
+>  `partial` when an item could not be read. `slot` is counted the way the player's screen
+>  counts it.
+
+只观察。玩家打开着的容器方块的一个格子变了。它在格子已经装上新物品之后才运行。
+载荷：`x` `y` `z` `dim` `slot` `oldItem` `oldCount` `newItem` `newCount` `_player`，物品读不出来时还带 `partial`。`slot` 按玩家界面的数法计。
+
+## 918c9c8760
+
+>  Observation only. A stack in one of a player's containers changed, whatever the cause: a
+>  pick-up, a craft, a command, another mod. It is not [`PLAYER_CHANGE_SLOT`], which is the
+>  held slot moving. It runs after the stack changed, so block the cause instead.
+>  Payload: `slot` `oldItem` `oldCount` `newItem` `newCount` `forceBalanced` `x` `y` `z`
+>  `dim` `_player`, and `partial` when an item could not be read.
+
+只观察。玩家某个容器里的一叠物品变了，不管原因：捡起、合成、命令、别的模组。它不是 [`PLAYER_CHANGE_SLOT`]，那个是手持格子在动。它在物品变了之后才运行，所以要拦就拦原因。
+载荷：`slot` `oldItem` `oldCount` `newItem` `newCount` `forceBalanced` `x` `y` `z` `dim` `_player`，物品读不出来时还带 `partial`。
+
+## ac0c071f0f
+
+>  Observation only. A score has a new value, whoever changed it: a command, a command
+>  block, another mod.
+>  Payload: `objective` `displayName` `score` `kind` `name` `entityId`, plus `_player` for a
+>  player who is online, and `partial` when a field could not be read. `kind` is `player`,
+>  `entity` or `fake`, `entityId` is the player's or the entity's id, and `name` is a fake
+>  player's name.
+
+只观察。一个分数有了新值，不管是谁改的：命令、命令方块、别的模组。
+载荷：`objective` `displayName` `score` `kind` `name` `entityId`，在线的玩家还带 `_player`，有字段读不出来时带 `partial`。`kind` 是 `player`、`entity` 或 `fake`，`entityId` 是玩家或实体的 id，`name` 是虚拟玩家的名字。
+
+## e32ec5f904
+
+>  Observation only, emitted before origin. A projectile hit an actor.
+>  Payload: `x` `y` `z` `dim` `projectile` `projectileId` `target` `targetId`
+>  `targetIsPlayer`, with the position of the projectile. To stop a projectile, refuse its
+>  launch at [`PLAYER_SPAWN_PROJECTILE`].
+
+只观察，在 origin 之前发出。一个投射物击中了一个实体。
+载荷：`x` `y` `z` `dim` `projectile` `projectileId` `target` `targetId` `targetIsPlayer`，位置是投射物的。要拦住一个投射物，就在 [`PLAYER_SPAWN_PROJECTILE`] 拒绝它的发射。
+
+## 07c2cde73f
+
+>  Observation only, emitted before origin. A projectile hit a block.
+>  Payload: `x` `y` `z` `dim` `block` `projectile` `projectileId`, with the block that was
+>  hit.
+
+只观察，在 origin 之前发出。一个投射物击中了一个方块。
+载荷：`x` `y` `z` `dim` `block` `projectile` `projectileId`，位置是被击中的方块的。
+
+## feb81a7f17
+
+>  Observation only. An actor was replaced by another that takes its place under a new id, a
+>  villager turning into a zombie villager for one.
+>  Payload: `x` `y` `z` `dim` `from` `fromId` `to` `toId`, and `partial` when the new actor
+>  could not be read. The position is the new actor's.
+
+只观察。一个实体被另一个实体取代，新实体换了 id 站在原来的位置上，比如村民变成僵尸村民。
+载荷：`x` `y` `z` `dim` `from` `fromId` `to` `toId`，新实体读不出来时还带 `partial`。位置是新实体的。
+
+## b633cb84af
+
+>  Cancellable. A mob is about to take or break a block, an enderman picking one up for
+>  instance. Nobody is acting, so no player event sees it. Cancelling is the engine's own
+>  answer of Cancel, and the block stays.
+>  Payload: `x` `y` `z` `dim` `actor` `actorId` `block`, and `partial` when the block could
+>  not be read. The position is the cell the actor wants to change.
+
+可取消。一只生物即将拿走或破坏一个方块，比如末影人捡起一个。这不是谁的操作，所以没有玩家事件看得到它。取消就是引擎自己的 Cancel 回答，方块留在原处。
+载荷：`x` `y` `z` `dim` `actor` `actorId` `block`，方块读不出来时还带 `partial`。位置是这个实体想改动的那个格子。
+
+## cbccb1701c
+
+>  Cancellable. An actor is about to pick an item up off the ground, a player included.
+>  Cancelling leaves the item where it is.
+>  Payload: `x` `y` `z` `dim` `actor` `actorId` `item` `itemId`, plus `_player` when a player
+>  picks it up, and `partial` when the item could not be read. The position is the item's.
+
+可取消。一个实体即将把地上的一件物品捡起来，玩家也算。取消后物品留在原地。
+载荷：`x` `y` `z` `dim` `actor` `actorId` `item` `itemId`，玩家捡的时候还带 `_player`，物品读不出来时带 `partial`。位置是物品的。
+
+## ddcf91e1d9
+
+>  Cancellable. An actor that is not a player is about to go to another dimension: an item, a
+>  mob, a minecart or a boat through a portal. Players have [`PLAYER_CHANGE_DIMENSION`].
+>  Cancelling means it stays.
+>  Payload: `x` `y` `z` `dim` `from` `to` `actor` `actorId`, and `partial` when the actor
+>  could not be read. `dim` and `from` are the dimension it is in and `to` the one it is
+>  headed for.
+
+可取消。一个不是玩家的实体即将去另一个维度：穿过传送门的掉落物、生物、矿车或船。玩家有 [`PLAYER_CHANGE_DIMENSION`]。取消就是它留在原地。
+载荷：`x` `y` `z` `dim` `from` `to` `actor` `actorId`，实体读不出来时还带 `partial`。`dim` 和 `from` 是它现在所在的维度，`to` 是它要去的那个。
+
+## bccd9d3417
+
+>  Cancellable. A dragon egg is about to jump somewhere else. Cancelling leaves it where it
+>  is. The cell it would jump to is not known yet.
+>  Payload: `x` `y` `z` `dim`.
+
+可取消。一枚龙蛋即将跳到别处。取消后它留在原地。它要跳去的格子此时还不知道。
+载荷：`x` `y` `z` `dim`。
+
+## 5d581a1fc3
+
+>  Cancellable. A block that lost its support is about to turn into a falling block: sand,
+>  gravel, an anvil. Cancelling leaves it hanging.
+>  Payload: `x` `y` `z` `dim` `block` `creative`, and `partial` when the block could not be
+>  read. `creative` is 1 when a creative player's action started it.
+
+可取消。一个失去支撑的方块即将变成下落的方块：沙子、沙砾、铁砧。取消后它悬在原处。
+载荷：`x` `y` `z` `dim` `block` `creative`，方块读不出来时还带 `partial`。创造模式玩家的操作引起它时 `creative` 为 1。
+
+## 6281cc33ea
+
+>  Cancellable. A sculk charge is about to be spent turning a cell into sculk. Cancelling is
+>  the engine's answer of a charge that was not used, and the cell stays as it is. A call that
+>  belongs to world generation is not asked about.
+>  Payload: `x` `y` `z` `dim`.
+
+可取消。一份幽匿电荷即将被花掉，把一个格子变成幽匿方块。取消就是引擎对“电荷没有用掉”的回答，那个格子保持原样。属于世界生成的调用不会被询问。
+载荷：`x` `y` `z` `dim`。
+
+## e04276ab66
+
+>  Cancellable. The end fight is about to make the ender dragon again, after it has been
+>  killed. The first dragon of a fresh end is not asked about. Cancelling leaves the end
+>  without a dragon until the next try.
+>  Payload: `dim`, always the end.
+
+可取消。末地战斗即将在末影龙被杀死之后再造一条。全新末地的第一条龙不会被询问。取消后末地保持没有龙，直到下一次尝试。
+载荷：`dim`，总是末地。
 
 ## 23412f2b2d
 
@@ -5375,10 +5768,10 @@ let v = NbtValue::obj([
 
 一个按键动作。
 
-## 740a2e2a1c
+## a92a52c63f
 
->  The engine's own registries: every block type, every item and every entity the running game
->  has, with the facts a rule needs to pick from them.
+>  The engine's own registries: every block type, every item, every entity and every command
+>  the running game has, with the facts a rule needs to pick from them.
 >
 >  A mod that hands out "a random block" or "a random rare item" should not keep a list of
 >  names of its own: the game has more than any such list, and the list goes stale with every
@@ -5386,7 +5779,7 @@ let v = NbtValue::obj([
 >  A host older than the `registry_list` slot answers with an error, never with an empty list
 >  that would look like a game without content.
 
-引擎自己的注册表：正在运行的游戏里的每一种方块、每一种物品和每一种实体，连同按规则从中挑选时需要的信息。
+引擎自己的注册表：正在运行的游戏里的每一种方块、每一种物品、每一种实体和每一条命令，连同按规则从中挑选时需要的信息。
 
 发放「一个随机方块」或者「一个随机稀有物品」的模组，不应该自己维护一份名字列表：游戏里的东西比任何这样的列表都多，而且每个版本都会让列表过时。改为读取这些注册表，按规则（实心的、不是技术性方块、某个稀有度）来挑。比 `registry_list` 槽位旧的宿主会返回错误，永远不会返回一个看起来像是游戏没有任何内容的空列表。
 
@@ -5407,6 +5800,13 @@ let v = NbtValue::obj([
 >  Every entity the level knows.
 
 关卡知道的所有实体。
+
+## f55a67f223
+
+>  Every command the engine's registry holds, whichever mod registered it. The registry
+>  does not exist before the server has built it, and the call then answers with an error.
+
+引擎注册表里的每一条命令，不论是哪个模组注册的。服务器建好注册表之前它并不存在，这时调用会返回错误。
 
 ## 0d2fb9f77d
 
@@ -5431,6 +5831,12 @@ let v = NbtValue::obj([
 >  One item.
 
 一种物品。
+
+## 818386d4c1
+
+>  One command the engine's registry holds.
+
+引擎注册表里的一条命令。
 
 ## 777f446384
 
@@ -5621,3 +6027,4 @@ Clear、Reset 和 Times 这三种，宿主不读 `text` 参数。
 >  The local time, from `PIER_SYS_LOCAL_TIME`.
 
 本地时间，取自 `PIER_SYS_LOCAL_TIME`。
+

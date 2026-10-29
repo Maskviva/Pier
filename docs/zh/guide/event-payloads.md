@@ -21,11 +21,12 @@
 | 事件所关于的玩家（`self`） | `_player` | `{name, xuid, uuid, pos:{x,y,z}}` |
 | 其他任何实体，或不是玩家的 `self` | `_<键名>` | `{uid, type, name, isPlayer, dim}`，玩家还多 `xuid` 和 `realName` |
 | 伤害来源 | `_<键名>` | `{cause, attackerUid?, attacker?, projectileUid?, projectile?}` |
-| 实体类型 | `_identifier` | `{full, namespace, name}` |
+| 实体类型 | `_identifier` | `{full, namespace, name, canonical, type}` |
 | 方块或物品 | `_<键名>` | `{name}` |
 | BlockSource，或 `self` 实体 | `dim` | 维度 id，事件本身没带时补上 |
 
 `uid` 是实体的唯一 id，和所有实体槽位接收的是同一个数，所以模组可以对载荷里点名的实体直接操作。
+`_identifier.canonical` 是不带初始化事件后缀的 `namespace:name`，`full` 可能在它后面带着事件；`type` 是引擎给这个名字的实体类型编号，各个位表示它是不是生物、怪物、动物或水生动物，和 `registry_list` 实体条目里的 `type` 是同一个数，认不出名字时为 0。判断刷出来的是不是怪物，读 `type` 的怪物位，不必自己维护一份名字列表。
 `name` 是名牌，可能被插件改过；`realName` 是玩家的账号名。
 
 ### 谁杀了谁
@@ -50,11 +51,18 @@
 合成事件的载荷遵守三条规则，让模组能分清"答案"和"失败"：
 
 - **`partial`**：`"partial":1` 表示至少有一个字段没读到、只是默认值。出现在 `ExplosionEvent`、
-  `FarmlandDecayEvent`、`SpawnItemActorEvent`、`ChestPairEvent` 和 `PistonPushEvent` 里，全部读到时不出现。
+  `ExplosionBlocksEvent`、`FarmlandDecayEvent`、`SpawnItemActorEvent`、`ChestPairEvent`、`PistonPushEvent`、
+  `HopperSearchItemEvent`、`HopperPushOutEvent`、`DispenseItemEvent`、`CommandBlockExecuteEvent`、`NpcCommandEvent`、
+  `PlayerPullFishingHookEvent`、`PlayerUseBucketPlaceEvent`、`PlayerUseBucketTakeEvent`、`ActorGetEffectEvent`、
+  `ActorRemoveEffectEvent`、`PlayerSetArmorEvent`、`ContainerChangeEvent`、`PlayerInventoryChangeEvent`、
+  `ScoreChangedEvent`、`ActorTransformEvent`、`ActorDestroyBlockEvent`、`ActorPickupItemEvent`、
+  `ActorChangeDimensionEvent` 和 `BlockFallEvent` 里，全部读到时不出现。
 - **`targetKnown`**：在 `PlayerAttackTargetEvent` 和 `PlayerInteractEntityEvent` 里，0 表示目标没读到。
   这时 `targetIsPlayer` 为 1，所以 PvP 规则会拒绝。
 - **取消**：回调会拿到一个写回接口，可取消的事件通过写回时带上取消标记来取消；各绑定都包装好了，Rust 里是 `ev.cancel()`。
   标为只观察的事件不能取消，它的文档会指出该去拦哪个事件。
+- **`keep`**：`ExplosionBlocksEvent` 的回复里可以带 `"keep":[[x,y,z],...]`，这些格子会从爆炸要毁掉的方块里拿掉。
+  所有订阅者的格子合在一起保留，取消的优先级高于它们。不是三个整数组成的列表的元素会被跳过并写进日志。
 
 ## 事件没到的时候
 

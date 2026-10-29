@@ -661,6 +661,7 @@ enum PierPlayerNumProp
     PIER_PPROP_IS_DEAD = 33, /* (G) Actor::isDead */
     PIER_PPROP_HAS_DIED_BEFORE = 34, /* (G) Player::hasDiedBefore */
     PIER_PPROP_DIMENSION = 35, /* (G) Actor::getDimensionId */
+    PIER_PPROP_IS_INITIALIZED = 36, /* (G) Player::isPlayerInitialized; 1 for a simulated player */
 };
 
 /** player_get_str keys. */
@@ -1124,6 +1125,7 @@ typedef bool (*PierMoneyCb)(PierMoneyEvent type, PierStr from, PierStr to, int64
 #define PIER_REGISTRY_BLOCKS 0   /* every block type */
 #define PIER_REGISTRY_ITEMS 1    /* every item */
 #define PIER_REGISTRY_ENTITIES 2 /* every actor the level knows */
+#define PIER_REGISTRY_COMMANDS 3 /* every command the engine's registry holds */
 
 typedef struct PierApi
 {
@@ -2611,6 +2613,11 @@ typedef struct PierApi
      *  An entity entry carries the identifier, whether it has a spawn egg, whether it is
      *  summonable, whether an experiment gates it, and the engine's actor type number,
      *  whose bits say whether it is a mob, a monster, an animal or a water animal.
+     *
+     *  A command entry carries the name, the description, the permission level as the engine
+     *  numbers it (0 any, 1 game directors, 2 admin, 3 host, 4 owner, 5 internal), the raw
+     *  flag bits, whether the command is hidden from players, and the aliases that resolve
+     *  to it. Every registered command is listed, whichever mod registered it.
      *
      *  What a listing contains is the running game's own content, so a mod that picks
      *  "a random block" or "a random rare item" decides by rules over it rather than by a

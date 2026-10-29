@@ -20,6 +20,8 @@ An item entry carries the full name, the base rarity (0 common to 3 epic), the m
 
 An entity entry carries the identifier, whether it has a spawn egg, whether it is summonable, whether an experiment gates it, and the engine's actor type number, whose bits say whether it is a mob, a monster, an animal or a water animal.
 
+A command entry carries the name, the description, the permission level as the engine numbers it (0 any, 1 game directors, 2 admin, 3 host, 4 owner, 5 internal), the raw flag bits, whether the command is hidden from players, and the aliases that resolve to it. Every registered command is listed, whichever mod registered it.
+
 What a listing contains is the running game's own content, so a mod that picks "a random block" or "a random rare item" decides by rules over it rather than by a list it maintains. Returns false for an unknown kind, a null sink, or a registry that does not exist yet; nothing is sunk then.
 
 - Call: `api->registry_list(kind, ctx, sink)`
@@ -31,7 +33,7 @@ What a listing contains is the running game's own content, so a mod that picks "
 - Section of abi.h: Registries
 - Position in the table: slot 200, counting from 0
 - Callers in each binding:
-    - Rust: [`registry::blocks`](../rust/registry.md#fn.blocks), [`registry::items`](../rust/registry.md#fn.items), [`registry::entities`](../rust/registry.md#fn.entities)
+    - Rust: [`registry::blocks`](../rust/registry.md#fn.blocks), [`registry::items`](../rust/registry.md#fn.items), [`registry::entities`](../rust/registry.md#fn.entities), [`registry::commands`](../rust/registry.md#fn.commands)
     - Go: [`RegistryList`](../go/registry.md#RegistryList), [`Raw.RegistryList`](../go/raw.md#Raw.RegistryList)
 
 ## `PIER_REGISTRY_*` {#PIER_REGISTRY_BLOCKS-group}
@@ -43,3 +45,4 @@ What a listing contains is the running game's own content, so a mod that picks "
 | <span id="PIER_REGISTRY_BLOCKS"></span>`PIER_REGISTRY_BLOCKS` | `0` | every block type |
 | <span id="PIER_REGISTRY_ITEMS"></span>`PIER_REGISTRY_ITEMS` | `1` | every item |
 | <span id="PIER_REGISTRY_ENTITIES"></span>`PIER_REGISTRY_ENTITIES` | `2` | every actor the level knows |
+| <span id="PIER_REGISTRY_COMMANDS"></span>`PIER_REGISTRY_COMMANDS` | `3` | every command the engine's registry holds |

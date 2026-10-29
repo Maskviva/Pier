@@ -32,7 +32,7 @@ Every constant states whether the event can be cancelled and what its payload ca
 ambiguous the day upstream adds an event with the same name.
 
 **Synthetic events** are ones Pier builds with native detours because LeviLamina has no
-equivalent. They have bare names such as `BlockDestroyEvent`. There are 29, and they fill
+equivalent. They have bare names such as `BlockDestroyEvent`. There are 69, and they fill
 the gaps that matter for protection: a block destroyed by something that is not a player,
 an explosion, liquid flowing across a boundary, a piston reaching into a neighbouring
 plot, two chests pairing across one.
@@ -96,6 +96,21 @@ ev.edit(|v| {
 
 The write-back is a difference: only keys you actually touched go back, so two mods on
 the same event do not erase each other's edits.
+
+## Keeping blocks out of an explosion
+
+`ExplosionBlocksEvent` lists the blocks a blast is about to destroy in `blocks`. A reply can
+name cells to leave out with `keep`, a list of `[x, y, z]` integer triples:
+
+```rust
+ev.set("keep", NbtValue::List(vec![
+    NbtValue::List(vec![NbtValue::Int(10), NbtValue::Int(64), NbtValue::Int(-3)]),
+]));
+```
+
+The cells of every subscriber are kept together, and `cancel()` wins over them. Above 16384
+cells `blocks` is empty and `truncated` is 1, and a subscriber that cannot decide should
+cancel.
 
 ## Subscribing to many events
 

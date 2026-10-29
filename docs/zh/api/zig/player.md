@@ -524,6 +524,17 @@ pub fn dimension(self: Player) core.Error!f64
 - 返回值类型：`core.Error!f64`
 - 对应槽位：[`player_get_num`](../cpp/player.md#player_get_num)
 
+### `Player.isInitialized` {#Player.isInitialized}
+
+```zig
+pub fn isInitialized(self: Player) core.Error!bool
+```
+
+`PIER_PPROP_IS_INITIALIZED`：(G) `Player::isPlayerInitialized`；模拟玩家读到 1
+
+- 返回值类型：`core.Error!bool`
+- 对应槽位：[`player_get_num`](../cpp/player.md#player_get_num)
+
 ### `Player.realName` {#Player.realName}
 
 ```zig

@@ -217,9 +217,9 @@ False and "the value is zero" are different results and a caller must not collap
 - Section of abi.h: §B player management
 - Position in the table: slot 28, counting from 0
 - Callers in each binding:
-    - Rust: [`Player::num`](../rust/player.md#Player.num), [`Player::game_type`](../rust/player.md#Player.game_type), [`Player::permission_level`](../rust/player.md#Player.permission_level), [`Player::dimension`](../rust/player.md#Player.dimension), [`Player::level`](../rust/player.md#Player.level), [`Player::experience`](../rust/player.md#Player.experience) and more, 36 in all
-    - Go: [`Player.GameType`](../go/player.md#Player.GameType), [`Player.Level`](../go/player.md#Player.Level), [`Player.Experience`](../go/player.md#Player.Experience), [`Player.Hunger`](../go/player.md#Player.Hunger), [`Player.Saturation`](../go/player.md#Player.Saturation), [`Player.Exhaustion`](../go/player.md#Player.Exhaustion) and more, 37 in all
-    - Zig: [`Player.gameType`](../zig/player.md#Player.gameType), [`Player.level`](../zig/player.md#Player.level), [`Player.experience`](../zig/player.md#Player.experience), [`Player.hunger`](../zig/player.md#Player.hunger), [`Player.saturation`](../zig/player.md#Player.saturation), [`Player.exhaustion`](../zig/player.md#Player.exhaustion) and more, 36 in all
+    - Rust: [`Player::num`](../rust/player.md#Player.num), [`Player::game_type`](../rust/player.md#Player.game_type), [`Player::permission_level`](../rust/player.md#Player.permission_level), [`Player::dimension`](../rust/player.md#Player.dimension), [`Player::level`](../rust/player.md#Player.level), [`Player::experience`](../rust/player.md#Player.experience) and more, 37 in all
+    - Go: [`Player.GameType`](../go/player.md#Player.GameType), [`Player.Level`](../go/player.md#Player.Level), [`Player.Experience`](../go/player.md#Player.Experience), [`Player.Hunger`](../go/player.md#Player.Hunger), [`Player.Saturation`](../go/player.md#Player.Saturation), [`Player.Exhaustion`](../go/player.md#Player.Exhaustion) and more, 38 in all
+    - Zig: [`Player.gameType`](../zig/player.md#Player.gameType), [`Player.level`](../zig/player.md#Player.level), [`Player.experience`](../zig/player.md#Player.experience), [`Player.hunger`](../zig/player.md#Player.hunger), [`Player.saturation`](../zig/player.md#Player.saturation), [`Player.exhaustion`](../zig/player.md#Player.exhaustion) and more, 37 in all
 
 ### `player_get_str` {#player_get_str}
 
@@ -575,6 +575,7 @@ The player is the origin of the command: `@s` is the player, relative coordinate
 | <span id="PIER_PPROP_IS_DEAD"></span>`PIER_PPROP_IS_DEAD` | `33` | (G) `Actor::isDead` |
 | <span id="PIER_PPROP_HAS_DIED_BEFORE"></span>`PIER_PPROP_HAS_DIED_BEFORE` | `34` | (G) `Player::hasDiedBefore` |
 | <span id="PIER_PPROP_DIMENSION"></span>`PIER_PPROP_DIMENSION` | `35` | (G) `Actor::getDimensionId` |
+| <span id="PIER_PPROP_IS_INITIALIZED"></span>`PIER_PPROP_IS_INITIALIZED` | `36` | (G) `Player::isPlayerInitialized`; 1 for a simulated player |
 
 ## `PierPlayerStrProp` {#PierPlayerStrProp}
 

@@ -107,6 +107,7 @@ dim.custom_dimension_manager.19=「{}」注册了但建不出实例，注册失�
 dim.custom_dimension_manager.20=「{}」在登记簿里的号是 {}，而引擎建出的实例报的是 {}；把玩家传进 {} 会让引擎在区块线程上抛出并崩溃，所以注册失败
 dim.dimension_rules.1=set_dimension_rule(dim={}, rule={})：规则号超出这个宿主支持的 [0,{}) 范围，已忽略；如果是新规则，说明模组按更新的 ABI 编译，需要升级 pier 宿主
 dim.dimension_rules.2=按维度规则移除一个刚生成的生物时抛出了异常，维度 {}
+dim.dimension_rules.3={} 的钩子没有装上（返回码 {}），依赖它的维度规则不会生效
 dim.native_dimensions.1=诊断覆盖生效中：告诉客户端的高度是 {}..{}，而服务器仍用 {}..{}；这只用来定位子区块序号不一致，查完请把两个变量都取消
 dim.native_dimensions.2=「{}」：读到的定义号是 {}，而注册的是 {}，定义的字段不在预期的位置，一个也不会写；维度保持引擎给它的高度
 dim.native_dimensions.3=「{}」：刚注册完，引擎里却没有这个名字的定义，它的高度和生成器没法和维度对上
@@ -205,6 +206,7 @@ dim.spec_dimension.12=「{}」：地形包挂不上（状态 {}）；这一局�
 hooks.hook_events.1=一个合成事件的模组回调抛出了异常，已被截住；这条警告只打印一次，上面的异常每次都会打印
 hooks.hook_events.2=合成事件「{}」回写的 SNBT 解析失败，按未取消处理：{}
 hooks.hook_events.3=「{}」的两个订阅者要求了不同的重定向；保留第一个
+hooks.hook_events.5=对合成事件“{}”的回复里有一个 keep 元素不是三个整数组成的列表 [x, y, z]，已跳过，所以那个格子不会被保留
 hooks.hook_events.4=合成事件「{}」：原生绕道装不上，订阅被拒绝，而不是让模组以为它已经生效
 hooks.eat_event.1=[hooks/EatEvent] Player::completeUsingItem 绕道安装失败，code={}
 hooks.sleep_event.1=[hooks/SleepEvent] Player::$startSleepInBed 绕道安装失败，code={}
@@ -213,6 +215,14 @@ hooks.armor_stand_event.1=[hooks/ArmorStandEvent] ArmorStand::_trySwapItem 绕�
 hooks.drop_item_event.1=[hooks/DropItemEvent] {} 触发时一个订阅者都没有，def.live() 为 false：原生绕道装上了，另一侧却从没订阅「PlayerDropItemEvent」；请在启动日志里找对这个事件的订阅失败
 hooks.item_frame_event.1=[hooks/ItemFrameEvent] ItemFrameBlock::$attack 绕道安装失败，code={}，展示框里的物品不受保护
 hooks.pressure_plate_event.1=[hooks/PressurePlateEvent] 有绕道安装失败（code：{} {} {} {}），订阅被拒绝
+hooks.hopper_item_events.1=[hooks/HopperItemEvents] 有绕道安装失败（code：{} {} {} {}），订阅被拒绝
+hooks.respawn_anchor_events.1=[hooks/RespawnAnchorEvents] RespawnAnchorBlock::use 绕道安装失败，code={}
+hooks.explosion_blocks_event.1=[hooks/ExplosionBlocksEvent] 有绕道安装失败（code：{} {}），订阅被拒绝
+hooks.portal_pig_zombie_event.1=[hooks/PortalPigZombieEvent] 有绕道安装失败（code：{} {}），订阅被拒绝
+hooks.close_container_event.1=[hooks/CloseContainerEvent] 有绕道安装失败（code：{} {}），订阅被拒绝
+hooks.transform_event.1=[hooks/TransformEvent] 有绕道安装失败（code：{} {}），订阅被拒绝
+hooks.request_item_action_event.1=[hooks/RequestItemActionEvent] 有绕道安装失败（code：{} {} {}），订阅被拒绝
+hooks.projectile_hit_events.1=[hooks/ProjectileHitEvents] ProjectileComponent::onHit 绕道安装失败，code={}
 hooks.block_destroy_event.1=[hooks/BlockDestroyEvent] Level::$destroyBlock 绕道安装失败，code={}，末影人、凋灵、爆炸、命令这些非玩家来源的破坏完全不受保护
 hooks.chest_pair_event.1=[hooks/ChestPairEvent] ChestBlockActor::_tryToPairWith 绕道安装失败，code={}
 hooks.explosion_event.1=[hooks/ExplosionEvent] Explosion::explode 绕道安装失败，code={}，爆炸保护不生效

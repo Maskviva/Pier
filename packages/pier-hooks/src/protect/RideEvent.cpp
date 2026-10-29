@@ -1,4 +1,5 @@
-/** hooks/protect/RideEvent.cpp: the synthetic, cancellable "PlayerRideEvent".
+/** hooks/protect/RideEvent.cpp: the synthetic, cancellable "PlayerRideEvent", and
+ * "ActorRideEvent" when the rider is not a player.
  * The vanilla ActorStartRidingEvent is a notification fired after mounting and cannot
  * refuse. The hook point is Actor::canAddPassenger and not Actor::startRiding: the former
  * is the vehicle's own veto and answering no is an outcome every caller already handles,
@@ -8,8 +9,8 @@
  * Swapping them checks the boat's permission instead of the player's and fails only at a
  * plot boundary. x, y and z are the vehicle position, because the question is whether
  * this person may use that vehicle.
- * Payload {eventId, x, y, z, dim, vehicle, _player:{...}}, where vehicle is the actor
- * type name. */
+ * Payload {eventId, x, y, z, dim, vehicle, vehicleId, _player:{...}}, where vehicle is the
+ * actor type name. The actor event carries passenger and passengerId in place of _player. */
 #include "pier/hooks/hook_events.h"
 
 #include <string>
@@ -92,12 +93,26 @@ namespace pier::hooks
             return origin(passenger);
         }
 
-        HookEventDef gDef{"PlayerRideEvent", [] { return PlayerRideHook::hook() == 0; }};
+        /**
+         * Installs the one detour both ride events share, once.
+         *
+         * `hook()` of an LL hook definition registers the detour with the loader on every
+         * call, and nothing in its contract makes a repeat call answer 0. Each event def
+         * keeps its own `installed` flag, so with one `hook()` call per def the second event
+         * subscribed registered the same detour a second time, got a nonzero answer, and
+         * had its subscription refused. Both defs call this function instead: the first
+         * call installs, and the other event reuses that answer.
+         */
+        bool installRideHook()
+        {
+            static bool const ok = PlayerRideHook::hook() == 0;
+            return ok;
+        }
+
+        HookEventDef gDef{"PlayerRideEvent", [] { return installRideHook(); }};
         HookEventDef& rideDef() { return gDef; }
 
-        // One detour serves two event ids: whichever is subscribed first installs the
-        // hook, and hook() in LL is idempotent so the second call returns 0.
-        HookEventDef gActorDef{"ActorRideEvent", [] { return PlayerRideHook::hook() == 0; }};
+        HookEventDef gActorDef{"ActorRideEvent", [] { return installRideHook(); }};
         HookEventDef& actorRideDef() { return gActorDef; }
 
         HookEventRegistrar gReg{gDef};

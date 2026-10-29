@@ -1,7 +1,7 @@
 # levilamina::registry
 
-The engine's own registries: every block type, every item and every entity the running game
-has, with the facts a rule needs to pick from them.
+The engine's own registries: every block type, every item, every entity and every command
+the running game has, with the facts a rule needs to pick from them.
 
 A mod that hands out "a random block" or "a random rare item" should not keep a list of
 names of its own: the game has more than any such list, and the list goes stale with every
@@ -42,6 +42,18 @@ pub fn entities() -> Result<Vec<EntityType>>
 Every entity the level knows.
 
 - Return type: `Result<Vec<EntityType>>`
+- Slots: [`registry_list`](../cpp/registry.md#registry_list)
+
+### `registry::commands` {#fn.commands}
+
+```rust
+pub fn commands() -> Result<Vec<CommandType>>
+```
+
+Every command the engine's registry holds, whichever mod registered it. The registry
+does not exist before the server has built it, and the call then answers with an error.
+
+- Return type: `Result<Vec<CommandType>>`
 - Slots: [`registry_list`](../cpp/registry.md#registry_list)
 
 ## `EntityType` {#EntityType}
@@ -168,6 +180,35 @@ pub struct ItemType {
 ```
 
 One item.
+
+- Implements: `Debug`, `Clone`, `PartialEq`, `serde::Deserialize`
+
+## `CommandType` {#CommandType}
+
+```rust
+pub struct CommandType {
+    /// The canonical name, without the slash.
+    pub name: String,
+    /// The localization key of the description.
+    #[serde(default)]
+    pub description: String,
+    /// The permission level as the engine numbers it: 0 any, 1 game directors, 2 admin, 3 host,
+    /// 4 owner, 5 internal.
+    #[serde(default, deserialize_with = "whole")]
+    pub permission: i32,
+    /// The raw flag bits of the command.
+    #[serde(default, deserialize_with = "whole")]
+    pub flags: i32,
+    /// Hidden from players: the command is not in the list a player's client shows.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The other names that run this command.
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+```
+
+One command the engine's registry holds.
 
 - Implements: `Debug`, `Clone`, `PartialEq`, `serde::Deserialize`
 

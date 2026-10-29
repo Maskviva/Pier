@@ -343,6 +343,14 @@ namespace pier::api_impl
             PIER_API_GUARD_END
         }
 
+        /**
+         * Whether the client of this player has finished joining. A simulated player has no
+         * client to wait for. The write guard of the abilities and the PIER_PPROP_IS_INITIALIZED
+         * property both answer from this, so a caller that asks first is never refused by the
+         * guard for a reason the property did not give.
+         */
+        bool clientInitialized(Player& p) { return p.isSimulatedPlayer() || p.isPlayerInitialized(); }
+
         //  Attribute helpers
 
         /** Reads the current value of one attribute. Never yields NaN; a missing
@@ -501,6 +509,9 @@ namespace pier::api_impl
                 // Actor.
                 case PIER_PPROP_DIMENSION:
                     *out = static_cast<double>(static_cast<int>(p->getDimensionId()));
+                    return true;
+                case PIER_PPROP_IS_INITIALIZED:
+                    *out = clientInitialized(*p) ? 1.0 : 0.0;
                     return true;
                 default:
                     return false;
@@ -668,7 +679,7 @@ namespace pier::api_impl
          */
         bool abilitiesWritable(Player& p, char const* what)
         {
-            if (p.isSimulatedPlayer() || p.isPlayerInitialized())
+            if (clientInitialized(p))
             {
                 return true;
             }
@@ -1009,10 +1020,10 @@ namespace pier::api_impl
                         // With one fixed base, row 1 of two plugins lands on the same entry
                         // and the later sender overwrites the earlier, leaving interleaved
                         // content and two sets of scores neither side can clear. The stride
-                        // of 4096 rows is far above MAX_ROWS, a collision has probability
-                        // 1/(2^30/4096) and affects only two sidebars open at once. The
-                        // high bits are fixed at 0x4 to avoid the low id band the vanilla
-                        // scoreboard uses.
+                        // of 4096 rows is far above the rows a sidebar can show, a
+                        // collision has probability 1/(2^30/4096) and affects only two
+                        // sidebars open at once. The high bits are fixed at 0x4 to avoid
+                        // the low id band the vanilla scoreboard uses.
                         int64_t const kSidebarIdBase = INT64_C(0x40000000)
                             + (static_cast<int64_t>(objectiveSlotHash(objective)) * INT64_C(4096));
                         // From 26.40 the packet carries a variant per row instead of a

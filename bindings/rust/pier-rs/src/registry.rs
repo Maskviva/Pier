@@ -1,5 +1,5 @@
-//! The engine's own registries: every block type, every item and every entity the running game
-//! has, with the facts a rule needs to pick from them.
+//! The engine's own registries: every block type, every item, every entity and every command
+//! the running game has, with the facts a rule needs to pick from them.
 //!
 //! A mod that hands out "a random block" or "a random rare item" should not keep a list of
 //! names of its own: the game has more than any such list, and the list goes stale with every
@@ -114,6 +114,29 @@ pub struct EntityType {
     pub type_id: i64,
 }
 
+/// One command the engine's registry holds.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct CommandType {
+    /// The canonical name, without the slash.
+    pub name: String,
+    /// The localization key of the description.
+    #[serde(default)]
+    pub description: String,
+    /// The permission level as the engine numbers it: 0 any, 1 game directors, 2 admin, 3 host,
+    /// 4 owner, 5 internal.
+    #[serde(default, deserialize_with = "whole")]
+    pub permission: i32,
+    /// The raw flag bits of the command.
+    #[serde(default, deserialize_with = "whole")]
+    pub flags: i32,
+    /// Hidden from players: the command is not in the list a player's client shows.
+    #[serde(default)]
+    pub hidden: bool,
+    /// The other names that run this command.
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
 impl EntityType {
     /// The engine sets this bit on every mob.
     pub const MOB: i64 = 0x100;
@@ -188,6 +211,12 @@ pub fn entities() -> Result<Vec<EntityType>> {
     list(sys::PIER_REGISTRY_ENTITIES, "entity")
 }
 
+/// Every command the engine's registry holds, whichever mod registered it. The registry
+/// does not exist before the server has built it, and the call then answers with an error.
+pub fn commands() -> Result<Vec<CommandType>> {
+    list(sys::PIER_REGISTRY_COMMANDS, "command")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +249,19 @@ mod tests {
         let bare: EntityType = serde_json::from_str(r#"{"name":"minecraft:pig"}"#).unwrap();
         assert_eq!(bare.type_id, 0);
         assert!(!bare.spawn_egg);
+    }
+
+    #[test]
+    fn a_command_entry_reads_back_with_its_aliases_and_a_missing_field_as_its_default() {
+        let c: CommandType = serde_json::from_str(
+            r#"{"name":"tell","description":"commands.tell.description","permission":0,"flags":128,"hidden":false,"aliases":["msg","w"]}"#,
+        )
+        .unwrap();
+        assert_eq!(c.name, "tell");
+        assert_eq!((c.permission, c.flags, c.hidden), (0, 128, false));
+        assert_eq!(c.aliases, ["msg", "w"]);
+        let bare: CommandType = serde_json::from_str(r#"{"name":"stop"}"#).unwrap();
+        assert!(bare.aliases.is_empty() && bare.description.is_empty() && !bare.hidden);
     }
 
     #[test]

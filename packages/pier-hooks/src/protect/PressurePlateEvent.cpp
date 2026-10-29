@@ -1,5 +1,5 @@
 /** hooks/protect/PressurePlateEvent.cpp: the synthetic, cancellable
- * "PlayerStepOnPressurePlateEvent".
+ * "PlayerStepOnPressurePlateEvent", and "ActorStepOnPressurePlateEvent" for any other actor.
  * A pressure plate has no player action to hook: walking is the action and the plate is a
  * side effect, so from the engine's view the player did nothing. What runs the trigger
  * logic is entityInside, where BasePressurePlateBlock covers every plate type and
@@ -11,7 +11,7 @@
  * Both virtuals run once per tick for every actor inside the block, so the throttle cache
  * is a requirement and not an optimization; decision_throttle.h explains the key choice.
  * Payload {eventId, x, y, z, dim, kind, _player:{...}}, where kind is "pressure_plate" or
- * "tripwire". */
+ * "tripwire". The actor event carries actor and actorId in place of _player. */
 #include "pier/hooks/decision_throttle.h"
 #include "pier/hooks/hook_events.h"
 #include "pier/support/log.h"
@@ -191,9 +191,15 @@ namespace pier::hooks
             return origin(region, pos, entity);
         }
 
-        HookEventDef gDef{
-            "PlayerStepOnPressurePlateEvent",
-            []
+        /**
+         * Installs the four detours both plate events share, once, and reports the result
+         * of that one installation to whichever event asks. The reason is the one in
+         * RideEvent.cpp: a second `hook()` call on a detour is a second registration, and
+         * the second event subscribed would have had its subscription refused.
+         */
+        bool installPlateHooks()
+        {
+            static bool const ok = []
             {
                 int const r1 = PressurePlateInsideHook::hook();
                 int const r2 = TripWireInsideHook::hook();
@@ -205,22 +211,14 @@ namespace pier::hooks
                         "{}", pier::trf("hooks.pressure_plate_event.1", r1, r2, r3, r4));
                 }
                 return r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0;
-            }
-        };
+            }();
+            return ok;
+        }
+
+        HookEventDef gDef{"PlayerStepOnPressurePlateEvent", [] { return installPlateHooks(); }};
         HookEventDef& plateDef() { return gDef; }
 
-        // One set of detours serves two event ids, as in RideEvent.
-        HookEventDef gActorDef{
-            "ActorStepOnPressurePlateEvent",
-            []
-            {
-                int const r1 = PressurePlateInsideHook::hook();
-                int const r2 = TripWireInsideHook::hook();
-                int const r3 = PressurePlateShouldTriggerHook::hook();
-                int const r4 = TripWireShouldTriggerHook::hook();
-                return r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0;
-            }
-        };
+        HookEventDef gActorDef{"ActorStepOnPressurePlateEvent", [] { return installPlateHooks(); }};
         HookEventDef& actorPlateDef() { return gActorDef; }
 
         HookEventRegistrar gReg{gDef};

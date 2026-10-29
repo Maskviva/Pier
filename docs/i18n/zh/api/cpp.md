@@ -256,6 +256,12 @@
 
 (G) `Actor::getDimensionId`
 
+## 4b81fb80cb
+
+> (G) Player::isPlayerInitialized; 1 for a simulated player
+
+(G) `Player::isPlayerInitialized`；模拟玩家读到 1
+
 ## 51cceb0401
 
 > Player::getRealName
@@ -4872,7 +4878,7 @@ id 不是这个宿主注册的维度时返回 false。
 
 注册表
 
-## 6c31567e0b
+## 3ce518e013
 
 > Lists one of the engine's registries through `sink`, one JSON object per entry, in
 >  no particular order. `kind` is a PIER_REGISTRY_* value.
@@ -4890,6 +4896,11 @@ id 不是这个宿主注册的维度时返回 false。
 >  summonable, whether an experiment gates it, and the engine's actor type number,
 >  whose bits say whether it is a mob, a monster, an animal or a water animal.
 >
+>  A command entry carries the name, the description, the permission level as the engine
+>  numbers it (0 any, 1 game directors, 2 admin, 3 host, 4 owner, 5 internal), the raw
+>  flag bits, whether the command is hidden from players, and the aliases that resolve
+>  to it. Every registered command is listed, whichever mod registered it.
+>
 >  What a listing contains is the running game's own content, so a mod that picks
 >  "a random block" or "a random rare item" decides by rules over it rather than by a
 >  list it maintains. Returns false for an unknown kind, a null sink, or a registry
@@ -4902,6 +4913,8 @@ id 不是这个宿主注册的维度时返回 false。
 物品的每一项包含：完整的名字；基础稀有度（0 普通到 3 史诗）；最大堆叠数；创造模式分类；以及命令是否隐藏它。
 
 实体的每一项包含：标识符；是否有刷怪蛋；是否可以召唤；是否受实验性玩法控制；以及引擎的实体类型编号，编号的各个位表示它是不是生物、怪物、动物或水生动物。
+
+命令的每一项包含：名字；描述；引擎给的权限等级编号（0 `Any`、1 `GameDirectors`、2 `Admin`、3 `Host`、4 `Owner`、5 `Internal`）；原始的标志位；这条命令是否对玩家隐藏；以及指向它的别名。注册表里的每一条命令都会列出，不论是哪个模组注册的。
 
 列出的是正在运行的游戏自己的内容，所以要挑「一个随机方块」或者「一个随机稀有物品」的模组，可以按规则从里面挑，不必自己维护一份列表。`kind` 不认识、`sink` 为空，或者注册表还不存在时返回 false，这时什么都不会输出。
 
@@ -4928,6 +4941,12 @@ id 不是这个宿主注册的维度时返回 false。
 > every actor the level knows
 
 关卡知道的所有实体
+
+## 69dd5a99e4
+
+> every command the engine's registry holds
+
+引擎注册表里的所有命令
 
 ## fe3df06a55
 

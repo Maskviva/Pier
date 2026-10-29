@@ -99,3 +99,5 @@ pub const PIER_REGISTRY_BLOCKS: i32 = 0;
 pub const PIER_REGISTRY_ITEMS: i32 = 1;
 /// `registry_list`: every actor the level knows.
 pub const PIER_REGISTRY_ENTITIES: i32 = 2;
+/// `registry_list`: every command the engine's registry holds.
+pub const PIER_REGISTRY_COMMANDS: i32 = 3;

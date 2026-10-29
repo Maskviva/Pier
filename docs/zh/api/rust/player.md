@@ -1248,6 +1248,17 @@ pub fn has_died_before(&self) -> Result<bool>
 - 返回值类型：`Result<bool>`
 - 对应槽位：[`player_get_num`](../cpp/player.md#player_get_num)
 
+### `Player::is_initialized` {#Player.is_initialized}
+
+```rust
+pub fn is_initialized(&self) -> Result<bool>
+```
+
+客户端已经完成加入。在这之前写能力，会写到一个还没建好能力层的客户端上，这次写入会被拒绝。定时器如果会碰到可能还在加载的玩家，应该先问这一项。模拟玩家没有客户端，永远答复为真。
+
+- 返回值类型：`Result<bool>`
+- 对应槽位：[`player_get_num`](../cpp/player.md#player_get_num)
+
 ## `PlayerSel` {#PlayerSel}
 
 ```rust

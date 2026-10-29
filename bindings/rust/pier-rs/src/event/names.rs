@@ -110,7 +110,8 @@ pub const BLOCK_DESTROY: &str = "BlockDestroyEvent";
 /// Cancellable. Cancelling means the explosion does not happen at all, damage and blocks
 /// alike.
 /// Payload: `x` `y` `z` `dim` `radius` `maxResistance` `fire` `breaksBlocks`
-/// `underwater` `sourceIsPlayer` `sourceId` `source`.
+/// `underwater` `sourceIsPlayer` `sourceId` `source`, and `partial` when a field could
+/// not be read.
 pub const EXPLOSION: &str = "ExplosionEvent";
 
 /// Cancellable. Water or lava is about to spread into a cell. It blocks a neighbor pouring
@@ -124,26 +125,29 @@ pub const LIQUID_FLOW: &str = "LiquidFlowEvent";
 
 /// Cancellable. Something fell from a height and trampled farmland into dirt, needing no
 /// permission and leaving no log.
-/// Payload: `x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`, plus `_player` for a player.
+/// Payload: `x` `y` `z` `dim` `fallDistance` `byPlayer` `actor`, plus `_player` for a player,
+/// and `partial` when a field could not be read.
 pub const FARMLAND_DECAY: &str = "FarmlandDecayEvent";
 
 /// Cancellable. A piston is about to push or pull a set of blocks. It blocks a cross-plot
 /// piston machine.
-/// Payload: the piston `x` `y` `z` `dim`, `facing:[x,y,z]` and `attached:[[x,y,z],...]`.
+/// Payload: the piston `x` `y` `z` `dim`, `facing:[x,y,z]` and `attached:[[x,y,z],...]`,
+/// and `partial` when a field could not be read.
 pub const PISTON_PUSH: &str = "PistonPushEvent";
 
 /// Cancellable. Two chests are about to pair into a double chest.
 /// A chest placed against the boundary pairs with the neighbor's, and opening the near half
 /// shows everything in theirs. Container protection decides on the cell you clicked, and
 /// that cell really belongs to the placer.
-/// Payload: `x` `y` `z` `dim` `otherX` `otherY` `otherZ`.
+/// Payload: `x` `y` `z` `dim` `otherX` `otherY` `otherZ`, and `partial` when a field
+/// could not be read.
 pub const CHEST_PAIR: &str = "ChestPairEvent";
 
 /// Cancellable. Cancelling means the drop is not spawned and the item disappears rather
 /// than lying on the ground.
 /// For anti-duplication and drop ownership. Payload: `x` `y` `z` `dim` `item` `count`
 /// `throwTime`
-/// `sourceIsPlayer` `source`.
+/// `sourceIsPlayer` `source`, and `partial` when a field could not be read.
 pub const SPAWN_ITEM_ACTOR: &str = "SpawnItemActorEvent";
 
 /// Observation only. A weather change. Payload: `rainLevel` `rainTime` `lightningLevel`
@@ -183,9 +187,14 @@ pub const PLAYER_OPERATED_ITEM_FRAME: &str = "PlayerOperatedItemFrameEvent";
 /// place and was already covered; changing its text was neither a place nor an interact.
 pub const PLAYER_EDIT_SIGN: &str = "PlayerEditSignEvent";
 
-/// Not raised by this host. The name is kept for mods that already subscribe to it, and
-/// [`is_cancellable`] answers `Some(false)` for it so no mod mistakes it for a gate. It is
-/// left out of [`ALL_SYNTHETIC`], which lists only what the host registers.
+/// Cancellable. A player's client asks the server to move a stack between slots, to remove
+/// one, or to consume the ingredients of a craft, as item stack requests applied one action
+/// at a time. Cancelling returns the engine's own error result, which makes the client put
+/// its screen back the way the server has it.
+/// Payload: `action` `amount` `srcContainer` `srcSlot` `dstContainer` `dstSlot` `x` `y` `z`
+/// `dim` `_player`. `action` is the engine's action type number and the containers are its
+/// container enum numbers. A removal or a consume has no destination worth reading, and its
+/// `dst` fields are only what the client sent.
 pub const PLAYER_REQUEST_ITEM_ACTION: &str = "PlayerRequestItemActionEvent";
 
 /// Cancellable. A player attacks a target. The payload carries `targetIsPlayer`, which is
@@ -263,6 +272,237 @@ pub const HOPPER_TRANSFER: &str = "HopperTransferEvent";
 /// Cancellable. A player uses an item on a block, placing it or right-clicking with it.
 pub const PLAYER_USE_ITEM_ON: &str = "PlayerUseItemOnEvent";
 
+/// Cancellable. A hopper, or a hopper minecart, is about to pull one item, from the container
+/// above it or from a dropped item lying above it. Unlike [`HOPPER_TRANSFER`] it fires before
+/// the move and carries the dimension, and cancelling it makes the engine answer that nothing
+/// moved, so the hopper tries again later. It blocks a hopper on one plot emptying a chest on
+/// the next.
+/// Payload: `x` `y` `z` `dim` `minecart` `fromEntity` `item` `count` `slot` `face`, and
+/// `partial` when a field could not be read. `x` `y` `z` are the block coordinates of the
+/// hopper, and `fromEntity` is 1 for a dropped item.
+pub const HOPPER_SEARCH_ITEM: &str = "HopperSearchItemEvent";
+
+/// Cancellable. A hopper, or a hopper minecart, is about to push one item into the container
+/// it faces. The payload is that of [`HOPPER_SEARCH_ITEM`], where `face` names the side the
+/// hopper pushes toward. It blocks a hopper on one plot filling a chest on the next.
+pub const HOPPER_PUSH_OUT: &str = "HopperPushOutEvent";
+
+/// Cancellable. A dispenser is about to eject an item into the world. Nobody is acting, so
+/// no player event sees it, and a dispenser facing a plot boundary reaches the neighbor's
+/// side. Cancelling leaves the item in the dispenser.
+/// Payload: `x` `y` `z` `dim` `item` `count` `slot` `face`, and `partial` when a field could
+/// not be read.
+pub const DISPENSE_ITEM: &str = "DispenseItemEvent";
+
+/// Cancellable. A command block, or a command block minecart, is about to run its command.
+/// The origin is not a player, so [`EXECUTING_COMMAND`] never reports it. Cancelling means
+/// the command does not run.
+/// Payload: `command` `x` `y` `z` `dim` `minecart`, and `partial` when a field could not be
+/// read.
+pub const COMMAND_BLOCK_EXECUTE: &str = "CommandBlockExecuteEvent";
+
+/// Cancellable. A wither is about to break the blocks around its body, which it does when it
+/// spawns, when it is hurt and while it charges. It is neither an explosion nor a player.
+/// Payload: `x` `y` `z` `dim` `range` `attackType` `witherId`.
+pub const WITHER_DESTROY: &str = "WitherDestroyEvent";
+
+/// Cancellable. A player right-clicks a charged respawn anchor outside the nether, which
+/// makes it explode. Charging it with glowstone raises nothing. Cancelling leaves the anchor
+/// and the player as they were.
+/// Payload: `x` `y` `z` `dim` `charge` `_player`.
+pub const RESPAWN_ANCHOR_EXPLODE: &str = "RespawnAnchorExplodeEvent";
+
+/// Cancellable. A player right-clicks a charged respawn anchor in the nether, which makes it
+/// the player's spawn point. The payload is that of [`RESPAWN_ANCHOR_EXPLODE`].
+pub const PLAYER_USE_RESPAWN_ANCHOR: &str = "PlayerUseRespawnAnchorEvent";
+
+/// Cancellable. A player starts hitting a block. It hooks the handler of the start-destroy
+/// request, which runs earlier than [`PLAYER_START_DESTROY_BLOCK`], so cancelling it stops the
+/// mining before the game mode hears of it.
+/// Payload: `x` `y` `z` `dim` `face` `_player`.
+pub const PLAYER_ATTACK_BLOCK: &str = "PlayerAttackBlockEvent";
+
+/// Cancellable. A bucket is about to put its liquid into a cell. It is neither a block place
+/// nor a block break, so neither of those events sees it. Cancelling is the engine's answer
+/// of a bucket that did not empty.
+/// Payload: `x` `y` `z` `dim` `face` `item` `block` `byPlayer`, plus `_player` when a player
+/// does it, and `partial` when a field could not be read. `block` is the liquid in the bucket.
+pub const PLAYER_USE_BUCKET_PLACE: &str = "PlayerUseBucketPlaceEvent";
+
+/// Cancellable. An empty bucket is about to take a liquid or powder snow out of a cell. The
+/// payload is that of [`PLAYER_USE_BUCKET_PLACE`], where `block` is the block aimed at.
+pub const PLAYER_USE_BUCKET_TAKE: &str = "PlayerUseBucketTakeEvent";
+
+/// Cancellable. A totem of undying is about to save a player. Cancelling spends no totem and
+/// the death proceeds, for a game where a hit is final.
+/// Payload: `x` `y` `z` `dim` `_player`.
+pub const PLAYER_CONSUME_TOTEM: &str = "PlayerConsumeTotemEvent";
+
+/// Observation only, emitted before origin, so a callback still finds the player in bed. The
+/// other half of [`PLAYER_SLEEP`].
+/// Payload: `x` `y` `z` `dim` `forceful` `updateLevelList` `_player`.
+pub const PLAYER_STOP_SLEEP: &str = "PlayerStopSleepEvent";
+
+/// Cancellable. An explosion has worked out which blocks it reaches and is about to destroy
+/// them. It is the finer half of [`EXPLOSION`], which can only refuse the whole blast: here a
+/// plot keeps its own blocks and lets the rest go.
+///
+/// Payload: `x` `y` `z` `dim` `radius` `sourceIsPlayer` `sourceId` `source` `count`
+/// `truncated` and `blocks:[[x,y,z],...]`, and `partial` when the source could not be read.
+/// Above 16384 cells `blocks` is empty and `truncated` is 1, and a subscriber that cannot
+/// decide should cancel.
+///
+/// Reply `keep:[[x,y,z],...]` to take those cells out of the blast, or cancel it. The cells
+/// of every subscriber are kept together, so one subscriber protecting a cell is enough. A
+/// cell that is not a list of three integers is skipped and logged.
+pub const EXPLOSION_BLOCKS: &str = "ExplosionBlocksEvent";
+
+/// Cancellable. A player right-clicks a block that does something: a door, a button, a
+/// lever, a container, a crafting table, a bed. It is decided below the held item, which is
+/// why [`PLAYER_USE_ITEM_ON`] does not see a bare hand on a lever.
+/// Payload: `x` `y` `z` `dim` `face` `block` `_player`.
+pub const BLOCK_INTERACTED: &str = "BlockInteractedEvent";
+
+/// Cancellable. A player presses a button of an NPC dialogue whose action runs commands, and
+/// this is asked before they run. Which commands is the NPC author's choice and not the
+/// player's. Cancelling means the button does nothing.
+/// Payload: `x` `y` `z` `dim` `npc` `npcId` `actionIndex` `scene` `command` `_player`, and
+/// `partial` when the commands could not be read. `command` is the commands of the action
+/// joined by semicolons.
+pub const NPC_COMMAND: &str = "NpcCommandEvent";
+
+/// Cancellable. A fishing hook is about to drag what it caught toward the angler: an item, a
+/// mob, another player. Cancelling leaves the actor where it is.
+/// Payload: `x` `y` `z` `dim` `pulled` `pulledId` `pulledIsPlayer` `item` `_player`, and
+/// `partial` when the pulled actor could not be read. `item` is set when the pulled actor is
+/// an item on the ground. A hook with no player owner is not reported.
+pub const PLAYER_PULL_FISHING_HOOK: &str = "PlayerPullFishingHookEvent";
+
+/// Cancellable. A nether portal is about to spawn a zombified piglin. Cancelling means it
+/// does not this tick. The frame is the last one the engine measured on the thread, which it
+/// does just before asking.
+/// Payload: `x` `y` `z` `dim` `axis`.
+pub const PORTAL_SPAWN_PIG_ZOMBIE: &str = "PortalSpawnPigZombieEvent";
+
+/// Cancellable. An actor is about to be given an effect, or to have one renewed. Cancelling
+/// leaves it as it was.
+/// Payload: `effect` `effectId` `amplifier` `duration` `updated` `x` `y` `z` `dim` `actor`
+/// `actorId`, plus `_player` for a player, and `partial` when a field could not be read.
+/// `updated` is 1 when the actor already had that effect.
+pub const ACTOR_GET_EFFECT: &str = "ActorGetEffectEvent";
+
+/// Observation only, emitted before origin. An effect is being removed from an actor. The
+/// engine runs it after the effect is gone, and cancelling there would leave the modifiers of
+/// an effect that no longer exists, so to keep an effect, block what removes it. The payload
+/// is that of [`ACTOR_GET_EFFECT`] without `updated`.
+pub const ACTOR_REMOVE_EFFECT: &str = "ActorRemoveEffectEvent";
+
+/// Cancellable. A player's armor slot is about to be set, which covers putting armor on,
+/// taking it off and swapping it. Cancelling leaves the slot as it was.
+/// Payload: `slot` `item` `count` `x` `y` `z` `dim` `_player`, and `partial` when the item
+/// could not be read. `item` is empty when the slot is being emptied.
+pub const PLAYER_SET_ARMOR: &str = "PlayerSetArmorEvent";
+
+/// Cancellable. A player opens their own inventory screen. [`PLAYER_OPEN_CONTAINER`] covers
+/// a container block and never sees this.
+/// Payload: `x` `y` `z` `dim` `_player`.
+pub const PLAYER_OPEN_INVENTORY: &str = "PlayerOpenInventoryEvent";
+
+/// Cancellable. A container screen is about to open for a player, whoever owns it: a
+/// container block, a minecart chest, a horse. Cancelling means the screen does not open.
+/// Payload: `x` `y` `z` `dim` `owner` `_player`, with `owner` one of `block`, `actor` and
+/// `none`, and `ownerX` `ownerY` `ownerZ` for a block or `ownerId` for an actor.
+pub const PLAYER_OPEN_CONTAINER_SCREEN: &str = "PlayerOpenContainerScreenEvent";
+
+/// Observation only, emitted before origin, so a callback still finds the screen open. A
+/// player stops looking at a container block, by closing the screen, by disconnecting, or
+/// because a piston moved the block. Only a screen owned by a container block is reported.
+/// Payload: `x` `y` `z` `dim` `block` `_player`.
+pub const PLAYER_CLOSE_CONTAINER: &str = "PlayerCloseContainerEvent";
+
+/// Observation only. A slot of a container block a player has open changed. It runs after
+/// the slot holds the new stack.
+/// Payload: `x` `y` `z` `dim` `slot` `oldItem` `oldCount` `newItem` `newCount` `_player`, and
+/// `partial` when an item could not be read. `slot` is counted the way the player's screen
+/// counts it.
+pub const CONTAINER_CHANGE: &str = "ContainerChangeEvent";
+
+/// Observation only. A stack in one of a player's containers changed, whatever the cause: a
+/// pick-up, a craft, a command, another mod. It is not [`PLAYER_CHANGE_SLOT`], which is the
+/// held slot moving. It runs after the stack changed, so block the cause instead.
+/// Payload: `slot` `oldItem` `oldCount` `newItem` `newCount` `forceBalanced` `x` `y` `z`
+/// `dim` `_player`, and `partial` when an item could not be read.
+pub const PLAYER_INVENTORY_CHANGE: &str = "PlayerInventoryChangeEvent";
+
+/// Observation only. A score has a new value, whoever changed it: a command, a command
+/// block, another mod.
+/// Payload: `objective` `displayName` `score` `kind` `name` `entityId`, plus `_player` for a
+/// player who is online, and `partial` when a field could not be read. `kind` is `player`,
+/// `entity` or `fake`, `entityId` is the player's or the entity's id, and `name` is a fake
+/// player's name.
+pub const SCORE_CHANGED: &str = "ScoreChangedEvent";
+
+/// Observation only, emitted before origin. A projectile hit an actor.
+/// Payload: `x` `y` `z` `dim` `projectile` `projectileId` `target` `targetId`
+/// `targetIsPlayer`, with the position of the projectile. To stop a projectile, refuse its
+/// launch at [`PLAYER_SPAWN_PROJECTILE`].
+pub const PROJECTILE_HIT_ENTITY: &str = "ProjectileHitEntityEvent";
+
+/// Observation only, emitted before origin. A projectile hit a block.
+/// Payload: `x` `y` `z` `dim` `block` `projectile` `projectileId`, with the block that was
+/// hit.
+pub const PROJECTILE_HIT_BLOCK: &str = "ProjectileHitBlockEvent";
+
+/// Observation only. An actor was replaced by another that takes its place under a new id, a
+/// villager turning into a zombie villager for one.
+/// Payload: `x` `y` `z` `dim` `from` `fromId` `to` `toId`, and `partial` when the new actor
+/// could not be read. The position is the new actor's.
+pub const ACTOR_TRANSFORM: &str = "ActorTransformEvent";
+
+/// Cancellable. A mob is about to take or break a block, an enderman picking one up for
+/// instance. Nobody is acting, so no player event sees it. Cancelling is the engine's own
+/// answer of Cancel, and the block stays.
+/// Payload: `x` `y` `z` `dim` `actor` `actorId` `block`, and `partial` when the block could
+/// not be read. The position is the cell the actor wants to change.
+pub const ACTOR_DESTROY_BLOCK: &str = "ActorDestroyBlockEvent";
+
+/// Cancellable. An actor is about to pick an item up off the ground, a player included.
+/// Cancelling leaves the item where it is.
+/// Payload: `x` `y` `z` `dim` `actor` `actorId` `item` `itemId`, plus `_player` when a player
+/// picks it up, and `partial` when the item could not be read. The position is the item's.
+pub const ACTOR_PICKUP_ITEM: &str = "ActorPickupItemEvent";
+
+/// Cancellable. An actor that is not a player is about to go to another dimension: an item, a
+/// mob, a minecart or a boat through a portal. Players have [`PLAYER_CHANGE_DIMENSION`].
+/// Cancelling means it stays.
+/// Payload: `x` `y` `z` `dim` `from` `to` `actor` `actorId`, and `partial` when the actor
+/// could not be read. `dim` and `from` are the dimension it is in and `to` the one it is
+/// headed for.
+pub const ACTOR_CHANGE_DIMENSION: &str = "ActorChangeDimensionEvent";
+
+/// Cancellable. A dragon egg is about to jump somewhere else. Cancelling leaves it where it
+/// is. The cell it would jump to is not known yet.
+/// Payload: `x` `y` `z` `dim`.
+pub const DRAGON_EGG_TELEPORT: &str = "DragonEggTeleportEvent";
+
+/// Cancellable. A block that lost its support is about to turn into a falling block: sand,
+/// gravel, an anvil. Cancelling leaves it hanging.
+/// Payload: `x` `y` `z` `dim` `block` `creative`, and `partial` when the block could not be
+/// read. `creative` is 1 when a creative player's action started it.
+pub const BLOCK_FALL: &str = "BlockFallEvent";
+
+/// Cancellable. A sculk charge is about to be spent turning a cell into sculk. Cancelling is
+/// the engine's answer of a charge that was not used, and the cell stays as it is. A call that
+/// belongs to world generation is not asked about.
+/// Payload: `x` `y` `z` `dim`.
+pub const SCULK_BLOCK_GROWTH: &str = "SculkBlockGrowthEvent";
+
+/// Cancellable. The end fight is about to make the ender dragon again, after it has been
+/// killed. The first dragon of a fresh end is not asked about. Cancelling leaves the end
+/// without a dragon until the next try.
+/// Payload: `dim`, always the end.
+pub const DRAGON_RESPAWN: &str = "DragonRespawnEvent";
+
 /* The cancellability lookup tables */
 
 /// The events known to be cancellable. On the LL side they derive from `Cancellable<>` and
@@ -317,6 +557,34 @@ const CANCELLABLE: &[&str] = &[
     "PortalCreateEvent",
     "PlayerEditSignEvent",
     "PlayerOperatedItemFrameEvent",
+    "HopperSearchItemEvent",
+    "HopperPushOutEvent",
+    "DispenseItemEvent",
+    "CommandBlockExecuteEvent",
+    "WitherDestroyEvent",
+    "RespawnAnchorExplodeEvent",
+    "PlayerUseRespawnAnchorEvent",
+    "PlayerAttackBlockEvent",
+    "PlayerUseBucketPlaceEvent",
+    "PlayerUseBucketTakeEvent",
+    "PlayerConsumeTotemEvent",
+    "ExplosionBlocksEvent",
+    "BlockInteractedEvent",
+    "NpcCommandEvent",
+    "PlayerPullFishingHookEvent",
+    "PortalSpawnPigZombieEvent",
+    "ActorGetEffectEvent",
+    "PlayerSetArmorEvent",
+    "PlayerOpenInventoryEvent",
+    "PlayerOpenContainerScreenEvent",
+    "PlayerRequestItemActionEvent",
+    "ActorDestroyBlockEvent",
+    "ActorPickupItemEvent",
+    "ActorChangeDimensionEvent",
+    "DragonEggTeleportEvent",
+    "BlockFallEvent",
+    "SculkBlockGrowthEvent",
+    "DragonRespawnEvent",
 ];
 
 /// The events known to be observation only, each with where to block instead.
@@ -325,14 +593,6 @@ const CANCELLABLE: &[&str] = &[
 /// no-op, harmless meaning it does not crash while leaving the impression of having
 /// blocked it. In a protection mod that impression is far more dangerous than a crash.
 const OBSERVE_ONLY: &[(&str, &str)] = &[
-    // This host raises none of these. A name is shipped because a mod may already
-    // subscribe to it, and answering `Some(false)` is what stops a protection mod from
-    // treating a subscription as a working gate.
-    (
-        "PlayerRequestItemActionEvent",
-        "no cancellable hook point: the item stack request is applied by the time it can \
-         be observed, so a crafting or anvil action is blocked at the container instead",
-    ),
     // The LeviLamina registry
     ("PlayerDisconnectEvent", "the player is already leaving and cannot be stopped"),
     ("PlayerDieEvent", "the death is already done; block ActorHurtEvent to prevent it"),
@@ -359,6 +619,15 @@ const OBSERVE_ONLY: &[(&str, &str)] = &[
     ("WeatherChangeEvent", "stopping it midway leaves the timer disagreeing with the actual weather; control weather through the Server weather interface or a gamerule"),
     ("PlayerChangeSlotEvent", "the return is a reference to the item in the new slot and cancelling would mean inventing one; pin the held item by setting the slot back inside the event"),
     ("PlayerUseItemCompleteEvent", "cancelling here leaves the player holding the item forever; block PlayerUseItemEvent to forbid it"),
+    ("PlayerStopSleepEvent", "the engine has already decided to leave the bed, and refusing would leave the player lying in a bed it considers empty"),
+    ("PlayerCloseContainerEvent", "the engine has already decided to close the screen; refuse the open at PlayerOpenContainerEvent or PlayerOpenContainerScreenEvent"),
+    ("ContainerChangeEvent", "a notification that the slot already holds the new stack; refuse the move at PlayerRequestItemActionEvent"),
+    ("PlayerInventoryChangeEvent", "a notification that the stack already changed; block the cause with PlayerPickUpItemEvent, PlayerDropItemEvent or PlayerRequestItemActionEvent"),
+    ("ScoreChangedEvent", "the score already holds the new value"),
+    ("ActorRemoveEffectEvent", "the engine runs it after the effect is gone, and cancelling would leave the modifiers of an effect that no longer exists"),
+    ("ProjectileHitEntityEvent", "the projectile has already hit; refuse its launch with PlayerSpawnProjectileEvent"),
+    ("ProjectileHitBlockEvent", "the projectile has already hit; refuse its launch with PlayerSpawnProjectileEvent"),
+    ("ActorTransformEvent", "the new actor already exists"),
 ];
 
 /// Drops the `ll::event::xxx::` prefix and keeps the class name. The host accepts a unique
@@ -432,6 +701,43 @@ pub const ALL_SYNTHETIC: &[&str] = &[
     PORTAL_CREATE,
     HOPPER_TRANSFER,
     PLAYER_USE_ITEM_ON,
+    HOPPER_SEARCH_ITEM,
+    HOPPER_PUSH_OUT,
+    DISPENSE_ITEM,
+    COMMAND_BLOCK_EXECUTE,
+    WITHER_DESTROY,
+    RESPAWN_ANCHOR_EXPLODE,
+    PLAYER_USE_RESPAWN_ANCHOR,
+    PLAYER_ATTACK_BLOCK,
+    PLAYER_USE_BUCKET_PLACE,
+    PLAYER_USE_BUCKET_TAKE,
+    PLAYER_CONSUME_TOTEM,
+    PLAYER_STOP_SLEEP,
+    EXPLOSION_BLOCKS,
+    BLOCK_INTERACTED,
+    NPC_COMMAND,
+    PLAYER_PULL_FISHING_HOOK,
+    PORTAL_SPAWN_PIG_ZOMBIE,
+    ACTOR_GET_EFFECT,
+    ACTOR_REMOVE_EFFECT,
+    PLAYER_SET_ARMOR,
+    PLAYER_OPEN_INVENTORY,
+    PLAYER_OPEN_CONTAINER_SCREEN,
+    PLAYER_CLOSE_CONTAINER,
+    CONTAINER_CHANGE,
+    PLAYER_INVENTORY_CHANGE,
+    SCORE_CHANGED,
+    PROJECTILE_HIT_ENTITY,
+    PROJECTILE_HIT_BLOCK,
+    ACTOR_TRANSFORM,
+    PLAYER_REQUEST_ITEM_ACTION,
+    ACTOR_DESTROY_BLOCK,
+    ACTOR_PICKUP_ITEM,
+    ACTOR_CHANGE_DIMENSION,
+    DRAGON_EGG_TELEPORT,
+    BLOCK_FALL,
+    SCULK_BLOCK_GROWTH,
+    DRAGON_RESPAWN,
 ];
 
 // Constants for another mod's events used to sit here. Shipping a name for an event this

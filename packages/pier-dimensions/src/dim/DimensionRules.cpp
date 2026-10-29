@@ -7,18 +7,23 @@
  * through the object it works on, that yields a dimension id, so the decision really is
  * per dimension.
  * The rule table is sparse by dimension id and a miss goes straight to origin(). These
- * hooks are installed globally and must never change the behavior of an unmanaged
- * dimension, so a caller enables nothing for the vanilla dimensions.
- * Eleven hook points cover twelve rules. SpawnMonster, SpawnAnimal and SpawnSpawner
+ * hooks are installed globally, by the first rule set, and never change the behavior of a
+ * dimension nobody set a rule for; a rule set on a vanilla dimension is enforced too.
+ * Fifteen hook points cover twelve rules. SpawnMonster, SpawnAnimal and SpawnSpawner
  * share Spawner::spawnMob, ExplodeBlocks and MobGriefing share Explosion::explode,
- * PistonPush and PistonCrossPlot share PistonBlockActor::_checkAttachedBlocks, and
- * FireSpread has four. EntityCrossPlot is in CellConfine.cpp, on its own hook.
+ * PistonPush and PistonCrossCell share PistonBlockActor::_checkAttachedBlocks, FireSpread
+ * has four, and MobGriefing has four more. EntityCrossCell is in CellConfine.cpp.
  */
 #include "pier/dimensions/dim/dimension_rules.h"
+
+#if !defined(__clang__)
+#error "This file hooks EventCoordinatorPimpl::_processEvent and builds with clang-cl only: cl rejects its declaration (C2491). Configure with: xmake f --toolchain=clang-cl"
+#endif
 
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <type_traits>
 #include <unordered_map>
 
 #include "ll/api/base/ScopedValue.h"
@@ -26,11 +31,21 @@
 
 #include "mc/deps/core/math/IRandom.h"
 #include "mc/deps/core/math/Vec3.h"
+#include "mc/deps/ecs/gamerefs_entity/GameRefsEntity.h"
+#include "mc/gameplayhandlers/ActorGameplayHandler.h"
+#include "mc/gameplayhandlers/CoordinatorResult.h"
 #include "mc/legacy/ActorUniqueID.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/world/actor/ActorCategory.h"
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
 #include "mc/world/actor/Mob.h"
+#include "mc/world/actor/ai/goal/PlaceBlockGoal.h"
+#include "mc/world/actor/ai/goal/TakeBlockGoal.h"
+#include "mc/world/actor/boss/WitherBoss.h"
+#include "mc/world/events/ActorEventListener.h"
+#include "mc/world/events/ActorGameplayEvent.h"
+#include "mc/world/events/ActorGriefingBlockEvent.h"
+#include "mc/world/events/EventCoordinatorPimpl.h"
 #include "mc/world/level/BlockPos.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/Explosion.h"
@@ -165,6 +180,9 @@ namespace pier::dimensions
                 "[dim] {}", pier::trf("dim.dimension_rules.1", dimension, rule, kDimRuleCount));
             return;
         }
+        // Before the table lock: installing suspends the other threads, and one of them may
+        // be waiting on that lock inside a hook body.
+        registerDimensionRuleHooks();
         std::lock_guard lock{rulesMutex()};
         auto const k = key(dimension, rule);
         auto [it, inserted] = rules().insert_or_assign(k, allow);
@@ -353,8 +371,10 @@ namespace pier::dimensions
          * the whole thing would also eat the damage and the particles, and a player would
          * conclude the creeper is broken.
          * ExplodeBlocks = false stops any explosion from breaking blocks, TNT included.
-         * MobGriefing = false stops only mob-caused explosions, while TNT a player lit
-         * still breaks blocks. With both set, either one forbidding is enough.
+         * MobGriefing = false stops mob-caused explosions, while TNT a player lit still
+         * breaks blocks. It also stops what mobs do to blocks outside an explosion, which
+         * is the four hooks after the ride rule. With both set, either one forbidding is
+         * enough.
          * Explosion::explode is the hook point and not a Level::explode overload: every
          * explosion runs it, whichever overload or component built the Explosion, and the
          * Explosion carries its own BlockSource in mRegion and its cause in mSourceID.
@@ -584,7 +604,7 @@ namespace pier::dimensions
          * the attached blocks; false means it cannot, so the piston jams rather than moving
          * them. Blocking here and not the piston itself keeps the piston moving and
          * redstone working, where disabling pistons breaks many contraptions.
-         * PistonPush and PistonCrossPlot share this hook, the first applying to the whole
+         * PistonPush and PistonCrossCell share this hook, the first applying to the whole
          * dimension and the second deciding by boundary; two patches on one symbol would
          * add an indirect jump and an ordering question for nothing.
          * origin(region) must run first: it computes which blocks move, with
@@ -692,37 +712,203 @@ namespace pier::dimensions
             return origin(passenger);
         }
 
-        using DimRuleHookReg = ll::memory::HookRegistrar<
-            DimRuleSpawnMobHook,
-            DimRuleSpawnProjectileHook,
-            DimRuleExplodeHook,
-            DimRuleFireSpreadHook,
-            DimRuleFireTickHook,
-            DimRuleFirePlaceHook,
-            DimRuleFireMayPlaceHook,
-            DimRuleLiquidFlowHook,
-            DimRuleFarmlandHook,
-            DimRulePistonHook,
-            DimRuleRideHook>;
+        //  Mobs changing blocks without an explosion
 
+        /*
+         * MobGriefing also covers what mobs do to blocks outside an explosion. The engine
+         * asks its own listener before a mob changes a block, whichever mob it is, and an
+         * answer of Cancel stops it, so the last hook below covers every mob that asks. The
+         * two goals of an enderman picking a block up and putting one down are stopped at
+         * `canUse` as well, so a refused goal never starts and the enderman carries on with
+         * its others, where skipping `tick` would leave a goal that started with nothing to
+         * do. The wither breaks its walls through a function of its own, which is the third
+         * hook. The hook points are the ones iListenAttentively raises its mob events at.
+         */
+
+        /** Whether MobGriefing is off for the dimension this mob stands in. A mob whose
+         *  dimension cannot be read is not refused, as in the ride rule. */
+        bool griefingRefused(::Actor& mob)
+        {
+            int dim = -1;
+            try
+            {
+                dim = static_cast<int>(mob.getDimensionId());
+            }
+            catch (...)
+            {
+                dim = -1;
+            }
+            return dim >= 0 && anyRuleFor(dim) && !allowed(dim, DimRule::MobGriefing);
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimRuleTakeBlockHook,
+            ll::memory::HookPriority::Normal,
+            TakeBlockGoal,
+            &TakeBlockGoal::$canUse,
+            bool
+        )
+        {
+            ::Mob& mob = this->mMob;
+            if (griefingRefused(mob)) return false;
+            return origin();
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimRulePlaceBlockHook,
+            ll::memory::HookPriority::Normal,
+            PlaceBlockGoal,
+            &PlaceBlockGoal::$canUse,
+            bool
+        )
+        {
+            ::Mob& mob = this->mMob;
+            if (griefingRefused(mob)) return false;
+            return origin();
+        }
+
+        LL_TYPE_INSTANCE_HOOK(
+            DimRuleWitherDestroyHook,
+            ll::memory::HookPriority::Normal,
+            WitherBoss,
+            &WitherBoss::_destroyBlocks,
+            void,
+            ::Level& level,
+            ::AABB const& bb,
+            ::BlockSource& region,
+            int range,
+            ::WitherBoss::WitherAttackType attackType
+        )
+        {
+            if (griefingRefused(*this)) return;
+            origin(level, bb, region, range, attackType);
+        }
+
+        /** Whether the actor behind a griefing event stands in a dimension that forbids it.
+         *  An actor that is already gone is not refused. */
+        bool griefingEventRefused(::ActorGriefingBlockEvent const& griefing)
+        {
+            auto actor = griefing.mActorContext->tryUnwrap<::Actor>();
+            return actor && griefingRefused(*actor);
+        }
+
+        // _processEvent is a template that the engine instantiates once per kind of event
+        // list. The parameter types below pick the instantiation that carries the events a
+        // listener may answer with Cancel, which holds the griefing event. Refusing calls
+        // origin first, so the listener still hears of the event, and then answers Cancel.
+        LL_TYPE_INSTANCE_HOOK(
+            DimRuleGriefingEventHook,
+            ll::memory::HookPriority::Normal,
+            EventCoordinatorPimpl<ActorEventListener>,
+            &EventCoordinatorPimpl<ActorEventListener>::_processEvent,
+            ::CoordinatorResult,
+            ::ActorGameplayHandler* handler,
+            ::ActorGameplayEvent<::CoordinatorResult> const& event
+        )
+        {
+            bool refuse = false;
+            try
+            {
+                event.visit(
+                    [&](auto&& arg)
+                    {
+                        using Wrapped = std::decay_t<decltype(arg)>;
+                        if constexpr (std::is_same_v<
+                                          Wrapped,
+                                          ::Details::ValueOrRef<::ActorGriefingBlockEvent const>>)
+                        {
+                            refuse = griefingEventRefused(arg.value());
+                        }
+                    });
+            }
+            catch (...)
+            {
+                // An event that cannot be read is not refused. The rule is about a dimension
+                // that is known, and a mob that is gone has none.
+                refuse = false;
+            }
+            if (refuse)
+            {
+                origin(handler, event);
+                return ::CoordinatorResult::Cancel;
+            }
+            return origin(handler, event);
+        }
+
+        /**
+         * Installs one rule hook and logs a nonzero answer with the engine function it was
+         * for. The hooks are installed one by one and not through `HookRegistrar`, whose
+         * `hook()` returns nothing: a hook that did not take then left no line anywhere, and
+         * the switches it serves did nothing with no sign of why.
+         */
+        template <class Hook>
+        bool installRuleHook(char const* engineFunction)
+        {
+            int const code = Hook::hook();
+            if (code == 0) return true;
+            hostLogger().error(
+                "[dim] {}", pier::trf("dim.dimension_rules.3", engineFunction, code));
+            return false;
+        }
+
+        std::mutex& installMutex()
+        {
+            static std::mutex m;
+            return m;
+        }
+
+        /** Whether the hooks have been installed. Read and written under installMutex. */
         bool gInstalled = false;
     } // namespace
 
     void registerDimensionRuleHooks()
     {
+        std::lock_guard lock{installMutex()};
         if (gInstalled) return;
-        DimRuleHookReg::hook();
         gInstalled = true;
-        // The counts are stated exactly: 11 hook points covering 12 rules, with the 13th,
-        // EntityCrossPlot, in CellConfine.cpp. A log line whose numbers do not add up
+        int failed = 0;
+        auto const count = [&failed](bool installed) { failed += installed ? 0 : 1; };
+        count(installRuleHook<DimRuleSpawnMobHook>("Spawner::spawnMob"));
+        count(installRuleHook<DimRuleSpawnProjectileHook>("Spawner::spawnProjectile"));
+        count(installRuleHook<DimRuleExplodeHook>("Explosion::explode"));
+        count(installRuleHook<DimRuleFireSpreadHook>("FireBlock::checkBurn"));
+        count(installRuleHook<DimRuleFireTickHook>("FireBlock::tick"));
+        count(installRuleHook<DimRuleFirePlaceHook>("FireBlock::onPlace"));
+        count(installRuleHook<DimRuleFireMayPlaceHook>("FireBlock::mayPlace"));
+        count(installRuleHook<DimRuleLiquidFlowHook>("LiquidBlock::_trySpreadTo"));
+        count(installRuleHook<DimRuleFarmlandHook>("FarmBlock::transformOnFall"));
+        count(installRuleHook<DimRulePistonHook>("PistonBlockActor::_checkAttachedBlocks"));
+        count(installRuleHook<DimRuleRideHook>("Actor::canAddPassenger"));
+        count(installRuleHook<DimRuleTakeBlockHook>("TakeBlockGoal::canUse"));
+        count(installRuleHook<DimRulePlaceBlockHook>("PlaceBlockGoal::canUse"));
+        count(installRuleHook<DimRuleWitherDestroyHook>("WitherBoss::_destroyBlocks"));
+        count(installRuleHook<DimRuleGriefingEventHook>("EventCoordinatorPimpl<ActorEventListener>::_processEvent"));
+        if (failed != 0) return;
+        // The counts are stated exactly: 15 hook points covering 12 rules, with the 13th,
+        // EntityCrossCell, in CellConfine.cpp. A log line whose numbers do not add up
         // sends whoever reads it counting in the wrong place.
-        hostLogger().debug("[dim] per-dimension behavior rules enabled: 11 hook points covering 12 rules");
+        hostLogger().debug("[dim] per-dimension behavior rules enabled: 15 hook points covering 12 rules");
     }
 
     void unregisterDimensionRuleHooks()
     {
+        std::lock_guard lock{installMutex()};
         if (!gInstalled) return;
-        DimRuleHookReg::unhook();
+        DimRuleSpawnMobHook::unhook();
+        DimRuleSpawnProjectileHook::unhook();
+        DimRuleExplodeHook::unhook();
+        DimRuleFireSpreadHook::unhook();
+        DimRuleFireTickHook::unhook();
+        DimRuleFirePlaceHook::unhook();
+        DimRuleFireMayPlaceHook::unhook();
+        DimRuleLiquidFlowHook::unhook();
+        DimRuleFarmlandHook::unhook();
+        DimRulePistonHook::unhook();
+        DimRuleRideHook::unhook();
+        DimRuleTakeBlockHook::unhook();
+        DimRulePlaceBlockHook::unhook();
+        DimRuleWitherDestroyHook::unhook();
+        DimRuleGriefingEventHook::unhook();
         gInstalled = false;
     }
 } // namespace pier::dimensions

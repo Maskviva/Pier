@@ -20,6 +20,8 @@ bool (*registry_list)(int32_t kind, void* ctx, PierStrSink sink);
 
 实体的每一项包含：标识符；是否有刷怪蛋；是否可以召唤；是否受实验性玩法控制；以及引擎的实体类型编号，编号的各个位表示它是不是生物、怪物、动物或水生动物。
 
+命令的每一项包含：名字；描述；引擎给的权限等级编号（0 `Any`、1 `GameDirectors`、2 `Admin`、3 `Host`、4 `Owner`、5 `Internal`）；原始的标志位；这条命令是否对玩家隐藏；以及指向它的别名。注册表里的每一条命令都会列出，不论是哪个模组注册的。
+
 列出的是正在运行的游戏自己的内容，所以要挑「一个随机方块」或者「一个随机稀有物品」的模组，可以按规则从里面挑，不必自己维护一份列表。`kind` 不认识、`sink` 为空，或者注册表还不存在时返回 false，这时什么都不会输出。
 
 - 调用形式：`api->registry_list(kind, ctx, sink)`
@@ -31,7 +33,7 @@ bool (*registry_list)(int32_t kind, void* ctx, PierStrSink sink);
 - 所在分节：注册表（`Registries`）
 - 表内序号：第 200 个槽位（从 0 数起）
 - 各绑定里的调用方：
-    - Rust：[`registry::blocks`](../rust/registry.md#fn.blocks)、[`registry::items`](../rust/registry.md#fn.items)、[`registry::entities`](../rust/registry.md#fn.entities)
+    - Rust：[`registry::blocks`](../rust/registry.md#fn.blocks)、[`registry::items`](../rust/registry.md#fn.items)、[`registry::entities`](../rust/registry.md#fn.entities)、[`registry::commands`](../rust/registry.md#fn.commands)
     - Go：[`RegistryList`](../go/registry.md#RegistryList)、[`Raw.RegistryList`](../go/raw.md#Raw.RegistryList)
 
 ## `PIER_REGISTRY_*` {#PIER_REGISTRY_BLOCKS-group}
@@ -43,3 +45,4 @@ bool (*registry_list)(int32_t kind, void* ctx, PierStrSink sink);
 | <span id="PIER_REGISTRY_BLOCKS"></span>`PIER_REGISTRY_BLOCKS` | `0` | 所有方块类型 |
 | <span id="PIER_REGISTRY_ITEMS"></span>`PIER_REGISTRY_ITEMS` | `1` | 所有物品 |
 | <span id="PIER_REGISTRY_ENTITIES"></span>`PIER_REGISTRY_ENTITIES` | `2` | 关卡知道的所有实体 |
+| <span id="PIER_REGISTRY_COMMANDS"></span>`PIER_REGISTRY_COMMANDS` | `3` | 引擎注册表里的所有命令 |

@@ -23,6 +23,10 @@
 #include "mc/deps/nbt/DoubleTag.h"
 #include "mc/deps/nbt/FloatTag.h"
 #include "mc/deps/nbt/Int64Tag.h"
+#include "mc/deps/nbt/IntTag.h"
+#include "mc/deps/nbt/ListTag.h"
+#include "mc/deps/nbt/ShortTag.h"
+#include "mc/deps/nbt/Tag.h"
 #include "mc/platform/UUID.h"
 #include "mc/world/actor/player/Player.h"
 
@@ -102,11 +106,10 @@ namespace pier::hooks
             return 0.0;
         }
 
-        // What the two branches above rest on, stated so a later edit that collapses them
-        // back into one cast stops at compile time rather than at a protection that
-        // reports a block and does not block. The integer tags convert to an integer and
-        // the float tags to a floating point value; neither set converts to both, which is
-        // why one cast cannot serve them.
+        // What the two branches above rest on: the integer tags convert to an integer and
+        // the float tags to a floating point value, which is what each branch casts to. A
+        // single static_cast<double>(v) still compiles and reads the integer tags as 0.0,
+        // so these assertions state the conversions in use and do not reject that cast.
         static_assert(std::is_convertible_v<::ByteTag, std::int64_t>,
                       "numberOf reads integer tags as int64");
         static_assert(std::is_convertible_v<::Int64Tag, std::int64_t>,
@@ -184,6 +187,67 @@ namespace pier::hooks
                 }
             }
             return out;
+        }
+
+        /** The integer an element of a list holds, for the integer tag types a mod can write.
+         *  False for anything else, which makes the whole cell be skipped. */
+        template <class P>
+        bool intOf(P const& tag, int& out)
+        {
+            if (!tag) return false;
+            switch (tag->getId())
+            {
+            case Tag::Type::Byte:
+                out = static_cast<int>(static_cast<ByteTag const&>(*tag).data);
+                return true;
+            case Tag::Type::Short:
+                out = static_cast<int>(static_cast<ShortTag const&>(*tag).data);
+                return true;
+            case Tag::Type::Int:
+                out = static_cast<int>(static_cast<IntTag const&>(*tag).data);
+                return true;
+            case Tag::Type::Int64:
+                out = static_cast<int>(static_cast<Int64Tag const&>(*tag).data);
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        /** Reads the optional `keep` list, [[x,y,z],...], out of one reply into `out`.
+         *  Silence means nothing to keep, so a subscriber that only wants to observe answers
+         *  with nothing. */
+        void replyKeep(std::string const& reply, std::string_view eventId,
+                       std::vector<std::array<int, 3>>& out)
+        {
+            if (reply.empty()) return;
+            auto tag = CompoundTag::fromSnbt(reply);
+            if (!tag) return; // replyCancelled already reported the parse failure.
+            if (!tag->contains("keep") || !tag->at("keep").is_array()) return;
+            bool skipped = false;
+            for (auto const& element : tag->at("keep").get<ListTag>())
+            {
+                std::array<int, 3> cell{};
+                bool ok = element && element->getId() == Tag::Type::List;
+                if (ok)
+                {
+                    auto const& triple = static_cast<ListTag const&>(*element);
+                    ok = triple.size() == 3 && intOf(triple[0], cell[0])
+                        && intOf(triple[1], cell[1]) && intOf(triple[2], cell[2]);
+                }
+                if (ok)
+                {
+                    out.push_back(cell);
+                }
+                else
+                {
+                    skipped = true;
+                }
+            }
+            if (skipped)
+            {
+                hostLogger().error("[hooks] {}", pier::trf("hooks.hook_events.5", eventId));
+            }
         }
 
         bool sameRedirect(Redirect const& a, Redirect const& b)
@@ -304,6 +368,32 @@ namespace pier::hooks
         // A cancel means nothing happens at all, so a redirect alongside it is void.
         if (decision.cancelled) decision.redirect = Redirect{};
         return decision;
+    }
+
+    Keep dispatchHookEventKeeping(HookEventDef& def, std::string const& snbt)
+    {
+        // The same snapshot discipline as dispatchHookEventCancellable, reading one more
+        // thing out of each reply.
+        auto snap = snapshot(def);
+        Keep keep;
+        for (auto& [cb, user, mod] : snap)
+        {
+            CallbackScope scope{mod, "hook"};
+            std::string reply;
+            callOne(cb, user, def.idText, snbt, &reply, [](void* ctx, PierStr v)
+            {
+                if (ctx) *static_cast<std::string*>(ctx) = toString(v);
+            });
+            if (replyCancelled(reply, def.idText))
+            {
+                keep.cancelled = true;
+                // Keep going: every subscriber must see the event, whatever order they
+                // registered in.
+            }
+            replyKeep(reply, def.idText, keep.cells);
+        }
+        if (keep.cancelled) keep.cells.clear();
+        return keep;
     }
 
     namespace

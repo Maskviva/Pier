@@ -144,6 +144,36 @@ the new repository right now.
 | `packages/pier-hooks/src/world/DimensionEvents.cpp` | `same path` | ✔ done, rewritten with the argument for it being the single funnel, and the rvalue request read before being forwarded |
 | `packages/pier-hooks/src/world/HopperEvents.cpp` | `same path` | ✔ done, rewritten with the ICF folding guard and its discriminator kept in full |
 | `packages/pier-hooks/src/world/UseItemOnEvent.cpp` | `same path` | ✔ done, rewritten: the TypedStorage reference collapse rule, the reason for flat coordinates, and isFirstEvent passed through |
+| `—` | `packages/pier-hooks/src/world/HopperItemEvents.cpp` | ✔ done, added after 26.51.2: `HopperSearchItemEvent` and `HopperPushOutEvent`, cancellable and carrying the dimension, hooking the functions LegacyScriptEngine's hopper events use plus the pull from dropped items, with the direction held for the length of the outer call |
+| `—` | `packages/pier-hooks/src/world/DispenseItemEvent.cpp` | ✔ done, added after 26.51.2: `DispenseItemEvent`, hooking `DispenserBlock::ejectItem` as LegacyScriptEngine's onDispenseItem does |
+| `—` | `packages/pier-hooks/src/world/CommandBlockEvents.cpp` | ✔ done, added after 26.51.2: `CommandBlockExecuteEvent`, hooking `BaseCommandBlock::_performCommand` as LegacyScriptEngine's onCmdBlockExecute does |
+| `—` | `packages/pier-hooks/src/world/WitherDestroyEvent.cpp` | ✔ done, added after 26.51.2: `WitherDestroyEvent`, hooking `WitherBoss::_destroyBlocks` as iListenAttentively's WitherDestroyEvent does |
+| `—` | `packages/pier-hooks/src/world/RespawnAnchorEvents.cpp` | ✔ done, added after 26.51.2: `RespawnAnchorExplodeEvent` and `PlayerUseRespawnAnchorEvent` from one `RespawnAnchorBlock::use` detour, the split LegacyScriptEngine makes |
+| `—` | `packages/pier-hooks/src/world/AttackBlockEvent.cpp` | ✔ done, added after 26.51.2: `PlayerAttackBlockEvent`, hooking `ServerPlayerBlockUseHandler::onStartDestroyBlock` as iListenAttentively does, cancellable where `PlayerStartDestroyBlockEvent` only observes |
+| `—` | `packages/pier-hooks/src/protect/BucketEvents.cpp` | ✔ done, added after 26.51.2: `PlayerUseBucketPlaceEvent` and `PlayerUseBucketTakeEvent`, hooking `BucketItem::_emptyBucket` and `BucketItem::$_useOn` as LegacyScriptEngine does |
+| `—` | `packages/pier-hooks/src/player/TotemEvent.cpp` | ✔ done, added after 26.51.2: `PlayerConsumeTotemEvent`, hooking `Player::$consumeTotem` as LegacyScriptEngine's onConsumeTotem does |
+| `—` | `packages/pier-hooks/src/player/StopSleepEvent.cpp` | ✔ done, added after 26.51.2: `PlayerStopSleepEvent`, observation only, hooking `Player::$stopSleepInBed` as iListenAttentively does |
+| `—` | `packages/pier-hooks/src/world/ExplosionBlocksEvent.cpp` | ✔ done, added after 26.51.2: `ExplosionBlocksEvent`, hooking `BlockEventCoordinator::sendEvent` for the mutable explosion event as iListenAttentively does, with the cells a subscriber keeps taken out of the set the engine reads back; `Explosion::explode` is hooked only to note which explosion runs |
+| `—` | `packages/pier-hooks/src/protect/BlockInteractedEvent.cpp` | ✔ done, added after 26.51.2: `BlockInteractedEvent`, hooking `Block::use` for interactive and crafting blocks as LegacyScriptEngine's onBlockInteracted does |
+| `—` | `packages/pier-hooks/src/protect/NpcCommandEvent.cpp` | ✔ done, added after 26.51.2: `NpcCommandEvent`, hooking `NpcComponent::executeCommandAction` as LegacyScriptEngine's onNpcCmd does |
+| `—` | `packages/pier-hooks/src/protect/FishingHookEvent.cpp` | ✔ done, added after 26.51.2: `PlayerPullFishingHookEvent`, hooking `FishingHook::_pullCloser` as LegacyScriptEngine's onPlayerPullFishingHook does |
+| `—` | `packages/pier-hooks/src/world/PortalPigZombieEvent.cpp` | ✔ done, added after 26.51.2: `PortalSpawnPigZombieEvent`, hooking `SpawnChecks::canSpawnPigZombieFromPortal` with `PortalShape::evaluate` noting the frame, as LegacyScriptEngine's onPortalTrySpawnPigZombie does |
+| `—` | `packages/pier-hooks/src/player/EffectEvents.cpp` | ✔ done, added after 26.51.2: `ActorGetEffectEvent` hooking `Actor::addEffect` as iListenAttentively does, and `ActorRemoveEffectEvent` hooking `Actor::onEffectRemoved` as LegacyScriptEngine does, which is observation only here |
+| `—` | `packages/pier-hooks/src/player/ArmorEvent.cpp` | ✔ done, added after 26.51.2: `PlayerSetArmorEvent`, hooking `Actor::setArmor` for players as LegacyScriptEngine's onSetArmor does |
+| `—` | `packages/pier-hooks/src/player/InventoryScreenEvents.cpp` | ✔ done, added after 26.51.2: `PlayerOpenInventoryEvent` and `PlayerOpenContainerScreenEvent`, hooking `ServerPlayer::openInventory` and `ItemStackNetManagerServer::onContainerScreenOpen` as LegacyScriptEngine does |
+| `—` | `packages/pier-hooks/src/protect/RequestItemActionEvent.cpp` | ✔ done, added after 26.51.2: `PlayerRequestItemActionEvent` made real, hooking the transfer, remove and consume handlers as iListenAttentively does and answering a refusal with the engine's error result |
+| `—` | `packages/pier-hooks/src/world/CloseContainerEvent.cpp` | ✔ done, added after 26.51.2: `PlayerCloseContainerEvent`, observation only, hooking the container manager deletion and the piston's moving block as LegacyScriptEngine's onCloseContainer does |
+| `—` | `packages/pier-hooks/src/world/ContainerChangeEvent.cpp` | ✔ done, added after 26.51.2: `ContainerChangeEvent`, observation only, hooking `LevelContainerModel::onItemChanged` behind a vtable check as LegacyScriptEngine's onContainerChange does |
+| `—` | `packages/pier-hooks/src/player/InventoryChangeEvent.cpp` | ✔ done, added after 26.51.2: `PlayerInventoryChangeEvent`, observation only, hooking `Player::inventoryChanged` as iListenAttentively's PlayerChangeSlotEvent does |
+| `—` | `packages/pier-hooks/src/world/ScoreChangedEvent.cpp` | ✔ done, added after 26.51.2: `ScoreChangedEvent`, observation only, hooking `ServerScoreboard::onScoreChanged` as LegacyScriptEngine's onScoreChanged does |
+| `—` | `packages/pier-hooks/src/protect/ProjectileHitEvents.cpp` | ✔ done, added after 26.51.2: `ProjectileHitEntityEvent` and `ProjectileHitBlockEvent`, observation only, from one `ProjectileComponent::onHit` detour as LegacyScriptEngine's two events do |
+| `—` | `packages/pier-hooks/src/world/TransformEvent.cpp` | ✔ done, added after 26.51.2: `ActorTransformEvent`, observation only, pairing `ActorFactory::createTransformedActor` with `Level::addEntity` as LegacyScriptEngine's onEntityTransformation does |
+| `—` | `packages/pier-hooks/src/world/ActorGameplayEvents.cpp` | ✔ done, added after 26.51.2: `ActorDestroyBlockEvent` and `ActorPickupItemEvent`, hooking `EventCoordinatorPimpl<ActorEventListener>::_processEvent` for the two event lists as iListenAttentively does, answering a refusal with the engine's Cancel |
+| `—` | `packages/pier-hooks/src/world/ActorChangeDimensionEvent.cpp` | ✔ done, added after 26.51.2: `ActorChangeDimensionEvent`, hooking `ActorDimensionTransferManager::canChangeDimension` for actors that are not players, as iListenAttentively does |
+| `—` | `packages/pier-hooks/src/world/DragonEggEvent.cpp` | ✔ done, added after 26.51.2: `DragonEggTeleportEvent`, hooking `DragonEggBlock::_attemptTeleport` as iListenAttentively does, without drawing the target cell a second time |
+| `—` | `packages/pier-hooks/src/world/BlockFallEvent.cpp` | ✔ done, added after 26.51.2: `BlockFallEvent`, hooking `FallingBlock::startFalling` as iListenAttentively does, and calling origin where it writes the falling logic out again |
+| `—` | `packages/pier-hooks/src/world/SculkGrowthEvent.cpp` | ✔ done, added after 26.51.2: `SculkBlockGrowthEvent`, hooking `SculkBlockBehavior::attemptUseCharge` as iListenAttentively does |
+| `—` | `packages/pier-hooks/src/world/DragonRespawnEvent.cpp` | ✔ done, added after 26.51.2: `DragonRespawnEvent`, hooking `EndDragonFight::_createNewDragon` for a dragon that was killed before, as iListenAttentively does |
 | `packages/pier-hooks/xmake.lua` | `same path` | ✔ done, rewritten |
 | `packages/pier-host/include/pier/host/host_api.h` | `pier/host/{api_table,spi}.h` | ✔ done, split and rewritten: table ownership plus the four SPI registration faces |
 | `packages/pier-host/include/pier/host/hosted_mod.h` | `same path` | ✔ done, rewritten: ModHostName is "pier" and asMod moved in |
@@ -431,6 +461,7 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `docs/zh/guide/manifest.md` | ✔ added: Chinese: the manifest |
 | `docs/zh/guide/what-is-pier.md` | ✔ added: Chinese: what Pier is |
 | `docs/zh/guide/why.md` | ✔ added: Chinese: where Pier came from |
+| `—` | `docs/zh/guide/acknowledgements.md` | ✔ added: Chinese: what Pier learned from LeviLamina, LegacyScriptEngine, iListenAttentively, MoreDimensions and LegacyMoney, with the reference behind each event |
 | `docs/zh/index.md` | ✔ added: the Chinese landing page |
 | `docs/zh/rust/api.md` | ✔ added: Chinese: the API map |
 | `docs/zh/rust/commands.md` | ✔ added: Chinese: commands |
@@ -457,6 +488,7 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `docs/en/guide/manifest.md` | ✔ added: the manifest fields and the two that go wrong |
 | `docs/en/guide/what-is-pier.md` | ✔ added: what Pier is, the shape of it, and which binding to reach for |
 | `docs/en/guide/why.md` | ✔ added: where Pier came from: the four structural faults of the predecessor loader and what replaced each |
+| `—` | `docs/en/guide/acknowledgements.md` | ✔ added: what Pier learned from LeviLamina, LegacyScriptEngine, iListenAttentively, MoreDimensions and LegacyMoney, with the reference behind each event |
 | `docs/en/index.md` | ✔ added: the documentation landing page |
 | `docs/en/rust/api.md` | ✔ added: the map of the SDK, with rustdoc holding the detail |
 | `docs/en/rust/commands.md` | ✔ added: raw-text commands, typed overloads, and why registration is one way |
@@ -469,7 +501,7 @@ one direction only: adding the `ledger-covers-tree` check caught 31 of them at o
 | `docs/en/rust/threads.md` | ✔ added: the server thread default and the packet interception exception |
 | `tooth.json` | ✔ added: the lip package manifest, which is how a server owner installs a release |
 
-**Summary**: ✔ 199 | ✂ 21 | ⬜ 43 (263 old files in total)
+**Summary**: ✔ 231 | ✂ 21 | ⬜ 43 (295 old files in total)
 
 ---
 
@@ -889,7 +921,7 @@ false, nullptr or NotPossibleHere, so no half-updated state is created.
 | `packages/pier-hooks/src/protect/ItemFrameEvent.cpp` | `PlayerAttackItemFrameEvent`, hooking `ItemFrameBlock::$attack`, protecting the item in an item frame |
 | `packages/pier-hooks/src/protect/ItemFrameOperateEvent.cpp` | `PlayerOperatedItemFrameEvent`, hooking `ItemFrameBlock::use`, the rotate half of the item frame pair |
 | `packages/pier-hooks/src/protect/SignEvent.cpp` | `PlayerEditSignEvent`, hooking `SignBlockActor::$_playerCanUpdate`, the text on a sign already placed |
-| `—` | `PlayerRequestItemActionEvent` is not built: the item stack request has no cancellable hook point. The SDK keeps the name as observation-only and leaves it out of `ALL_SYNTHETIC` |
+| `—` | `PlayerRequestItemActionEvent` is built after 26.51.2, once the item stack request handlers turned out to return a result that a refusal can answer with: the three handlers are hooked and a refusal returns the engine's error. It is cancellable and is in `ALL_SYNTHETIC` |
 | `packages/pier-hooks/src/protect/RideEvent.cpp` | `ActorRideEvent` appended, for a non-player passenger, sharing the detour with `PlayerRideEvent` |
 | `packages/pier-hooks/src/protect/PressurePlateEvent.cpp` | `ActorStepOnPressurePlateEvent` appended, for a non-player actor, with its own throttle table |
 

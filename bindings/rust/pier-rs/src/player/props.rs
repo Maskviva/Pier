@@ -70,4 +70,9 @@ accessors! { Player;
     bool is_dead                    = PIER_PPROP_IS_DEAD;
     /// Has died at least once in this save.
     bool has_died_before            = PIER_PPROP_HAS_DIED_BEFORE;
+    /// The client has finished joining. An ability written before that reaches a client that
+    /// has not built its ability layers yet, and the write is refused. A timer that reaches
+    /// players who may still be loading asks this first. A simulated player has no client
+    /// and always answers true.
+    bool is_initialized             = PIER_PPROP_IS_INITIALIZED;
 }

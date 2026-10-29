@@ -26,13 +26,14 @@ out or listed in `_unresolved`, and Pier puts no default in its place.
 | the player the event is about (`self`) | `_player` | `{name, xuid, uuid, pos:{x,y,z}}` |
 | any other actor, or a non-player `self` | `_<key>` | `{uid, type, name, isPlayer, dim}`, and for a player also `xuid` and `realName` |
 | a damage source | `_<key>` | `{cause, attackerUid?, attacker?, projectileUid?, projectile?}` |
-| an entity type | `_identifier` | `{full, namespace, name}` |
+| an entity type | `_identifier` | `{full, namespace, name, canonical, type}` |
 | a block or an item | `_<key>` | `{name}` |
 | a block source, or a `self` actor | `dim` | the dimension id, when the event did not carry one |
 
 `uid` is the actor's unique id, the same number every actor slot takes, so a mod can act on
 the actor a payload names. `name` is the name tag, which a plugin may have changed;
 `realName` is the player's account name.
+`_identifier.canonical` is `namespace:name` without the initialization event that `full` can carry after it, and `type` is the engine's own entity type number for that name. Its bits say whether the entity is a mob, a monster, an animal or a water animal, and it is the same number as the `type` of an entity entry of `registry_list`; an unknown name gives 0. A consumer that wants to know whether a spawn is a monster reads the monster bit of `type` and keeps no list of names of its own.
 
 ### Who killed whom
 
@@ -62,15 +63,24 @@ making a protection decision on such a payload refuses rather than guesses; the 
 Synthetic payloads follow three rules that let a mod tell an answer from a failure:
 
 - **`partial`**: `"partial":1` means at least one field could not be read and holds a
-  default only. It appears in `ExplosionEvent`, `FarmlandDecayEvent`,
-  `SpawnItemActorEvent`, `ChestPairEvent` and `PistonPushEvent`, and is absent when every
-  read succeeded.
+  default only. It appears in `ExplosionEvent`, `ExplosionBlocksEvent`, `FarmlandDecayEvent`,
+  `SpawnItemActorEvent`, `ChestPairEvent`, `PistonPushEvent`, `HopperSearchItemEvent`,
+  `HopperPushOutEvent`, `DispenseItemEvent`, `CommandBlockExecuteEvent`, `NpcCommandEvent`,
+  `PlayerPullFishingHookEvent`, `PlayerUseBucketPlaceEvent`, `PlayerUseBucketTakeEvent`,
+  `ActorGetEffectEvent`, `ActorRemoveEffectEvent`, `PlayerSetArmorEvent`,
+  `ContainerChangeEvent`, `PlayerInventoryChangeEvent`, `ScoreChangedEvent`,
+  `ActorTransformEvent`, `ActorDestroyBlockEvent`, `ActorPickupItemEvent`,
+  `ActorChangeDimensionEvent` and `BlockFallEvent`, and is absent when every read succeeded.
 - **`targetKnown`**: in `PlayerAttackTargetEvent` and `PlayerInteractEntityEvent`, 0 means
   the target could not be read. `targetIsPlayer` is 1 then, so a PvP rule refuses.
 - **Cancelling**: the callback receives a write-back, and a cancellable event is cancelled
   by writing it back with the cancel set; the bindings wrap this, as `ev.cancel()` in Rust.
   An event marked observation-only cannot be cancelled, and its documentation names the
   event to block instead.
+- **`keep`**: the reply to `ExplosionBlocksEvent` may carry `"keep":[[x,y,z],...]`, a list of
+  cells the explosion must leave out of what it destroys. The cells of every subscriber are
+  kept together, and a cancel wins over them. An element that is not a list of three integers
+  is skipped and logged.
 
 ## When an event does not arrive
 

@@ -1,4 +1,4 @@
-/** world/Registry.cpp: the engine's block, item and entity registries, listed entry by entry.
+/** world/Registry.cpp: the engine's block, item, entity and command registries, entry by entry.
  *
  * A mod that wants "a random block" or "a random rare item" decides by rules over what the
  * running game contains, and this is where it reads that content. Each entry goes out as one
@@ -6,12 +6,16 @@
  * is that value itself and is read without `.get()`; the rule is in tools/typed-storage.py. */
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "ll/api/service/Bedrock.h"
 
 #include "mc/common/Globals.h"
 #include "mc/deps/core/string/HashedString.h"
+#include "mc/server/commands/CommandFlag.h"
+#include "mc/server/commands/CommandRegistry.h"
 #include "mc/world/actor/ActorDefinitionIdentifier.h"
 #include "mc/world/actor/ActorInfo.h"
 #include "mc/world/actor/ActorInfoRegistry.h"
@@ -141,6 +145,49 @@ namespace pier::api_impl
             return true;
         }
 
+        /**
+         * Every command the engine's registry holds, one entry each, with the aliases that
+         * resolve to it. `mSignatures` and `mAliases` are plain public members, so no symbol
+         * has to resolve; the by-name lookups of CommandRegistry are MCAPI, and an address
+         * that is absent there ends the process in a fastfail that no catch block sees
+         * (commandVerb in CommandEvents.cpp says the same). `mAliases` maps an alias to the
+         * command it stands for, the way commandVerb reads it.
+         *
+         * False when the registry does not exist yet, which is not the same as an empty one.
+         */
+        bool listCommands(void* ctx, PierStrSink sink)
+        {
+            auto registry = ll::service::getCommandRegistry();
+            if (!registry) return false;
+            std::unordered_map<std::string, std::vector<std::string>> aliasesOf;
+            for (auto const& [alias, name] : registry->mAliases) aliasesOf[name].push_back(alias);
+            for (auto const& [name, signature] : registry->mSignatures)
+            {
+                auto const flags = static_cast<std::uint16_t>(signature.flags.value);
+                auto const hiddenFromPlayers =
+                    static_cast<std::uint16_t>(CommandFlagValue::HiddenFromPlayerOrigin);
+                std::string line = "{\"name\":\"" + pier::snbtEscape(name) + "\"";
+                line += text("description", signature.description);
+                line += whole("permission", static_cast<int>(signature.permissionLevel));
+                line += whole("flags", flags);
+                line += flag("hidden", (flags & hiddenFromPlayers) != 0);
+                line += ",\"aliases\":[";
+                if (auto const found = aliasesOf.find(name); found != aliasesOf.end())
+                {
+                    bool first = true;
+                    for (auto const& alias : found->second)
+                    {
+                        if (!first) line += ',';
+                        first = false;
+                        line += "\"" + pier::snbtEscape(alias) + "\"";
+                    }
+                }
+                line += "]}";
+                sink(ctx, ps(line));
+            }
+            return true;
+        }
+
         bool api_registry_list(int32_t kind, void* ctx, PierStrSink sink)
         {
             PIER_API_GUARD_BEGIN
@@ -155,6 +202,8 @@ namespace pier::api_impl
                     return true;
                 case PIER_REGISTRY_ENTITIES:
                     return listEntities(ctx, sink);
+                case PIER_REGISTRY_COMMANDS:
+                    return listCommands(ctx, sink);
                 default:
                     return false;
                 }

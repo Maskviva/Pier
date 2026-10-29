@@ -779,6 +779,17 @@ Dimension reads `PIER_PPROP_DIMENSION`: (G) `Actor::getDimensionId`
 - Return type: `(float64, error)`
 - Slots: [`player_get_num`](../cpp/player.md#player_get_num)
 
+### `Player.IsInitialized` {#Player.IsInitialized}
+
+```go
+func (p Player) IsInitialized() (bool, error)
+```
+
+IsInitialized reads `PIER_PPROP_IS_INITIALIZED`: (G) `Player::isPlayerInitialized`; 1 for a simulated player
+
+- Return type: `(bool, error)`
+- Slots: [`player_get_num`](../cpp/player.md#player_get_num)
+
 ### `Player.RealName` {#Player.RealName}
 
 ```go
@@ -1477,6 +1488,7 @@ PlayerPos is where a player is; Found is false when nobody matched.
 | <span id="PPropIsDead"></span>`PPropIsDead` | `33` | PPropIsDead is `PIER_PPROP_IS_DEAD`: (G) `Actor::isDead` |
 | <span id="PPropHasDiedBefore"></span>`PPropHasDiedBefore` | `34` | PPropHasDiedBefore is `PIER_PPROP_HAS_DIED_BEFORE`: (G) `Player::hasDiedBefore` |
 | <span id="PPropDimension"></span>`PPropDimension` | `35` | PPropDimension is `PIER_PPROP_DIMENSION`: (G) `Actor::getDimensionId` |
+| <span id="PPropIsInitialized"></span>`PPropIsInitialized` | `36` | PPropIsInitialized is `PIER_PPROP_IS_INITIALIZED`: (G) `Player::isPlayerInitialized`; 1 for a simulated player |
 
 ## `PStr*` {#PStr}
 

@@ -7,14 +7,14 @@
 | 页面 | 函数和方法 | 类型 | 常量 |
 |---|---|---|---|
 | [crate 根](root.md) | 25 | 7 | 0 |
-| [玩家](player.md) | 119 | 4 | 0 |
+| [玩家](player.md) | 120 | 4 | 0 |
 | [实体](entity.md) | 95 | 4 | 0 |
 | [世界](world.md) | 46 | 11 | 1 |
 | [方块](block.md) | 60 | 2 | 0 |
 | [物品](item.md) | 64 | 2 | 0 |
 | [容器](container.md) | 14 | 2 | 0 |
 | [事件](event.md) | 39 | 7 | 0 |
-| [事件名](event-names.md) | 2 | 0 | 68 |
+| [事件名](event-names.md) | 2 | 0 | 104 |
 | [命令](command.md) | 26 | 7 | 0 |
 | [表单](gui.md) | 31 | 5 | 0 |
 | [计分板](scoreboard.md) | 12 | 3 | 0 |
@@ -30,5 +30,5 @@
 | [模拟玩家](sim.md) | 27 | 1 | 0 |
 | [自定义维度](dimensions.md) | 22 | 8 | 0 |
 | [客户端](client.md) | 10 | 2 | 0 |
-| [注册表](registry.md) | 7 | 3 | 7 |
+| [注册表](registry.md) | 8 | 4 | 7 |
 | [通用类型](types.md) | 25 | 16 | 0 |

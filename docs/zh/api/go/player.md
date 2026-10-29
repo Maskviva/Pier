@@ -779,6 +779,17 @@ func (p Player) Dimension() (float64, error)
 - 返回值类型：`(float64, error)`
 - 对应槽位：[`player_get_num`](../cpp/player.md#player_get_num)
 
+### `Player.IsInitialized` {#Player.IsInitialized}
+
+```go
+func (p Player) IsInitialized() (bool, error)
+```
+
+读取 `PIER_PPROP_IS_INITIALIZED`：(G) `Player::isPlayerInitialized`；模拟玩家读到 1
+
+- 返回值类型：`(bool, error)`
+- 对应槽位：[`player_get_num`](../cpp/player.md#player_get_num)
+
 ### `Player.RealName` {#Player.RealName}
 
 ```go
@@ -1477,6 +1488,7 @@ type PlayerPos struct {
 | <span id="PPropIsDead"></span>`PPropIsDead` | `33` | 即 `PIER_PPROP_IS_DEAD`：(G) `Actor::isDead` |
 | <span id="PPropHasDiedBefore"></span>`PPropHasDiedBefore` | `34` | 即 `PIER_PPROP_HAS_DIED_BEFORE`：(G) `Player::hasDiedBefore` |
 | <span id="PPropDimension"></span>`PPropDimension` | `35` | 即 `PIER_PPROP_DIMENSION`：(G) `Actor::getDimensionId` |
+| <span id="PPropIsInitialized"></span>`PPropIsInitialized` | `36` | 即 `PIER_PPROP_IS_INITIALIZED`：(G) `Player::isPlayerInitialized`；模拟玩家读到 1 |
 
 ## `PStr*` {#PStr}
 

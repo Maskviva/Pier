@@ -14,7 +14,7 @@ Before a slot is called, two things are checked: that `struct_size` reaches the 
 | [Server, ticks and system information](server.md) | 16 | 0 | 8 |
 | [World](world.md) | 31 | 0 | 0 |
 | [Bulk world editing](edit.md) | 7 | 0 | 0 |
-| [Players](player.md) | 23 | 0 | 74 |
+| [Players](player.md) | 23 | 0 | 75 |
 | [Actors](entity.md) | 19 | 0 | 85 |
 | [Blocks](block.md) | 7 | 0 | 42 |
 | [Items and containers](item.md) | 15 | 0 | 52 |
@@ -27,7 +27,7 @@ Before a slot is called, two things are checked: that `struct_size` reaches the 
 | [Client](client.md) | 6 | 4 | 0 |
 | [Custom dimensions](dimensions.md) | 13 | 5 | 30 |
 | [Cross-mod](crossmod.md) | 16 | 5 | 8 |
-| [Registries](registry.md) | 1 | 0 | 3 |
+| [Registries](registry.md) | 1 | 0 | 4 |
 | [Shared types](types.md) | 0 | 10 | 0 |
 
 ## The header of abi.h

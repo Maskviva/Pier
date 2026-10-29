@@ -657,9 +657,10 @@ namespace pier::dimensions
         // Diagnostics, not installed by default. See chunk_trace.h.
         registerChunkTraceHooks();
 
-        // Per-dimension behavior rules, installed unconditionally. A dimension with no
-        // rule set goes straight to origin(), so installing them has no effect on the
-        // vanilla dimensions.
+        // Per-dimension behavior rules. A dimension with no rule set goes straight to
+        // origin(), so installing them has no effect on the vanilla dimensions. The first
+        // setDimensionRule installs them too, for a server that never registers a
+        // dimension, so this call is the second way in and registering twice is harmless.
         registerDimensionRuleHooks();
     }
 

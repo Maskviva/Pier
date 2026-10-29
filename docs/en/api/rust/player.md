@@ -1288,6 +1288,20 @@ Has died at least once in this save.
 - Return type: `Result<bool>`
 - Slots: [`player_get_num`](../cpp/player.md#player_get_num)
 
+### `Player::is_initialized` {#Player.is_initialized}
+
+```rust
+pub fn is_initialized(&self) -> Result<bool>
+```
+
+The client has finished joining. An ability written before that reaches a client that
+has not built its ability layers yet, and the write is refused. A timer that reaches
+players who may still be loading asks this first. A simulated player has no client
+and always answers true.
+
+- Return type: `Result<bool>`
+- Slots: [`player_get_num`](../cpp/player.md#player_get_num)
+
 ## `PlayerSel` {#PlayerSel}
 
 ```rust

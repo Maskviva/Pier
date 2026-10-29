@@ -46,7 +46,7 @@ namespace pier::dimensions
          * a plot and blocks only a crossing. With both set, either one forbidding stops
          * the push.
          *
-         * It is meaningful only once `setPlotGrid` has registered a grid, and a dimension
+         * It is meaningful only once `setCellGrid` has registered a grid, and a dimension
          * without one always allows it.
          */
         PistonCrossCell = 11,
@@ -71,6 +71,16 @@ namespace pier::dimensions
 
     void clearDimensionRules(int dimension);
 
+    /**
+     * Installs the engine hooks that enforce the rules. Idempotent, and safe to call from
+     * any caller that is about to depend on a rule: `setDimensionRule` calls it, and so
+     * does the construction of the dimension manager, whichever comes first.
+     *
+     * A hook that does not install is logged with the engine function it was for. The
+     * rules that hook serves have no effect then, and the others keep working.
+     */
     void registerDimensionRuleHooks();
+
+    /** Removes the hooks `registerDimensionRuleHooks` installed. Called at teardown. */
     void unregisterDimensionRuleHooks();
 } // namespace pier::dimensions

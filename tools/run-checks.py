@@ -56,6 +56,7 @@ SCRIPTS = [
     ("rust_layering.py", ["rust-layering"]),
     ("rust_comment_budget.py", ["rust-comment-budget"]),
     ("synthetic_names.py", ["synthetic-names"]),
+    ("hook_install_once.py", ["hook-install-once"]),
     ("go_binding.py", ["go-binding"]),
     ("zig_binding.py", ["zig-binding"]),
     ("api_docs_current.py", ["api-docs-current"]),

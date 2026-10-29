@@ -110,6 +110,9 @@ const PPropHasDiedBefore int32 = 34
 // PPropDimension is PIER_PPROP_DIMENSION: (G) Actor::getDimensionId
 const PPropDimension int32 = 35
 
+// PPropIsInitialized is PIER_PPROP_IS_INITIALIZED: (G) Player::isPlayerInitialized; 1 for a simulated player
+const PPropIsInitialized int32 = 36
+
 // PStrRealName is PIER_PSTR_REAL_NAME: Player::getRealName
 const PStrRealName int32 = 0
 
@@ -1236,6 +1239,18 @@ func (p Player) Dimension() (float64, error) {
 		return 0, noAnswer("PIER_PPROP_DIMENSION")
 	}
 	return v, nil
+}
+
+// IsInitialized reads PIER_PPROP_IS_INITIALIZED: (G) Player::isPlayerInitialized; 1 for a simulated player
+func (p Player) IsInitialized() (bool, error) {
+	v, ok, err := Raw.PlayerGetNum(p.Sel, PPropIsInitialized)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, noAnswer("PIER_PPROP_IS_INITIALIZED")
+	}
+	return v != 0, nil
 }
 
 // RealName reads PIER_PSTR_REAL_NAME: Player::getRealName

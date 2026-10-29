@@ -91,6 +91,8 @@ pub const PIER_PPROP_IS_DEAD: i32 = 33;
 pub const PIER_PPROP_HAS_DIED_BEFORE: i32 = 34;
 /// (G) Actor::getDimensionId
 pub const PIER_PPROP_DIMENSION: i32 = 35;
+/// (G) Player::isPlayerInitialized; 1 for a simulated player
+pub const PIER_PPROP_IS_INITIALIZED: i32 = 36;
 
 // ── PierPlayerStrProp ──────────────────────────────────────────
 

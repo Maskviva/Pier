@@ -10,7 +10,7 @@ Package `.pier`, exported module `levilamina`. `levilamina.slot("name")` reaches
 | [Events](events.md) | 4 | 3 | 0 |
 | [Commands](commands.md) | 4 | 2 | 0 |
 | [Server, ticks and system information](server.md) | 8 | 0 | 0 |
-| [Players](player.md) | 84 | 2 | 0 |
+| [Players](player.md) | 85 | 2 | 0 |
 | [Actors](entity.md) | 86 | 1 | 0 |
 | [Blocks](block.md) | 43 | 1 | 0 |
 | [Items and containers](item.md) | 40 | 1 | 0 |

@@ -524,6 +524,17 @@ pub fn dimension(self: Player) core.Error!f64
 - Return type: `core.Error!f64`
 - Slots: [`player_get_num`](../cpp/player.md#player_get_num)
 
+### `Player.isInitialized` {#Player.isInitialized}
+
+```zig
+pub fn isInitialized(self: Player) core.Error!bool
+```
+
+`PIER_PPROP_IS_INITIALIZED`: (G) `Player::isPlayerInitialized`; 1 for a simulated player
+
+- Return type: `core.Error!bool`
+- Slots: [`player_get_num`](../cpp/player.md#player_get_num)
+
 ### `Player.realName` {#Player.realName}
 
 ```zig

@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "mc/common/Globals.h"
 #include "mc/deps/core/math/Vec3.h"
 #include "mc/deps/nbt/CompoundTag.h"
 #include "mc/deps/nbt/ListTag.h"
@@ -138,6 +139,39 @@ namespace pier::bridge
         bool isActorLike(std::string_view type)
         {
             return type == "Player" || type == "ServerPlayer" || type == "Mob" || type == "Actor";
+        }
+
+        /** The engine's actor type number of an entity identifier, whose bits say whether it
+         *  is a mob, a monster, an animal or a water animal. A vanilla identifier may resolve
+         *  only without its namespace, so both spellings are tried; 0 is what an unknown name
+         *  gives. The same lookup lists the entity registry, in world/Registry.cpp. */
+        std::int64_t actorTypeOf(std::string const& id)
+        {
+            auto const type = static_cast<std::int64_t>(EntityTypeFromString(id));
+            if (type != 0) return type;
+            auto const colon = id.find(':');
+            if (colon == std::string::npos) return 0;
+            return static_cast<std::int64_t>(EntityTypeFromString(id.substr(colon + 1)));
+        }
+
+        /** The `_identifier` object. `canonical` is the name without the initialization event
+         *  that `full` can carry after it, and `type` is the engine's own classification of that
+         *  name, so a consumer need not keep a list of hostile names of its own. */
+        CompoundTagVariant describeIdentifier(
+            std::string const& full,
+            std::string const& ns,
+            std::string const& name,
+            std::string const& canonical)
+        {
+            return CompoundTagVariant::object(
+                {
+                    {"full", CompoundTagVariant(full)},
+                    {"namespace", CompoundTagVariant(ns)},
+                    {"name", CompoundTagVariant(name)},
+                    {"canonical", CompoundTagVariant(canonical)},
+                    {"type", CompoundTagVariant(actorTypeOf(canonical))}
+                }
+            );
         }
 
         /** `uid` is the ActorUniqueID every actor slot takes, so a consumer can act on the
@@ -334,12 +368,11 @@ namespace pier::bridge
             {
                 if (auto* id = reinterpret_cast<ActorDefinitionIdentifier*>(stub.addr))
                 {
-                    copy["_identifier"] = CompoundTagVariant::object(
-                        {
-                            {"full", CompoundTagVariant(id->mFullName.get())},
-                            {"namespace", CompoundTagVariant(id->mNamespace.get())},
-                            {"name", CompoundTagVariant(id->mIdentifier.get())}
-                        }
+                    copy["_identifier"] = describeIdentifier(
+                        id->mFullName.get(),
+                        id->mNamespace.get(),
+                        id->mIdentifier.get(),
+                        id->mCanonicalName->getString()
                     );
                     changed = true;
                 }
@@ -348,10 +381,10 @@ namespace pier::bridge
 
             if (stub.type == "ActorDamageSource")
             {
-                // mCause is read rather than getCause(), which is MCFOLD and not
-                // guaranteed to be exported. ActorDamageCause is an enum, so by the
-                // collapse rules in tools/typed-storage.py the member is that enum itself
-                // and writing .get() is compile error C2228.
+                // mCause is read because ActorDamageSource declares no getCause().
+                // ActorDamageCause is an enum, so by the collapse rules in
+                // tools/typed-storage.py the member is that enum itself and writing .get()
+                // is compile error C2228.
                 if (auto* src = reinterpret_cast<ActorDamageSource const*>(stub.addr))
                 {
                     copy["_" + stub.key] = describeSource(*src);
@@ -409,6 +442,25 @@ namespace pier::bridge
                 }
                 continue;
             }
+        }
+
+        // A spawn names its entity as a reference stub in some LeviLamina builds and as plain
+        // text in others. Plain text gets the same `_identifier`, so a consumer reads one shape.
+        // Only the spawn events carry `naturalSpawn`, which keeps another event's own
+        // `identifier` field from being taken for an entity name.
+        if (!copy.contains("_identifier") && copy.contains("naturalSpawn") && copy.contains("identifier")
+            && copy.at("identifier").is_string())
+        {
+            std::string const full{std::string_view(copy.at("identifier"))};
+            std::string const canonical = full.substr(0, full.find('<'));
+            auto const colon = canonical.find(':');
+            copy["_identifier"] = describeIdentifier(
+                full,
+                colon == std::string::npos ? std::string{} : canonical.substr(0, colon),
+                colon == std::string::npos ? canonical : canonical.substr(colon + 1),
+                canonical
+            );
+            changed = true;
         }
 
         // `block` and `item` name what an event touched, which the payload otherwise

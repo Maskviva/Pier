@@ -354,6 +354,14 @@ pub const Player = struct {
         return out_value;
     }
 
+    /// PIER_PPROP_IS_INITIALIZED: (G) Player::isPlayerInitialized; 1 for a simulated player
+    pub fn isInitialized(self: Player) core.Error!bool {
+        const slot_fn = core.slot("player_get_num") orelse return error.NotProvided;
+        var out_value: f64 = 0;
+        if (!slot_fn(self.cSel(), core.c.PIER_PPROP_IS_INITIALIZED, &out_value)) return error.NoAnswer;
+        return out_value != 0;
+    }
+
     /// PIER_PSTR_REAL_NAME: Player::getRealName
     pub fn realName(self: Player, allocator: std.mem.Allocator) core.Error![]u8 {
         const slot_fn = core.slot("player_get_str") orelse return error.NotProvided;

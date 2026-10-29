@@ -7,14 +7,14 @@ The crate of the `pier-rs` package is named `levilamina`. Each module has a page
 | Page | Functions and methods | Types | Constants |
 |---|---|---|---|
 | [crate root](root.md) | 25 | 7 | 0 |
-| [player](player.md) | 119 | 4 | 0 |
+| [player](player.md) | 120 | 4 | 0 |
 | [entity](entity.md) | 95 | 4 | 0 |
 | [world](world.md) | 46 | 11 | 1 |
 | [block](block.md) | 60 | 2 | 0 |
 | [item](item.md) | 64 | 2 | 0 |
 | [container](container.md) | 14 | 2 | 0 |
 | [event](event.md) | 39 | 7 | 0 |
-| [event::names](event-names.md) | 2 | 0 | 68 |
+| [event::names](event-names.md) | 2 | 0 | 104 |
 | [command](command.md) | 26 | 7 | 0 |
 | [gui](gui.md) | 31 | 5 | 0 |
 | [scoreboard](scoreboard.md) | 12 | 3 | 0 |
@@ -30,5 +30,5 @@ The crate of the `pier-rs` package is named `levilamina`. Each module has a page
 | [sim](sim.md) | 27 | 1 | 0 |
 | [dimensions](dimensions.md) | 22 | 8 | 0 |
 | [client](client.md) | 10 | 2 | 0 |
-| [registry](registry.md) | 7 | 3 | 7 |
+| [registry](registry.md) | 8 | 4 | 7 |
 | [types](types.md) | 25 | 16 | 0 |

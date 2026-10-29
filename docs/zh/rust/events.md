@@ -30,7 +30,7 @@ event::subscribe("PlayerChatEvent", ...)      // 能用，直到你哪天打错�
 但上游哪天加一个同名事件，后缀就有歧义了。
 
 **合成事件**是 Pier 用原生 detour 造的，因为 LeviLamina 没有对应物。它们是裸名字，
-比如 `BlockDestroyEvent`。一共 29 个，补的正是保护场景里要紧的那些缺口：
+比如 `BlockDestroyEvent`。一共 69 个，补的正是保护场景里要紧的那些缺口：
 非玩家造成的方块破坏、爆炸、水流跨界、活塞伸进邻居地皮、跨界大箱子合并。
 
 `names::ALL_SYNTHETIC` 是完整清单，方便做启动自检。
@@ -87,6 +87,20 @@ ev.edit(|v| {
 只改一个字段时用 `ev.set("message", value)` 更省事。
 
 写回是**差量**的：只有你真正碰过的键才写回去，所以两个模组挂同一个事件不会互相抹掉对方的修改。
+
+## 让方块躲过爆炸
+
+`ExplosionBlocksEvent` 在 `blocks` 里列出爆炸正要毁掉的方块。回复里可以用 `keep` 点名要拿掉的格子，
+它是一个由 `[x, y, z]` 整数三元组组成的列表：
+
+```rust
+ev.set("keep", NbtValue::List(vec![
+    NbtValue::List(vec![NbtValue::Int(10), NbtValue::Int(64), NbtValue::Int(-3)]),
+]));
+```
+
+所有订阅者的格子合在一起保留，`cancel()` 的优先级高于它们。格子超过 16384 个时 `blocks` 为空、`truncated` 为 1，
+决定不了的订阅者应当取消。
 
 ## 一次订一批
 
