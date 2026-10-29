@@ -56,12 +56,16 @@ EXEMPT_EXACT = {
     "docs/pnpm-lock.yaml",  # `.gitignore` line: a lockfile the docs site resolves, not a migrated capability
     "compile_commands.json",                     # `.gitignore` line: compile_commands.json
     "examples/hello-pier-go/hello_pier_go.dll",  # `.gitignore` line: the go example's build output
+    "examples/hello-pier-cpp/hello_pier_cpp.dll",  # `.gitignore` line: the cpp example's build output
+    "examples/hello-pier-cpp/hello_pier_cpp.exp",  # `.gitignore` line: the cpp example's build output
+    "examples/hello-pier-cpp/hello_pier_cpp.lib",  # `.gitignore` line: the cpp example's build output
 }
 EXEMPT_PREFIX = (
     "tools/",             # The checks and surrogates came with the new architecture and have no old counterpart
     "site/",                   # `.gitignore` line: what `mkdocs build` writes, from sources already in the ledger
     "docs/en/api/",            # written by tools/gen-api-docs.py from the bindings, which are in the ledger;
     "docs/zh/api/",            # the api-docs-current check holds them equal to what the generator writes
+    "examples/hello-pier-cpp/obj/",  # `.gitignore` line: the cpp example's object files
 )
 
 
