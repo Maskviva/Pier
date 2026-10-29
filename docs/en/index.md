@@ -98,3 +98,10 @@ levilamina::register_mod!(Hello);
     [:octicons-arrow-right-24: The bridge](guide/bridge.md)
 
 </div>
+
+Pier builds on [LeviLamina](https://github.com/LiteLDev/LeviLamina) and learned a great deal from
+[LegacyScriptEngine](https://github.com/LiteLDev/LegacyScriptEngine),
+[iListenAttentively](https://github.com/LiteLDev/iListenAttentively),
+[MoreDimensions](https://github.com/LiteLDev/MoreDimensions) and
+[LegacyMoney](https://github.com/LiteLDev/LegacyMoney). Thank you. The
+[acknowledgements](guide/acknowledgements.md) say what each one gave.

@@ -252,4 +252,5 @@ nav:
       - guide/abi.md
       - guide/manifest.md
       - guide/adding-a-language.md
+      - guide/acknowledgements.md
   - FAQ: guide/faq.md
