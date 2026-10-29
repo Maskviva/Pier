@@ -23,16 +23,24 @@ local is_client = (get_config("target_type") or "server") == "client"
 -- CI timeout, so the failure presents as a hang rather than as a configuration
 -- problem.
 --
--- The final target aggregates object packages and compiles no TU of its own, so
--- attaching these to it would reach nothing. Each package calls this instead.
+-- The final target aggregates object packages and compiles no TU of its own, so the
+-- defines and flags reach nothing there. It calls this anyway for the toolchain,
+-- which is the one setting that applies to it.
 --
--- `/utf-8` tells MSVC that sources are UTF-8, so neither parsing nor string encoding
+-- `/utf-8` tells `cl` that sources are UTF-8, so neither parsing nor string encoding
 -- depends on the machine's active code page. Without it, a file holding a byte outside
 -- that code page raises C4819 once per file, which buries the real warnings and turns
 -- into a hard error the moment anyone adds `/WX`. It sets both `/source-charset` and
 -- `/execution-charset`; setting only the first leaves non-ASCII literals mangled at
 -- runtime, which is harder to trace because it appears only once the server runs.
+-- clang-cl reads sources as UTF-8 and encodes literals as UTF-8 without any flag.
+--
+-- The host builds with clang-cl. LeviLamina declares `EventCoordinatorPimpl::_processEvent`
+-- as an inline member template marked `MCAPI` (dllimport): `cl` stops on it with C2491,
+-- and the two files that hook it would take the address of the header's local body
+-- instead of the engine's function if `MCAPI` were emptied to get past that.
 function pier_common()
+    set_toolchains("clang-cl")
     add_defines("NOMINMAX", "UNICODE", "_HAS_CXX23=1")
     add_cxflags("/utf-8", {tools = {"cl"}})
     set_languages("c++20")

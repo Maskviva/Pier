@@ -13,7 +13,7 @@ and the next entry still runs. Nothing is linked and no object is placed where t
 build would find it, so this neither replaces a build nor disturbs one.
 
 The compiler is invoked the way the database records it, which means the toolchain's
-own environment has to be present. cl.exe finds the standard library through the INCLUDE
+own environment has to be present. cl.exe and clang-cl find the standard library through the INCLUDE
 variable and not through any flag in the database, so this has to run from the same shell
 the build runs from. Outside it every file fails at once on <cstdint>, which looks like a
 catastrophe and is only a missing variable.
@@ -67,7 +67,7 @@ def check_environment(items):
         return True
     if os.environ.get("INCLUDE"):
         return True
-    print("INCLUDE is not set, and cl.exe reads the standard library headers from it.")
+    print("INCLUDE is not set, and the compiler reads the standard library headers from it.")
     print("Every file would fail on <cstdint> for that reason alone.")
     print("Run this from the Visual Studio Developer Command Prompt, the same shell")
     print("the build runs in, or run vcvarsall.bat x64 first.")

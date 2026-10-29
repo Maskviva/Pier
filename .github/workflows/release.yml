@@ -51,11 +51,14 @@ jobs:
         shell: pwsh
         run: clang-cl --version
 
+      # The key names the toolchain: the levilamina package installs to a different
+      # directory under clang-cl than under MSVC, so a cache from one holds nothing
+      # the other can use.
       - uses: actions/cache@v6
         with:
           path: ~/AppData/Local/.xmake/packages
-          key: xmake-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
-          restore-keys: xmake-${{ matrix.target_type }}-
+          key: xmake-clang-cl-${{ matrix.target_type }}-${{ hashFiles('xmake.lua', 'packages/*/xmake.lua') }}
+          restore-keys: xmake-clang-cl-${{ matrix.target_type }}-
 
       - run: xmake repo -u
 
@@ -70,7 +73,7 @@ jobs:
           $m.platform = '${{ matrix.target_type }}'
           $m | ConvertTo-Json -Depth 10 | Set-Content manifest.json -Encoding utf8
 
-      - run: xmake f -a x64 -m release -p windows --target_type=${{ matrix.target_type }} -y -v
+      - run: xmake f -a x64 -m release -p windows --toolchain=clang-cl --target_type=${{ matrix.target_type }} -y -v
 
       - run: xmake -w -y
 

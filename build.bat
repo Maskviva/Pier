@@ -16,8 +16,8 @@ set "PATH=%LLVM_BIN%;%PATH%"
 @REM echo xmake.exe repo -u
 xmake.exe repo -u
 
-echo xmake.exe f -c -m release -y -v
-xmake.exe f -c -m release -y -v --target_type=server
+echo xmake.exe f -c -m release -y -v --toolchain=clang-cl --target_type=server
+xmake.exe f -c -m release -y -v --toolchain=clang-cl --target_type=server
 
 echo xmake.exe -r
 xmake.exe -r

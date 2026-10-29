@@ -41,7 +41,7 @@ only. Any output means the flag did not take effect.
 ## 2. Read the link command line (confirming xmake really passed the flag down)
 
 ```
-xmake f -c -y
+xmake f -c -y --toolchain=clang-cl
 xmake -v 2>&1 | findstr /i DELAYLOAD
 ```
 
@@ -77,7 +77,7 @@ What must not appear: `0x7E The specified module could not be found`.
 In order of likelihood:
 
 1. `xmake f -c` was not run again. xmake caches its configuration and a bare `xmake` does
-   not regenerate the link command line. Run `xmake f -c -y` and then `xmake`.
+   not regenerate the link command line. Run `xmake f -c -y --toolchain=clang-cl` and then `xmake`.
 
 2. `@levibuildscript/linkrule` overrode the flags. That rule takes over the link, and it
    may assemble the command line itself rather than reading the shflags of the target. The

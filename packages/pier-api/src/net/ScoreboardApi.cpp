@@ -8,9 +8,11 @@
 #include <limits>
 #include <string>
 
-// LeviLamina 26.51.5: EventCoordinatorPimpl::_processEvent is an inline member
-// template marked MCAPI (dllimport), which MSVC rejects (C2491). Pre-include it
-// once with MCAPI empty; #pragma once stops Scoreboard.h from re-reading it.
+// cl rejects EventCoordinatorPimpl::_processEvent, an inline member template marked MCAPI
+// (dllimport), with C2491; clang-cl, which the host builds with, accepts it. Emptying
+// MCAPI for this one header keeps the file building under cl as well, and #pragma once
+// stops Scoreboard.h from reading it again. A file that takes the address of
+// _processEvent cannot do this: the address would be this local copy, not the engine's.
 #include "mc/_HeaderOutputPredefine.h"
 #include "mc/world/events/EventResult.h"
 #pragma push_macro("MCAPI")
